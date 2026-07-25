@@ -54,5 +54,5 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(page, /swift-ghost-progress/);
   assert.match(page, /https:\/\/leetcode\.com\/problems\/two-sum\//);
   assert.match(page, /Correct mistakes/);
-  assert.match(layout, /\/og\.png/);
+  assert.match(layout, /"og\.png"/);
 });
