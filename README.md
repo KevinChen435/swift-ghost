@@ -20,7 +20,8 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - Five-stage per-problem recall ladder with honest mastery and qualified personal bests
 - Local attempt history, streaks, daily goals, pattern coverage, and progress charts
 - Spaced review at 1, 3, 7, 14, and 30 days, with lapses returning tomorrow
-- Device-local custom Swift snippets and learning milestones
+- Device-local custom Swift snippets with safe content revisions and learning milestones
+- Persistent multi-problem sessions with smart-mix, due, new, favorite, and custom queues
 - Favorites, random practice, focus mode, autosaved drafts, and JSON backup/restore
 - Six themes, three code fonts, editor sizing, indentation, and an optional key-friction heatmap
 - Responsive desktop and mobile layouts
@@ -56,7 +57,7 @@ Problem names link to their public LeetCode pages. The pattern cues, invariants,
 
 ## Roadmap
 
-The local-first training core is the priority. Planned work includes a larger 75-problem catalog, authored semantic masks, executable Swift test cases, session queues, editable custom snippets, optional account sync, and privacy-preserving community benchmarks.
+The local-first training core is the priority. Planned work includes a larger 75-problem catalog, authored semantic masks, executable Swift test cases, deeper session analytics, optional account sync, and privacy-preserving community benchmarks.
 
 ## License
 

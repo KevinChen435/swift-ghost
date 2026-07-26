@@ -6,6 +6,7 @@ export type PracticeItem = Problem & {
   itemId: ItemId;
   source: "builtin" | "custom";
   tags: string[];
+  contentRevision: number;
   createdAt?: string;
   updatedAt?: string;
   archivedAt?: string;
@@ -17,6 +18,7 @@ export const BUILTIN_ITEMS: PracticeItem[] = PROBLEMS.map((problem) => ({
   itemId: `builtin:${problem.id}` as ItemId,
   source: "builtin",
   tags: [problem.pattern],
+  contentRevision: 1,
 }));
 
 export function itemIdFor(problem: Pick<PracticeItem, "itemId">) {
@@ -62,7 +64,32 @@ export function makeCustomItem(input: {
     isCustom: true,
     sourceUrl: input.sourceUrl?.trim() || undefined,
     tags: [...new Set((input.tags ?? []).map((tag) => tag.trim()).filter(Boolean))].slice(0, 8),
+    contentRevision: 1,
     createdAt: now,
     updatedAt: now,
+  };
+}
+
+export function updateCustomItem(
+  item: PracticeItem,
+  input: Parameters<typeof makeCustomItem>[0],
+): PracticeItem {
+  const title = input.title.trim();
+  const code = input.code.replace(/\r\n?/g, "\n").trimEnd();
+  return {
+    ...item,
+    title,
+    difficulty: input.difficulty,
+    pattern: input.pattern,
+    cue: input.cue.trim() || "State what this code is trying to preserve before typing.",
+    invariant: input.invariant.trim() || "Describe the condition that must stay true throughout the implementation.",
+    complexity: input.complexity.trim() || "Add your own complexity check.",
+    swiftNote: input.swiftNote.trim() || "Notice the Swift syntax and APIs you want to recall reliably.",
+    estimatedMinutes: Math.max(2, Math.min(30, Math.ceil(input.code.split("\n").length / 3))),
+    code,
+    sourceUrl: input.sourceUrl === undefined ? item.sourceUrl : input.sourceUrl.trim() || undefined,
+    tags: input.tags === undefined ? item.tags : [...new Set(input.tags.map((tag) => tag.trim()).filter(Boolean))].slice(0, 8),
+    contentRevision: code === item.code ? item.contentRevision : item.contentRevision + 1,
+    updatedAt: new Date().toISOString(),
   };
 }

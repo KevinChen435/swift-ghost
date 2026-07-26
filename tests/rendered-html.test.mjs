@@ -34,7 +34,8 @@ test("server-renders the Swift Ghost practice shell", async () => {
   assert.match(html, /Fade it\./);
   assert.match(html, /Daily Type/);
   assert.match(html, /Build recall, one clean pass at a time/);
-  assert.match(html, /Add Swift snippet/);
+  assert.match(html, /Add snippet/);
+  assert.match(html, /Sessions/);
   assert.match(html, /Records/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/i);
 });
@@ -55,6 +56,7 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
+  assert.match(product, /swift-ghost-state-v4/);
   assert.match(product, /swift-ghost-state-v3/);
   assert.match(product, /swift-ghost-state-v2/);
   assert.match(product, /localDayKey\(date\)}-catalog-v2/);
@@ -68,6 +70,9 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(page, /Pattern mastery/);
   assert.match(page, /Personal bests/);
   assert.match(page, /CustomSnippetDialog/);
+  assert.match(page, /SessionsView/);
+  assert.match(page, /updateCustomItem/);
+  assert.match(page, /sessionNext/);
   assert.match(page, /setStage\(restored\.lastStage\)/);
   assert.match(page, /edit\.insertedCount > 0/);
   assert.match(layout, /"og\.png"/);

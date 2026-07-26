@@ -1,5 +1,6 @@
 import { BUILTIN_ITEMS, type ItemId, type PracticeItem } from "./items";
 import { correctPositionCount } from "./typing-engine.mjs";
+import type { SessionQueueEntry, SessionSource, SessionStageMode } from "./sessions.mjs";
 
 export { analyzeEdit, correctPositionCount } from "./typing-engine.mjs";
 
@@ -11,7 +12,7 @@ export const STAGES = [
   { id: 5, name: "Blank editor", short: "Recall", note: "Produce the solution without ghost text." },
 ] as const;
 
-export type View = "today" | "practice" | "library" | "records" | "settings";
+export type View = "today" | "practice" | "sessions" | "library" | "records" | "settings";
 export type Theme = "midnight" | "paper" | "forest" | "synthwave" | "ember" | "ocean";
 export type AttemptQualification = "syntax" | "guided" | "independent" | "assisted" | "incomplete";
 
@@ -30,6 +31,7 @@ export type Settings = {
 export type AttemptRecord = {
   id: string;
   itemId: ItemId;
+  itemRevision: number;
   titleSnapshot: string;
   stage: number;
   mode: "strict" | "free";
@@ -48,10 +50,12 @@ export type AttemptRecord = {
   outcome: "completed" | "abandoned";
   qualification: AttemptQualification;
   challengeDate?: string;
+  sessionId?: string;
 };
 
 export type Draft = {
   itemId: ItemId;
+  itemRevision: number;
   stage: number;
   value: string;
   startedAt: number | null;
@@ -61,10 +65,30 @@ export type Draft = {
   corrections: number;
   peeks: number;
   challengeDate?: string;
+  sessionId?: string;
+};
+
+export type TrainingSession = {
+  id: string;
+  name: string;
+  source: SessionSource;
+  stageMode: SessionStageMode;
+  createdAt: string;
+  entries: SessionQueueEntry[];
+  currentIndex: number;
+};
+
+export type SessionHistoryRecord = {
+  id: string;
+  name: string;
+  startedAt: string;
+  completedAt: string;
+  completed: number;
+  total: number;
 };
 
 export type AppState = {
-  version: 3;
+  version: 4;
   attempts: AttemptRecord[];
   favorites: ItemId[];
   customItems: PracticeItem[];
@@ -72,10 +96,13 @@ export type AppState = {
   draft: Draft | null;
   lastItemId: ItemId;
   lastStage: number;
+  activeSession: TrainingSession | null;
+  sessionHistory: SessionHistoryRecord[];
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v3";
-export const LEGACY_STORAGE_KEY = "swift-ghost-state-v2";
+export const STORAGE_KEY = "swift-ghost-state-v4";
+export const LEGACY_STORAGE_KEY = "swift-ghost-state-v3";
+export const OLDER_STORAGE_KEY = "swift-ghost-state-v2";
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: "midnight",
@@ -90,7 +117,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 3,
+  version: 4,
   attempts: [],
   favorites: [],
   customItems: [],
@@ -98,6 +125,8 @@ export const EMPTY_STATE: AppState = {
   draft: null,
   lastItemId: BUILTIN_ITEMS[0].itemId,
   lastStage: 1,
+  activeSession: null,
+  sessionHistory: [],
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -130,7 +159,7 @@ function normalizeSettings(value: unknown): Settings {
 function normalizeCustomItems(value: unknown): PracticeItem[] {
   if (!Array.isArray(value)) return [];
   const patterns = new Set(BUILTIN_ITEMS.map((item) => item.pattern));
-  return value.filter((item): item is PracticeItem => {
+  const normalized = value.filter((item): item is PracticeItem => {
     if (!isRecord(item)) return false;
     return typeof item.itemId === "string" && item.itemId.startsWith("custom:") && item.source === "custom" &&
       typeof item.title === "string" && item.title.trim().length > 0 && item.title.length <= 80 &&
@@ -158,19 +187,73 @@ function normalizeCustomItems(value: unknown): PracticeItem[] {
       complexity: typeof item.complexity === "string" ? item.complexity.slice(0, 300) : "Add your own complexity check.",
       swiftNote: typeof item.swiftNote === "string" ? item.swiftNote.slice(0, 1000) : "Notice the Swift syntax and APIs you want to recall reliably.",
       estimatedMinutes: Math.round(finiteNumber(item.estimatedMinutes, 5, 2, 30)),
+      contentRevision: Math.round(finiteNumber(item.contentRevision, 1, 1, 1000000)),
       isCustom: true,
       code: item.code.replace(/\r\n?/g, "\n").trimEnd(),
       sourceUrl,
       tags: Array.isArray(item.tags) ? item.tags.filter((tag): tag is string => typeof tag === "string").map((tag) => tag.slice(0, 40)).slice(0, 8) : [],
+      createdAt: typeof item.createdAt === "string" && !Number.isNaN(Date.parse(item.createdAt)) ? item.createdAt : undefined,
+      updatedAt: typeof item.updatedAt === "string" && !Number.isNaN(Date.parse(item.updatedAt)) ? item.updatedAt : undefined,
       archivedAt: typeof item.archivedAt === "string" && !Number.isNaN(Date.parse(item.archivedAt)) ? item.archivedAt : undefined,
     };
-  }).slice(-100);
+  });
+  return [...new Map(normalized.map((item) => [item.itemId, item])).values()].slice(-100);
 }
 
 function itemIdFromRaw(value: unknown): ItemId | null {
   if (typeof value === "string" && /^(builtin:\d+|custom:[\w-]+)$/.test(value)) return value as ItemId;
   if (typeof value === "number" && Number.isFinite(value)) return `builtin:${value}` as ItemId;
   return null;
+}
+
+function normalizeActiveSession(value: unknown, activeIds: Set<ItemId>, revisions: Map<ItemId, number>): TrainingSession | null {
+  if (!isRecord(value) || typeof value.id !== "string" || !Array.isArray(value.entries)) return null;
+  const seen = new Set<string>();
+  const entries = value.entries.flatMap((raw): SessionQueueEntry[] => {
+    if (!isRecord(raw)) return [];
+    const itemId = itemIdFromRaw(raw.itemId);
+    if (!itemId || !activeIds.has(itemId)) return [];
+    const stage = Math.round(finiteNumber(raw.stage, 1, 1, 5));
+    const key = `${itemId}:${stage}`; if (seen.has(key)) return []; seen.add(key);
+    const status = raw.status === "completed" || raw.status === "skipped" ? raw.status : "pending";
+    return [{
+      itemId,
+      itemRevision: status === "pending" ? revisions.get(itemId) ?? 1 : Math.round(finiteNumber(raw.itemRevision, 1, 1, 1000000)),
+      stage,
+      status,
+      attemptId: typeof raw.attemptId === "string" ? raw.attemptId : undefined,
+    }];
+  }).slice(0, 20);
+  if (!entries.length || entries.every((entry) => entry.status !== "pending")) return null;
+  const requestedIndex = Math.round(finiteNumber(value.currentIndex, 0, 0, entries.length - 1));
+  const nextPending = entries.findIndex((entry, index) => index >= requestedIndex && entry.status === "pending");
+  const currentIndex = nextPending >= 0 ? nextPending : entries.findIndex((entry) => entry.status === "pending");
+  const sources: SessionSource[] = ["mixed", "due", "new", "favorites", "custom"];
+  return {
+    id: value.id,
+    name: typeof value.name === "string" && value.name.trim() ? value.name.trim().slice(0, 80) : "Practice session",
+    source: sources.includes(value.source as SessionSource) ? value.source as SessionSource : "mixed",
+    stageMode: value.stageMode === "recall" ? "recall" : "recommended",
+    createdAt: typeof value.createdAt === "string" && !Number.isNaN(Date.parse(value.createdAt)) ? value.createdAt : new Date(0).toISOString(),
+    entries,
+    currentIndex,
+  };
+}
+
+function normalizeSessionHistory(value: unknown): SessionHistoryRecord[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((raw): SessionHistoryRecord[] => {
+    if (!isRecord(raw) || typeof raw.id !== "string") return [];
+    const total = Math.round(finiteNumber(raw.total, 1, 1, 20));
+    return [{
+      id: raw.id,
+      name: typeof raw.name === "string" && raw.name.trim() ? raw.name.trim().slice(0, 80) : "Practice session",
+      startedAt: typeof raw.startedAt === "string" && !Number.isNaN(Date.parse(raw.startedAt)) ? raw.startedAt : new Date(0).toISOString(),
+      completedAt: typeof raw.completedAt === "string" && !Number.isNaN(Date.parse(raw.completedAt)) ? raw.completedAt : new Date(0).toISOString(),
+      completed: Math.round(finiteNumber(raw.completed, 0, 0, total)),
+      total,
+    }];
+  }).slice(-25);
 }
 
 export function qualificationFor(input: Pick<AttemptRecord, "outcome" | "stage" | "peeks" | "accuracy">): AttemptQualification {
@@ -182,10 +265,11 @@ export function qualificationFor(input: Pick<AttemptRecord, "outcome" | "stage" 
 }
 
 export function normalizeState(value: unknown): AppState {
-  if (!isRecord(value) || (value.version !== 2 && value.version !== 3)) return EMPTY_STATE;
+  if (!isRecord(value) || ![2, 3, 4].includes(Number(value.version))) return EMPTY_STATE;
   const customItems = normalizeCustomItems(value.customItems);
   const validIds = new Set<ItemId>([...BUILTIN_ITEMS.map((item) => item.itemId), ...customItems.map((item) => item.itemId)]);
   const activeIds = new Set<ItemId>([...BUILTIN_ITEMS.map((item) => item.itemId), ...customItems.filter((item) => !item.archivedAt).map((item) => item.itemId)]);
+  const revisions = new Map<ItemId, number>([...BUILTIN_ITEMS, ...customItems].map((item) => [item.itemId, item.contentRevision]));
   const attempts = (Array.isArray(value.attempts) ? value.attempts : []).flatMap((raw): AttemptRecord[] => {
     if (!isRecord(raw) || typeof raw.id !== "string" || (raw.outcome !== "completed" && raw.outcome !== "abandoned")) return [];
     const itemId = itemIdFromRaw(raw.itemId ?? raw.problemId);
@@ -198,6 +282,7 @@ export function normalizeState(value: unknown): AppState {
     const attempt: AttemptRecord = {
       id: raw.id,
       itemId,
+      itemRevision: Math.round(finiteNumber(raw.itemRevision, 1, 1, 1000000)),
       titleSnapshot: typeof raw.titleSnapshot === "string" ? raw.titleSnapshot : item?.title ?? itemId,
       stage,
       mode: raw.mode === "free" ? "free" : "strict",
@@ -216,6 +301,7 @@ export function normalizeState(value: unknown): AppState {
       outcome,
       qualification: "assisted",
       challengeDate: typeof raw.challengeDate === "string" ? raw.challengeDate : undefined,
+      sessionId: typeof raw.sessionId === "string" ? raw.sessionId : undefined,
     };
     attempt.qualification = qualificationFor(attempt);
     return [attempt];
@@ -223,8 +309,10 @@ export function normalizeState(value: unknown): AppState {
 
   const rawDraft = isRecord(value.draft) ? value.draft : null;
   const draftItemId = rawDraft ? itemIdFromRaw(rawDraft.itemId ?? rawDraft.problemId) : null;
-  const draft: Draft | null = rawDraft && draftItemId && activeIds.has(draftItemId) && typeof rawDraft.value === "string" && rawDraft.value.length <= 50000 ? {
+  const draftCurrentRevision = draftItemId ? customItems.find((item) => item.itemId === draftItemId)?.contentRevision ?? 1 : 1;
+  const draft: Draft | null = rawDraft && draftItemId && activeIds.has(draftItemId) && Math.round(finiteNumber(rawDraft.itemRevision, 1, 1, 1000000)) === draftCurrentRevision && typeof rawDraft.value === "string" && rawDraft.value.length <= 50000 ? {
     itemId: draftItemId,
+    itemRevision: Math.round(finiteNumber(rawDraft.itemRevision, 1, 1, 1000000)),
     stage: Math.round(finiteNumber(rawDraft.stage, 1, 1, 5)),
     value: rawDraft.value,
     startedAt: typeof rawDraft.startedAt === "number" && Number.isFinite(rawDraft.startedAt) ? rawDraft.startedAt : null,
@@ -234,19 +322,26 @@ export function normalizeState(value: unknown): AppState {
     corrections: Math.round(finiteNumber(rawDraft.corrections, 0, 0, 1000000)),
     peeks: Math.round(finiteNumber(rawDraft.peeks, 0, 0, 100000)),
     challengeDate: typeof rawDraft.challengeDate === "string" ? rawDraft.challengeDate : undefined,
+    sessionId: typeof rawDraft.sessionId === "string" ? rawDraft.sessionId : undefined,
   } : null;
 
   const lastItemId = itemIdFromRaw(value.lastItemId ?? value.lastProblemId);
   const favorites = Array.isArray(value.favorites) ? [...new Set(value.favorites.map(itemIdFromRaw).filter((id): id is ItemId => Boolean(id && activeIds.has(id))))] : [];
+  const activeSession = normalizeActiveSession(value.activeSession, activeIds, revisions);
+  const activeEntry = activeSession?.entries[activeSession.currentIndex];
+  const draftMatchesSession = Boolean(draft?.sessionId && activeSession && activeEntry && draft.sessionId === activeSession.id && draft.itemId === activeEntry.itemId && draft.stage === activeEntry.stage && draft.itemRevision === activeEntry.itemRevision);
+  const normalizedDraft = draft ? { ...draft, sessionId: draftMatchesSession ? draft.sessionId : undefined } : null;
   return {
-    version: 3,
+    version: 4,
     attempts,
     favorites,
     customItems,
     settings: normalizeSettings(value.settings),
-    draft,
+    draft: normalizedDraft,
     lastItemId: lastItemId && activeIds.has(lastItemId) ? lastItemId : EMPTY_STATE.lastItemId,
     lastStage: Math.round(finiteNumber(value.lastStage, draft?.stage ?? 1, 1, 5)),
+    activeSession,
+    sessionHistory: normalizeSessionHistory(value.sessionHistory),
   };
 }
 
@@ -256,7 +351,9 @@ export function loadState(): AppState {
     const current = localStorage.getItem(STORAGE_KEY);
     if (current) return normalizeState(JSON.parse(current));
     const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
-    return legacy ? normalizeState(JSON.parse(legacy)) : EMPTY_STATE;
+    if (legacy) return normalizeState(JSON.parse(legacy));
+    const older = localStorage.getItem(OLDER_STORAGE_KEY);
+    return older ? normalizeState(JSON.parse(older)) : EMPTY_STATE;
   } catch {
     return EMPTY_STATE;
   }
@@ -303,8 +400,13 @@ export function consistencyFromSamples(samples: number[]) {
 export function completedAttempts(state: AppState) { return state.attempts.filter((attempt) => attempt.outcome === "completed"); }
 export function eligibleAttempt(attempt: AttemptRecord) { return attempt.outcome === "completed" && attempt.peeks === 0 && attempt.accuracy >= 95; }
 
+export function itemRevision(state: AppState, itemId: ItemId) {
+  return state.customItems.find((item) => item.itemId === itemId)?.contentRevision ?? 1;
+}
+
 export function itemStats(state: AppState, itemId: ItemId) {
-  const attempts = completedAttempts(state).filter((attempt) => attempt.itemId === itemId);
+  const revision = itemRevision(state, itemId);
+  const attempts = completedAttempts(state).filter((attempt) => attempt.itemId === itemId && attempt.itemRevision === revision);
   const qualified = attempts.filter(eligibleAttempt);
   const independent = qualified.filter((attempt) => attempt.stage === 5);
   return {
@@ -322,7 +424,8 @@ export function itemStats(state: AppState, itemId: ItemId) {
 
 const REVIEW_DAYS = [1, 3, 7, 14, 30];
 export function reviewStatus(state: AppState, itemId: ItemId) {
-  const attempts = state.attempts.filter((attempt) => attempt.itemId === itemId).slice().sort((a, b) => Date.parse(a.completedAt) - Date.parse(b.completedAt));
+  const revision = itemRevision(state, itemId);
+  const attempts = state.attempts.filter((attempt) => attempt.itemId === itemId && attempt.itemRevision === revision).slice().sort((a, b) => Date.parse(a.completedAt) - Date.parse(b.completedAt));
   let level = 0;
   let dueAt: Date | null = null;
   for (const attempt of attempts) {
@@ -367,7 +470,8 @@ export function dailyItem(items: PracticeItem[], date = new Date()) {
 }
 
 export function personalBest(state: AppState, itemId: ItemId, stage: number, mode: AttemptRecord["mode"], excludeId?: string) {
-  return state.attempts.filter((attempt) => attempt.id !== excludeId && attempt.itemId === itemId && attempt.stage === stage && attempt.mode === mode && eligibleAttempt(attempt)).reduce<AttemptRecord | null>((best, attempt) => !best || attempt.wpm > best.wpm || (attempt.wpm === best.wpm && attempt.accuracy > best.accuracy) ? attempt : best, null);
+  const revision = itemRevision(state, itemId);
+  return state.attempts.filter((attempt) => attempt.id !== excludeId && attempt.itemId === itemId && attempt.itemRevision === revision && attempt.stage === stage && attempt.mode === mode && eligibleAttempt(attempt)).reduce<AttemptRecord | null>((best, attempt) => !best || attempt.wpm > best.wpm || (attempt.wpm === best.wpm && attempt.accuracy > best.accuracy) ? attempt : best, null);
 }
 
 export type Milestone = { id: string; title: string; note: string; achieved: boolean };
@@ -381,7 +485,7 @@ export function milestones(state: AppState): Milestone[] {
     { id: "first-recall", title: "Independent recall", note: "Own one solution from a blank editor.", achieved: independent.length > 0 },
     { id: "pattern-transfer", title: "Pattern transfer", note: "Qualify across three interview patterns.", achieved: qualifiedPatterns.size >= 3 },
     { id: "recovery", title: "Recovery", note: "Return after a lapse and finish cleanly.", achieved: recovered },
-    { id: "custom-ownership", title: "Make it yours", note: "Independently recall a custom Swift snippet.", achieved: independent.some((attempt) => attempt.itemId.startsWith("custom:")) },
+    { id: "custom-ownership", title: "Make it yours", note: "Independently recall a custom Swift snippet.", achieved: independent.some((attempt) => state.customItems.some((item) => item.itemId === attempt.itemId && item.contentRevision === attempt.itemRevision)) },
   ];
 }
 
