@@ -1,24 +1,32 @@
 "use client";
 
 import { ChangeEvent, ClipboardEvent as ReactClipboardEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
-import { PATTERN_ORDER, PROBLEMS, problemLineCount, problemUrl, type Difficulty, type Pattern, type Problem } from "../data/problems";
+import { PATTERN_ORDER, problemLineCount, problemUrl, type Difficulty, type Pattern } from "../data/problems";
+import { BUILTIN_ITEMS, itemDisplayId, makeCustomItem, type ItemId, type PracticeItem } from "../lib/items";
 import {
   EMPTY_STATE,
+  LEGACY_STORAGE_KEY,
   STAGES,
   STORAGE_KEY,
   activeStreak,
+  analyzeEdit,
   completedAttempts,
   consistencyFromSamples,
   currentMetrics,
+  dailyItem,
   dayKey,
+  eligibleAttempt,
   formatDuration,
   isReviewDue,
+  itemStats,
   loadState,
   makeId,
   maskCode,
+  milestones,
   normalizeState,
+  personalBest,
   practicedMinutesToday,
-  problemStats,
+  qualificationFor,
   recommendedStage,
   reviewDueAt,
   saveState,
@@ -30,7 +38,7 @@ import {
   type View,
 } from "../lib/product";
 
-type Result = AttemptRecord & { problem: Problem };
+type Result = AttemptRecord & { item: PracticeItem; previousBest: AttemptRecord | null; nextReview: Date | null };
 type Sort = "recommended" | "number" | "title" | "difficulty";
 
 const THEMES: { id: Theme; label: string; colors: string[] }[] = [
@@ -43,35 +51,50 @@ const THEMES: { id: Theme; label: string; colors: string[] }[] = [
 ];
 
 const NAV: { id: View; label: string; icon: string }[] = [
+  { id: "today", label: "Today", icon: "◉" },
   { id: "practice", label: "Practice", icon: "⌨" },
   { id: "library", label: "Library", icon: "▦" },
-  { id: "progress", label: "Progress", icon: "↗" },
+  { id: "records", label: "Records", icon: "↗" },
   { id: "settings", label: "Settings", icon: "⚙" },
 ];
 
-function freshDraft(problemId: number, stage: number): Draft {
-  return {
-    problemId,
-    stage,
-    value: "",
-    startedAt: null,
-    totalKeystrokes: 0,
-    correctKeystrokes: 0,
-    rejectedKeystrokes: 0,
-    corrections: 0,
-    peeks: 0,
-  };
+function freshDraft(itemId: ItemId, stage: number, challengeDate?: string): Draft {
+  return { itemId, stage, value: "", startedAt: null, totalKeystrokes: 0, correctKeystrokes: 0, rejectedKeystrokes: 0, corrections: 0, peeks: 0, challengeDate };
 }
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(value));
 }
 
+function formatDay(value: Date) {
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(value);
+}
+
+function useModalKeyboard(onClose: () => void, dialogRef: React.RefObject<HTMLElement | null>) {
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusable = () => [...(dialogRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href]') ?? [])];
+    const frame = window.requestAnimationFrame(() => (dialogRef.current?.querySelector<HTMLElement>("[data-modal-autofocus]") ?? focusable()[0])?.focus());
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") { event.preventDefault(); onCloseRef.current(); return; }
+      if (event.key !== "Tab") return;
+      const controls = focusable(); if (!controls.length) return;
+      const first = controls[0]; const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => { window.cancelAnimationFrame(frame); document.removeEventListener("keydown", handleKeyDown); previous?.focus(); };
+  }, [dialogRef]);
+}
+
 export default function SwiftGhostApp() {
   const [state, setState] = useState<AppState>(EMPTY_STATE);
   const [ready, setReady] = useState(false);
-  const [view, setView] = useState<View>("practice");
-  const [selectedId, setSelectedId] = useState(PROBLEMS[0].id);
+  const [view, setView] = useState<View>("today");
+  const [selectedId, setSelectedId] = useState<ItemId>(BUILTIN_ITEMS[0].itemId);
   const [stage, setStage] = useState(1);
   const [reveal, setReveal] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
@@ -79,14 +102,18 @@ export default function SwiftGhostApp() {
   const [toast, setToast] = useState("");
   const [focusMode, setFocusMode] = useState(false);
   const [errorKeys, setErrorKeys] = useState<Record<string, number>>({});
+  const [customOpen, setCustomOpen] = useState(false);
   const wpmSamples = useRef<number[]>([]);
   const importRef = useRef<HTMLInputElement>(null);
+
+  const allItems = useMemo(() => [...BUILTIN_ITEMS, ...state.customItems.filter((item) => !item.archivedAt)], [state.customItems]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const restored = loadState();
+      const items = [...BUILTIN_ITEMS, ...restored.customItems.filter((item) => !item.archivedAt)];
       setState(restored);
-      setSelectedId(PROBLEMS.some((problem) => problem.id === restored.lastProblemId) ? restored.lastProblemId : PROBLEMS[0].id);
+      setSelectedId(items.some((item) => item.itemId === restored.lastItemId) ? restored.lastItemId : BUILTIN_ITEMS[0].itemId);
       setStage(restored.lastStage || 1);
       setNow(Date.now());
       setReady(true);
@@ -94,616 +121,262 @@ export default function SwiftGhostApp() {
     return () => window.clearTimeout(timer);
   }, []);
 
-  useEffect(() => {
-    if (ready) saveState(state);
-  }, [ready, state]);
+  useEffect(() => { if (ready) saveState(state); }, [ready, state]);
+  useEffect(() => { document.documentElement.dataset.theme = state.settings.theme; document.documentElement.dataset.font = state.settings.font; }, [state.settings.theme, state.settings.font]);
+  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(timer); }, []);
+  useEffect(() => { if (!toast) return; const timer = window.setTimeout(() => setToast(""), 2600); return () => window.clearTimeout(timer); }, [toast]);
 
-  useEffect(() => {
-    document.documentElement.dataset.theme = state.settings.theme;
-    document.documentElement.dataset.font = state.settings.font;
-  }, [state.settings.theme, state.settings.font]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    if (!toast) return;
-    const timer = window.setTimeout(() => setToast(""), 2600);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
-
-  const problem = PROBLEMS.find((item) => item.id === selectedId) ?? PROBLEMS[0];
-  const draft = state.draft?.problemId === selectedId && state.draft.stage === stage
-    ? state.draft
-    : freshDraft(selectedId, stage);
-  const metrics = currentMetrics(draft, problem.code, now);
-  const ghostCode = maskCode(problem.code, stage, reveal);
-  const stats = problemStats(state, selectedId);
-  const dueCount = PROBLEMS.filter((item) => isReviewDue(state, item.id)).length;
+  const item = allItems.find((candidate) => candidate.itemId === selectedId) ?? allItems[0] ?? BUILTIN_ITEMS[0];
+  const draft = state.draft?.itemId === selectedId && state.draft.stage === stage ? state.draft : freshDraft(selectedId, stage);
+  const metrics = currentMetrics(draft, item.code, now);
+  const ghostCode = maskCode(item.code, stage, reveal, item.masks);
+  const stats = itemStats(state, selectedId);
+  const dueItems = allItems.filter((candidate) => isReviewDue(state, candidate.itemId));
   const todayMinutes = practicedMinutesToday(state);
   const dailyPercent = Math.min(100, Math.round((todayMinutes / state.settings.dailyGoalMinutes) * 100));
 
-  function mutateState(updater: (current: AppState) => AppState) {
-    setState((current) => updater(current));
+  function mutateState(updater: (current: AppState) => AppState) { setState((current) => updater(current)); }
+
+  function createAttempt(active: Draft, activeItem: PracticeItem, outcome: AttemptRecord["outcome"], current: AppState) {
+    const live = currentMetrics(active, activeItem.code);
+    const attempt: AttemptRecord = {
+      id: makeId(), itemId: active.itemId, titleSnapshot: activeItem.title, stage: active.stage,
+      mode: current.settings.strictMode ? "strict" : "free",
+      startedAt: new Date(active.startedAt ?? Date.now()).toISOString(), completedAt: new Date().toISOString(),
+      durationMs: live.durationMs, totalKeystrokes: active.totalKeystrokes, correctKeystrokes: active.correctKeystrokes,
+      rejectedKeystrokes: active.rejectedKeystrokes, corrections: active.corrections, peeks: active.peeks,
+      rawWpm: live.rawWpm, wpm: live.wpm, accuracy: live.accuracy,
+      consistency: consistencyFromSamples(wpmSamples.current), outcome, qualification: "assisted", challengeDate: active.challengeDate,
+    };
+    attempt.qualification = qualificationFor(attempt);
+    return attempt;
   }
 
   function recordAbandon(current: AppState) {
     const active = current.draft;
     if (!active?.startedAt || active.value.length < 5) return current;
-    const activeProblem = PROBLEMS.find((item) => item.id === active.problemId);
-    if (!activeProblem) return current;
-    const live = currentMetrics(active, activeProblem.code);
-    const attempt: AttemptRecord = {
-      id: makeId(),
-      problemId: active.problemId,
-      stage: active.stage,
-      startedAt: new Date(active.startedAt).toISOString(),
-      completedAt: new Date().toISOString(),
-      durationMs: live.durationMs,
-      totalKeystrokes: active.totalKeystrokes,
-      correctKeystrokes: active.correctKeystrokes,
-      rejectedKeystrokes: active.rejectedKeystrokes,
-      corrections: active.corrections,
-      peeks: active.peeks,
-      rawWpm: live.rawWpm,
-      wpm: live.wpm,
-      accuracy: live.accuracy,
-      consistency: consistencyFromSamples(wpmSamples.current),
-      outcome: "abandoned",
-    };
-    return { ...current, attempts: [...current.attempts, attempt].slice(-500), draft: null };
+    const activeItem = [...BUILTIN_ITEMS, ...current.customItems].find((candidate) => candidate.itemId === active.itemId);
+    if (!activeItem) return { ...current, draft: null };
+    const attempt = createAttempt(active, activeItem, "abandoned", current);
+    return { ...current, attempts: [...current.attempts, attempt].slice(-1000), draft: null };
   }
 
-  function openProblem(next: Problem, nextStage?: number) {
+  function openItem(next: PracticeItem, nextStage?: number, challengeDate?: string) {
     const chosenStage = nextStage ?? recommendedStage(state, next);
-    mutateState((current) => ({ ...recordAbandon(current), draft: null, lastProblemId: next.id, lastStage: chosenStage }));
-    setSelectedId(next.id);
-    setStage(chosenStage);
-    setReveal(false);
-    setResult(null);
-    setView("practice");
-    wpmSamples.current = [];
+    mutateState((current) => {
+      const resuming = !challengeDate && current.draft?.itemId === next.itemId && current.draft.stage === chosenStage;
+      const base = resuming ? current : recordAbandon(current);
+      return { ...base, draft: resuming ? current.draft : challengeDate ? freshDraft(next.itemId, chosenStage, challengeDate) : null, lastItemId: next.itemId, lastStage: chosenStage };
+    });
+    setSelectedId(next.itemId); setStage(chosenStage); setReveal(false); setResult(null); setView("practice"); setErrorKeys({}); wpmSamples.current = [];
     window.setTimeout(() => document.querySelector<HTMLTextAreaElement>(".editor-wrap textarea")?.focus(), 50);
   }
 
   function chooseStage(nextStage: number) {
     mutateState((current) => ({ ...recordAbandon(current), draft: null, lastStage: nextStage }));
-    setStage(nextStage);
-    setReveal(false);
-    setResult(null);
-    wpmSamples.current = [];
+    setStage(nextStage); setReveal(false); setResult(null); setErrorKeys({}); wpmSamples.current = [];
     window.setTimeout(() => document.querySelector<HTMLTextAreaElement>(".editor-wrap textarea")?.focus(), 0);
   }
 
   function updateDraft(next: Draft) {
-    const live = currentMetrics(next, problem.code);
+    const live = currentMetrics(next, item.code);
     if (next.startedAt && live.wpm > 0) wpmSamples.current.push(live.wpm);
-    mutateState((current) => ({ ...current, draft: next, lastProblemId: selectedId, lastStage: stage }));
+    mutateState((current) => ({ ...current, draft: next, lastItemId: selectedId, lastStage: stage }));
   }
 
   function finish(next: Draft) {
-    const live = currentMetrics(next, problem.code);
-    const attempt: AttemptRecord = {
-      id: makeId(),
-      problemId: selectedId,
-      stage,
-      startedAt: new Date(next.startedAt ?? Date.now()).toISOString(),
-      completedAt: new Date().toISOString(),
-      durationMs: live.durationMs,
-      totalKeystrokes: next.totalKeystrokes,
-      correctKeystrokes: next.correctKeystrokes,
-      rejectedKeystrokes: next.rejectedKeystrokes,
-      corrections: next.corrections,
-      peeks: next.peeks,
-      rawWpm: live.rawWpm,
-      wpm: live.wpm,
-      accuracy: live.accuracy,
-      consistency: consistencyFromSamples(wpmSamples.current),
-      outcome: "completed",
-    };
-    mutateState((current) => ({ ...current, attempts: [...current.attempts, attempt].slice(-500), draft: null }));
-    setResult({ ...attempt, problem });
+    const attempt = createAttempt(next, item, "completed", state);
+    const previousBest = personalBest(state, selectedId, stage, attempt.mode);
+    const projected = { ...state, attempts: [...state.attempts, attempt].slice(-1000), draft: null };
+    mutateState(() => projected);
+    setResult({ ...attempt, item, previousBest, nextReview: reviewDueAt(projected, selectedId) });
     wpmSamples.current = [];
   }
 
   function handleChange(event: ChangeEvent<HTMLTextAreaElement>) {
     const proposed = event.target.value;
-    const oldValue = draft.value;
+    const edit = analyzeEdit(draft.value, proposed, item.code);
     const startedAt = draft.startedAt ?? Date.now();
-    const inserted = Math.max(0, proposed.length - oldValue.length);
-    const deleted = Math.max(0, oldValue.length - proposed.length);
-    const isCorrectPrefix = problem.code.startsWith(proposed);
-    const addedText = inserted ? proposed.slice(Math.min(oldValue.length, proposed.length - inserted)) : "";
-    const correctAdded = addedText.split("").filter((char, index) => char === problem.code[oldValue.length + index]).length;
-
-    if (state.settings.strictMode && !isCorrectPrefix && inserted > 0) {
-      const attempted = proposed.slice(oldValue.length);
-      setErrorKeys((keys) => attempted.split("").reduce((next, character, index) => {
-        if (character === problem.code[oldValue.length + index]) return next;
+    const correctPrefix = item.code.startsWith(proposed);
+    if (state.settings.strictMode && !correctPrefix && edit.insertedCount > 0) {
+      const rejected = Math.max(1, edit.incorrectInserted || edit.insertedCount);
+      setErrorKeys((keys) => edit.inserted.split("").reduce((next, character, index) => {
+        if (character === item.code[edit.prefix + index]) return next;
         const keyName = character === "\n" ? "↵" : character === " " ? "space" : character;
         return { ...next, [keyName]: (next[keyName] ?? 0) + 1 };
       }, keys));
-      updateDraft({
-        ...draft,
-        startedAt,
-        totalKeystrokes: draft.totalKeystrokes + inserted,
-        rejectedKeystrokes: draft.rejectedKeystrokes + inserted,
-      });
-      setToast(`Expected ${JSON.stringify(problem.code[oldValue.length] ?? "end of solution")}`);
+      updateDraft({ ...draft, startedAt, totalKeystrokes: draft.totalKeystrokes + edit.insertedCount, rejectedKeystrokes: draft.rejectedKeystrokes + rejected, corrections: draft.corrections + edit.deletedCount });
+      setToast(`Expected ${JSON.stringify(item.code[edit.prefix] ?? "end of solution")}`);
       return;
     }
-
     const next: Draft = {
-      ...draft,
-      value: proposed,
-      startedAt,
-      totalKeystrokes: draft.totalKeystrokes + inserted,
-      correctKeystrokes: draft.correctKeystrokes + correctAdded,
-      corrections: draft.corrections + deleted,
+      ...draft, value: proposed, startedAt,
+      totalKeystrokes: draft.totalKeystrokes + edit.insertedCount,
+      correctKeystrokes: draft.correctKeystrokes + edit.correctInserted,
+      corrections: draft.corrections + edit.deletedCount,
     };
     updateDraft(next);
-    if (proposed === problem.code) finish(next);
+    if (proposed === item.code) finish(next);
   }
 
   function insertAtCursor(input: HTMLTextAreaElement, text: string) {
-    const start = input.selectionStart;
-    const end = input.selectionEnd;
-    const value = `${draft.value.slice(0, start)}${text}${draft.value.slice(end)}`;
-    handleChange({ target: { value } } as ChangeEvent<HTMLTextAreaElement>);
-    window.requestAnimationFrame(() => {
-      input.selectionStart = input.selectionEnd = start + text.length;
-    });
+    const start = input.selectionStart; const end = input.selectionEnd;
+    handleChange({ target: { value: `${draft.value.slice(0, start)}${text}${draft.value.slice(end)}` } } as ChangeEvent<HTMLTextAreaElement>);
+    window.requestAnimationFrame(() => { input.selectionStart = input.selectionEnd = start + text.length; });
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === "Escape") {
-      event.currentTarget.blur();
-      setFocusMode(false);
-      return;
-    }
-    if (event.key === "Tab") {
-      event.preventDefault();
-      insertAtCursor(event.currentTarget, " ".repeat(state.settings.tabSize));
-      return;
-    }
+    if (event.key === "Escape") { event.currentTarget.blur(); setFocusMode(false); return; }
+    if (event.key === "Tab") { event.preventDefault(); insertAtCursor(event.currentTarget, " ".repeat(state.settings.tabSize)); }
   }
 
   function resetAttempt() {
-    mutateState((current) => ({ ...recordAbandon(current), draft: null }));
-    setReveal(false);
-    setResult(null);
-    wpmSamples.current = [];
-    setToast("Attempt reset");
+    mutateState((current) => ({ ...recordAbandon(current), draft: null })); setReveal(false); setResult(null); wpmSamples.current = []; setToast("Attempt reset");
     window.setTimeout(() => document.querySelector<HTMLTextAreaElement>(".editor-wrap textarea")?.focus(), 0);
   }
 
-  function toggleReveal() {
-    setReveal((current) => !current);
-    if (!reveal) updateDraft({ ...draft, peeks: draft.peeks + 1 });
+  function toggleReveal() { setReveal((current) => !current); if (!reveal) updateDraft({ ...draft, peeks: draft.peeks + 1 }); }
+  function toggleFavorite(itemId: ItemId) { mutateState((current) => ({ ...current, favorites: current.favorites.includes(itemId) ? current.favorites.filter((id) => id !== itemId) : [...current.favorites, itemId] })); }
+  function updateSettings(patch: Partial<Settings>) { mutateState((current) => ({ ...current, settings: { ...current.settings, ...patch } })); }
+  function randomItem(mode: "all" | "due" = "all") { const pool = mode === "due" && dueItems.length ? dueItems : allItems; openItem(pool[Math.floor(Math.random() * pool.length)]); }
+
+  function saveCustom(input: Parameters<typeof makeCustomItem>[0]) {
+    const custom = makeCustomItem(input);
+    mutateState((current) => ({ ...current, customItems: [...current.customItems, custom], lastItemId: custom.itemId }));
+    setCustomOpen(false); setToast("Custom snippet saved on this device"); openItem(custom, 1);
   }
 
-  function toggleFavorite(problemId: number) {
-    mutateState((current) => ({
-      ...current,
-      favorites: current.favorites.includes(problemId)
-        ? current.favorites.filter((id) => id !== problemId)
-        : [...current.favorites, problemId],
-    }));
-  }
-
-  function updateSettings(patch: Partial<Settings>) {
-    mutateState((current) => ({ ...current, settings: { ...current.settings, ...patch } }));
-  }
-
-  function randomProblem(mode: "all" | "due" = "all") {
-    const candidates = mode === "due" ? PROBLEMS.filter((item) => isReviewDue(state, item.id)) : PROBLEMS;
-    const pool = candidates.length ? candidates : PROBLEMS;
-    openProblem(pool[Math.floor(Math.random() * pool.length)]);
+  function archiveCustom(itemId: ItemId) {
+    if (!window.confirm("Archive this custom snippet? Its attempt history will stay in Records.")) return;
+    mutateState((current) => {
+      const base = current.draft?.itemId === itemId ? recordAbandon(current) : current;
+      return { ...base, customItems: base.customItems.map((custom) => custom.itemId === itemId ? { ...custom, archivedAt: new Date().toISOString() } : custom), favorites: base.favorites.filter((id) => id !== itemId), lastItemId: base.lastItemId === itemId ? BUILTIN_ITEMS[0].itemId : base.lastItemId };
+    });
+    if (selectedId === itemId) { setSelectedId(BUILTIN_ITEMS[0].itemId); setStage(1); setReveal(false); setResult(null); setErrorKeys({}); }
+    setToast("Snippet archived");
   }
 
   function exportProgress() {
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `swift-ghost-progress-${dayKey(new Date())}.json`;
-    link.click();
-    URL.revokeObjectURL(link.href);
-    setToast("Progress exported");
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" }); const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob); link.download = `swift-ghost-progress-${dayKey(new Date())}.json`; link.click(); URL.revokeObjectURL(link.href); setToast("Progress exported");
   }
 
   async function importProgress(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    try {
-      const parsed = JSON.parse(await file.text()) as unknown;
-      if (!parsed || typeof parsed !== "object" || (parsed as { version?: unknown }).version !== 2) throw new Error("invalid");
-      setState(normalizeState(parsed));
-      setToast("Progress restored");
-    } catch {
-      setToast("That backup could not be read");
-    }
+    const file = event.target.files?.[0]; if (!file) return;
+    try { const parsed = JSON.parse(await file.text()) as unknown; const restored = normalizeState(parsed); if (!parsed || typeof parsed !== "object" || ![2, 3].includes(Number((parsed as { version?: unknown }).version))) throw new Error("invalid"); setState(restored); setSelectedId(restored.lastItemId); setStage(restored.lastStage); setReveal(false); setResult(null); setErrorKeys({}); wpmSamples.current = []; setToast("Progress restored and migrated"); } catch { setToast("That backup could not be read"); }
     event.target.value = "";
   }
 
   function resetAllData() {
-    if (!window.confirm("Delete all Swift Ghost progress and settings from this device?")) return;
-    localStorage.removeItem(STORAGE_KEY);
-    setState(EMPTY_STATE);
-    setSelectedId(PROBLEMS[0].id);
-    setStage(1);
-    setToast("Local data cleared");
+    if (!window.confirm("Delete all Swift Ghost progress, custom snippets, and settings from this device?")) return;
+    localStorage.removeItem(STORAGE_KEY); localStorage.removeItem(LEGACY_STORAGE_KEY); setState(EMPTY_STATE); setSelectedId(BUILTIN_ITEMS[0].itemId); setStage(1); setToast("Local data cleared");
   }
 
   return (
     <div className={`app-shell ${focusMode ? "is-focus" : ""}`}>
       <header className="topbar">
-        <button className="brand" onClick={() => setView("practice")} aria-label="Swift Ghost home">
-          <span className="brand-mark" aria-hidden="true">S<span>G</span></span>
-          <span><strong>Swift Ghost</strong><small>type it · fade it · own it</small></span>
-        </button>
-        <nav className="main-nav" aria-label="Main navigation">
-          {NAV.map((item) => (
-            <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => setView(item.id)}>
-              <span aria-hidden="true">{item.icon}</span>{item.label}
-            </button>
-          ))}
-        </nav>
-        <div className="top-actions">
-          <button className="goal-pill" onClick={() => setView("progress")} title="Today's practice goal">
-            <span className="goal-ring" style={{ "--goal": `${dailyPercent * 3.6}deg` } as React.CSSProperties}>{dailyPercent}%</span>
-            <span><strong>{todayMinutes}/{state.settings.dailyGoalMinutes} min</strong><small>{activeStreak(state)} day streak</small></span>
-          </button>
-          <button className="icon-button" onClick={() => randomProblem("all")} title="Random problem" aria-label="Open a random problem">↝</button>
-        </div>
+        <button className="brand" onClick={() => setView("today")} aria-label="Swift Ghost home"><span className="brand-mark" aria-hidden="true">S<span>G</span></span><span><strong>Swift Ghost</strong><small>type it · fade it · own it</small></span></button>
+        <nav className="main-nav" aria-label="Main navigation">{NAV.map((nav) => <button key={nav.id} className={view === nav.id ? "active" : ""} aria-current={view === nav.id ? "page" : undefined} onClick={() => setView(nav.id)}><span aria-hidden="true">{nav.icon}</span>{nav.label}</button>)}</nav>
+        <div className="top-actions"><button className="goal-pill" onClick={() => setView("today")} title="Today's practice goal"><span className="goal-ring" style={{ "--goal": `${dailyPercent * 3.6}deg` } as React.CSSProperties}>{dailyPercent}%</span><span><strong>{todayMinutes}/{state.settings.dailyGoalMinutes} min</strong><small>{activeStreak(state)} day streak</small></span></button><button className="icon-button" onClick={() => randomItem()} title="Random problem" aria-label="Open a random problem">↝</button></div>
       </header>
 
-      {view === "practice" && (
-        <PracticeView
-          state={state}
-          problem={problem}
-          draft={draft}
-          stage={stage}
-          metrics={metrics}
-          ghostCode={ghostCode}
-          stats={stats}
-          dueCount={dueCount}
-          reveal={reveal}
-          focusMode={focusMode}
-          errorKeys={errorKeys}
-          onOpenProblem={openProblem}
-          onChooseStage={chooseStage}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-          onPaste={(event) => {
-            event.preventDefault();
-            const count = Math.max(1, event.clipboardData.getData("text").length);
-            updateDraft({ ...draft, startedAt: draft.startedAt ?? Date.now(), totalKeystrokes: draft.totalKeystrokes + count, rejectedKeystrokes: draft.rejectedKeystrokes + count });
-            setToast("Pasting is disabled during a practice pass");
-          }}
-          onReset={resetAttempt}
-          onReveal={toggleReveal}
-          onFavorite={() => toggleFavorite(selectedId)}
-          onFocusMode={() => setFocusMode((value) => !value)}
-          onReview={() => randomProblem("due")}
-          onBrowse={() => setView("library")}
-        />
-      )}
-      {view === "library" && <LibraryView state={state} onOpen={openProblem} onFavorite={toggleFavorite} />}
-      {view === "progress" && <ProgressView state={state} onOpen={openProblem} onReview={() => randomProblem("due")} />}
-      {view === "settings" && (
-        <SettingsView
-          state={state}
-          onUpdate={updateSettings}
-          onExport={exportProgress}
-          onImport={() => importRef.current?.click()}
-          onReset={resetAllData}
-        />
-      )}
+      {view === "today" && <TodayView state={state} items={allItems} onOpen={openItem} onReview={() => randomItem("due")} onBrowse={() => setView("library")} onCreate={() => setCustomOpen(true)} />}
+      {view === "practice" && <PracticeView state={state} items={allItems} item={item} draft={draft} stage={stage} metrics={metrics} ghostCode={ghostCode} stats={stats} dueCount={dueItems.length} reveal={reveal} focusMode={focusMode} errorKeys={errorKeys} onOpenItem={openItem} onChooseStage={chooseStage} onChange={handleChange} onKeyDown={handleKeyDown} onPaste={(event) => { event.preventDefault(); const count = Math.max(1, event.clipboardData.getData("text").length); updateDraft({ ...draft, startedAt: draft.startedAt ?? Date.now(), totalKeystrokes: draft.totalKeystrokes + count, rejectedKeystrokes: draft.rejectedKeystrokes + count }); setToast("Pasting is disabled during a practice pass"); }} onReset={resetAttempt} onReveal={toggleReveal} onFavorite={() => toggleFavorite(selectedId)} onFocusMode={() => setFocusMode((value) => !value)} onReview={() => randomItem("due")} onBrowse={() => setView("library")} />}
+      {view === "library" && <LibraryView state={state} items={allItems} onOpen={openItem} onFavorite={toggleFavorite} onCreate={() => setCustomOpen(true)} onArchive={archiveCustom} />}
+      {view === "records" && <RecordsView state={state} items={allItems} onOpen={openItem} onReview={() => randomItem("due")} />}
+      {view === "settings" && <SettingsView state={state} onUpdate={updateSettings} onExport={exportProgress} onImport={() => importRef.current?.click()} onReset={resetAllData} />}
 
       <input ref={importRef} className="visually-hidden" type="file" accept="application/json" onChange={importProgress} />
-      {result && <ResultDialog result={result} onClose={() => setResult(null)} onNext={() => chooseStage(Math.min(5, stage + 1))} onRandom={() => randomProblem("all")} />}
+      {result && <ResultDialog result={result} onClose={() => setResult(null)} onNext={() => chooseStage(Math.min(5, stage + 1))} onRandom={() => randomItem()} />}
+      {customOpen && <CustomSnippetDialog onClose={() => setCustomOpen(false)} onSave={saveCustom} />}
       {toast && <div className="toast" role="status">{toast}</div>}
     </div>
   );
 }
 
-type PracticeProps = {
-  state: AppState;
-  problem: Problem;
-  draft: Draft;
-  stage: number;
-  metrics: ReturnType<typeof currentMetrics>;
-  ghostCode: string;
-  stats: ReturnType<typeof problemStats>;
-  dueCount: number;
-  reveal: boolean;
-  focusMode: boolean;
-  errorKeys: Record<string, number>;
-  onOpenProblem: (problem: Problem, stage?: number) => void;
-  onChooseStage: (stage: number) => void;
-  onChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
-  onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
-  onPaste: (event: ReactClipboardEvent<HTMLTextAreaElement>) => void;
-  onReset: () => void;
-  onReveal: () => void;
-  onFavorite: () => void;
-  onFocusMode: () => void;
-  onReview: () => void;
-  onBrowse: () => void;
-};
+function TodayView({ state, items, onOpen, onReview, onBrowse, onCreate }: { state: AppState; items: PracticeItem[]; onOpen: (item: PracticeItem, stage?: number, challengeDate?: string) => void; onReview: () => void; onBrowse: () => void; onCreate: () => void }) {
+  const today = dayKey(new Date()); const daily = dailyItem(BUILTIN_ITEMS); const due = items.filter((item) => isReviewDue(state, item.itemId));
+  const dailyDone = state.attempts.some((attempt) => attempt.challengeDate === today && attempt.itemId === daily?.itemId && eligibleAttempt(attempt));
+  const draftItem = state.draft ? items.find((item) => item.itemId === state.draft?.itemId) : null;
+  const minutes = practicedMinutesToday(state); const goal = state.settings.dailyGoalMinutes;
+  return <main className="page-container today-page">
+    <PageHeading eyebrow={new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" }).format(new Date())} title="Build recall, one clean pass at a time." copy="Start with today's deterministic challenge, clear anything due, or continue exactly where you stopped." />
+    <section className="today-hero">
+      <div className="today-copy"><span className="eyebrow">Daily Type {dailyDone ? "· complete" : "· ready"}</span><h2>{daily?.title}</h2><p>{daily?.cue}</p><div className="problem-tags"><span className={`difficulty ${daily?.difficulty.toLowerCase()}`}>{daily?.difficulty}</span><span>{daily?.pattern}</span><span>{daily ? problemLineCount(daily) : 0} lines</span></div><button className="primary-button" disabled={!daily} onClick={() => daily && onOpen(daily, recommendedStage(state, daily), today)}>{dailyDone ? "Practice it again" : "Start today's challenge"}<span>→</span></button></div>
+      <div className="today-score"><div className="today-ring" style={{ "--goal": `${Math.min(360, (minutes / goal) * 360)}deg` } as React.CSSProperties}><strong>{minutes}</strong><small>of {goal} min</small></div><span>{activeStreak(state)} day streak</span><small>Only completed and abandoned practice time counts.</small></div>
+    </section>
+    <div className="today-grid">
+      {draftItem && <article className="today-card priority"><span className="eyebrow">Continue draft</span><h3>{draftItem.title}</h3><p>Stage {state.draft?.stage} · {state.draft?.value.length} characters typed</p><button className="outline-button" onClick={() => onOpen(draftItem, state.draft?.stage)}>Resume exactly where you left off →</button></article>}
+      <article className="today-card"><span className="eyebrow">Due recall</span><h3>{due.length ? `${due.length} solution${due.length === 1 ? "" : "s"} ready` : "Queue is clear"}</h3><p>{due.length ? "A short return now strengthens retrieval more than another fresh problem." : "Your next reviews will appear here automatically."}</p><button className="outline-button" disabled={!due.length} onClick={onReview}>{due.length ? "Start due review →" : "Nothing due today"}</button></article>
+      <article className="today-card"><span className="eyebrow">Choose your own</span><h3>Practice the code you actually use.</h3><p>Add an iOS pattern, UIKit API, or interview solution as a device-local snippet.</p><div className="card-actions"><button className="outline-button" onClick={onCreate}>Add Swift snippet</button><button className="outline-button" onClick={onBrowse}>Browse library</button></div></article>
+    </div>
+  </main>;
+}
+
+type PracticeProps = { state: AppState; items: PracticeItem[]; item: PracticeItem; draft: Draft; stage: number; metrics: ReturnType<typeof currentMetrics>; ghostCode: string; stats: ReturnType<typeof itemStats>; dueCount: number; reveal: boolean; focusMode: boolean; errorKeys: Record<string, number>; onOpenItem: (item: PracticeItem, stage?: number) => void; onChooseStage: (stage: number) => void; onChange: (event: ChangeEvent<HTMLTextAreaElement>) => void; onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void; onPaste: (event: ReactClipboardEvent<HTMLTextAreaElement>) => void; onReset: () => void; onReveal: () => void; onFavorite: () => void; onFocusMode: () => void; onReview: () => void; onBrowse: () => void };
 
 function PracticeView(props: PracticeProps) {
   const [query, setQuery] = useState("");
-  const visible = useMemo(() => PROBLEMS.filter((item) => `${item.id} ${item.title} ${item.pattern}`.toLowerCase().includes(query.toLowerCase())).slice(0, 12), [query]);
-  const favorite = props.state.favorites.includes(props.problem.id);
-
-  return (
-    <main className="practice-layout">
-      <aside className="problem-rail">
-        <div className="rail-head">
-          <span className="eyebrow">Problem queue</span>
-          <span className="count-badge">{PROBLEMS.length}</span>
-        </div>
-        <label className="search-box"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title or pattern" /></label>
-        {props.dueCount > 0 && <button className="review-callout" onClick={props.onReview}><span>Review due</span><strong>{props.dueCount} problems →</strong></button>}
-        <div className="problem-list">
-          {visible.map((item) => {
-            const progress = problemStats(props.state, item.id);
-            return (
-              <button key={item.id} className={`problem-row ${props.problem.id === item.id ? "selected" : ""}`} onClick={() => props.onOpenProblem(item)}>
-                <span className={`status-dot stage-${progress.highestStage}`}>{progress.highestStage ? progress.highestStage : ""}</span>
-                <span className="problem-row-copy"><strong>{item.id}. {item.title}</strong><small>{item.pattern} · {item.difficulty}</small></span>
-                {props.state.favorites.includes(item.id) && <span className="favorite-star">★</span>}
-              </button>
-            );
-          })}
-        </div>
-        <button className="rail-link" onClick={props.onBrowse}>Browse all {PROBLEMS.length} problems <span>→</span></button>
-        <div className="legend"><span><i className="dot-new" />New</span><span><i className="dot-learning" />Learning</span><span><i className="dot-owned" />Owned</span></div>
-      </aside>
-
-      <section className="practice-main">
-        <div className="problem-header">
-          <div>
-            <div className="problem-kicker"><span>#{props.problem.id}</span><span className={`difficulty ${props.problem.difficulty.toLowerCase()}`}>{props.problem.difficulty}</span><span>{props.problem.pattern}</span></div>
-            <h1>{props.problem.title}</h1>
-            <p>{props.problem.summary}</p>
-          </div>
-          <div className="problem-actions">
-            <button className={favorite ? "favorite active" : "favorite"} onClick={props.onFavorite} aria-label={favorite ? "Remove favorite" : "Add favorite"}>{favorite ? "★" : "☆"}</button>
-            <a className="outline-button" href={problemUrl(props.problem)} target="_blank" rel="noreferrer">Open prompt ↗</a>
-          </div>
-        </div>
-
-        <div className="insight-grid">
-          <article><span className="card-icon">⌁</span><div><small>Pattern cue</small><p>{props.problem.cue}</p></div></article>
-          <article><span className="card-icon">∞</span><div><small>Invariant</small><p>{props.problem.invariant}</p></div></article>
-          <article><span className="card-icon">S</span><div><small>Swift note</small><p>{props.problem.swiftNote}</p></div></article>
-        </div>
-
-        <div className="stage-panel">
-          <div className="stage-title"><span className="eyebrow">Recall ladder</span><span>{STAGES[props.stage - 1].note}</span></div>
-          <div className="stage-track">
-            {STAGES.map((item) => {
-              const unlocked = item.id <= Math.max(1, props.stats.highestStage + 1);
-              return (
-                <button key={item.id} className={`${props.stage === item.id ? "active" : ""} ${item.id <= props.stats.highestStage ? "complete" : ""}`} onClick={() => props.onChooseStage(item.id)} title={unlocked ? item.note : "You can preview any stage; complete earlier stages for the recommended path."}>
-                  <span>{item.id <= props.stats.highestStage ? "✓" : item.id}</span><small>{item.short}</small>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="editor-card">
-          <div className="editor-toolbar">
-            <div className="window-dots" aria-hidden="true"><i /><i /><i /></div>
-            <div className="file-tab"><span className="swift-badge">S</span>Solution.swift <small>{problemLineCount(props.problem)} lines</small></div>
-            <div className="editor-actions">
-              <button onClick={props.onReveal}>{props.reveal ? "Hide answer" : "Peek"}</button>
-              <button onClick={props.onReset}>Restart</button>
-              <button onClick={props.onFocusMode}>{props.focusMode ? "Exit focus" : "Focus"}</button>
-            </div>
-          </div>
-          <div className="metric-strip" aria-live="polite">
-            <span><small>Progress</small><strong>{props.metrics.progress}%</strong></span>
-            {props.state.settings.showLiveWpm && <span><small>WPM</small><strong>{props.metrics.wpm}</strong></span>}
-            <span><small>Accuracy</small><strong>{props.metrics.accuracy}%</strong></span>
-            <span><small>Errors</small><strong>{props.draft.rejectedKeystrokes}</strong></span>
-            <span><small>Time</small><strong>{formatDuration(props.metrics.durationMs)}</strong></span>
-            <span className="strict-indicator"><i />{props.state.settings.strictMode ? "Strict correction" : "Free correction"}</span>
-          </div>
-          <div className="editor-wrap" style={{ "--font-size": `${props.state.settings.fontSize}px`, "--editor-lines": props.state.settings.editorLines, "--code-height": `${problemLineCount(props.problem) * props.state.settings.fontSize * 1.65 + 56}px` } as React.CSSProperties}>
-            <pre className="line-numbers" aria-hidden="true">{Array.from({ length: problemLineCount(props.problem) }, (_, index) => index + 1).join("\n")}</pre>
-            <pre className="ghost-layer" aria-hidden="true">{props.ghostCode}</pre>
-            <pre className="typed-layer" aria-hidden="true">{props.draft.value.split("").map((char, index) => <span className={char === props.problem.code[index] ? "right" : "wrong"} key={`${index}-${char}`}>{char}</span>)}</pre>
-            <textarea
-              value={props.draft.value}
-              onChange={props.onChange}
-              onKeyDown={props.onKeyDown}
-              onPaste={props.onPaste}
-              spellCheck={false}
-              autoCapitalize="off"
-              autoComplete="off"
-              aria-label={`Type the Swift solution for ${props.problem.title}. Press Escape to leave the editor.`}
-            />
-          </div>
-          <div className="editor-footer">
-            <span><i className="key-swatch typed" />typed</span><span><i className="key-swatch ghost" />ghost</span><span><i className="key-swatch hidden" />hidden</span>
-            <span className="spacer" />
-            <span>Tab inserts {props.state.settings.tabSize} spaces · Esc leaves editor</span>
-          </div>
-          <div className="progress-line"><i style={{ width: `${props.metrics.progress}%` }} /></div>
-        </div>
-
-        <div className="practice-notes">
-          <article><small>Complexity check</small><strong>{props.problem.complexity}</strong></article>
-          <article><small>Before you type</small><strong>Say the invariant out loud. Transcription builds syntax; blank recall proves ownership.</strong></article>
-          {Object.keys(props.errorKeys).length > 0 && <article><small>Recent friction</small><strong>{Object.entries(props.errorKeys).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([key, count]) => `${key} ×${count}`).join(" · ")}</strong></article>}
-        </div>
-        {props.state.settings.showKeyboard && <KeyboardGuide errors={props.errorKeys} />}
-      </section>
-    </main>
-  );
+  const visible = useMemo(() => props.items.filter((item) => `${itemDisplayId(item)} ${item.title} ${item.pattern}`.toLowerCase().includes(query.toLowerCase())).slice(0, 12), [props.items, query]);
+  const favorite = props.state.favorites.includes(props.item.itemId); const prompt = problemUrl(props.item);
+  return <main className="practice-layout">
+    <aside className="problem-rail"><div className="rail-head"><span className="eyebrow">Problem queue</span><span className="count-badge">{props.items.length}</span></div><label className="search-box"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title or pattern" /></label>{props.dueCount > 0 && <button className="review-callout" onClick={props.onReview}><span>Review due</span><strong>{props.dueCount} problems →</strong></button>}<div className="problem-list">{visible.map((candidate) => { const progress = itemStats(props.state, candidate.itemId); return <button key={candidate.itemId} className={`problem-row ${props.item.itemId === candidate.itemId ? "selected" : ""}`} onClick={() => props.onOpenItem(candidate)}><span className={`status-dot stage-${progress.highestStage}`}>{progress.highestStage || ""}</span><span className="problem-row-copy"><strong>{itemDisplayId(candidate)} {candidate.title}</strong><small>{candidate.pattern} · {candidate.difficulty}</small></span>{props.state.favorites.includes(candidate.itemId) && <span className="favorite-star">★</span>}</button>; })}</div><button className="rail-link" onClick={props.onBrowse}>Browse all {props.items.length} items <span>→</span></button><div className="legend"><span><i className="dot-new" />New</span><span><i className="dot-learning" />Learning</span><span><i className="dot-owned" />Owned</span></div></aside>
+    <section className="practice-main">
+      <div className="problem-header"><div><div className="problem-kicker"><span>{itemDisplayId(props.item)}</span><span className={`difficulty ${props.item.difficulty.toLowerCase()}`}>{props.item.difficulty}</span><span>{props.item.pattern}</span>{props.item.source === "custom" && <span>Device-local</span>}</div><h1>{props.item.title}</h1><p>{props.item.summary}</p></div><div className="problem-actions"><button className={favorite ? "favorite active" : "favorite"} onClick={props.onFavorite} aria-label={favorite ? "Remove favorite" : "Add favorite"}>{favorite ? "★" : "☆"}</button>{prompt && <a className="outline-button" href={prompt} target="_blank" rel="noreferrer">Open prompt ↗</a>}</div></div>
+      <div className="insight-grid"><article><span className="card-icon">⌁</span><div><small>Pattern cue</small><p>{props.item.cue}</p></div></article><article><span className="card-icon">∞</span><div><small>Invariant</small><p>{props.item.invariant}</p></div></article><article><span className="card-icon">S</span><div><small>Swift note</small><p>{props.item.swiftNote}</p></div></article></div>
+      <div className="stage-panel"><div className="stage-title"><span className="eyebrow">Recall ladder</span><span>{STAGES[props.stage - 1].note}</span></div><div className="stage-track">{STAGES.map((step) => <button key={step.id} className={`${props.stage === step.id ? "active" : ""} ${step.id <= props.stats.highestStage ? "complete" : ""}`} aria-pressed={props.stage === step.id} onClick={() => props.onChooseStage(step.id)} title={step.note}><span>{step.id <= props.stats.highestStage ? "✓" : step.id}</span><small>{step.short}</small></button>)}</div></div>
+      <div className="editor-card"><div className="editor-toolbar"><div className="window-dots" aria-hidden="true"><i /><i /><i /></div><div className="file-tab"><span className="swift-badge">S</span>Solution.swift <small>{problemLineCount(props.item)} lines</small></div><div className="editor-actions"><button onClick={props.onReveal}>{props.reveal ? "Hide answer" : "Peek"}</button><button onClick={props.onReset}>Restart</button><button onClick={props.onFocusMode}>{props.focusMode ? "Exit focus" : "Focus"}</button></div></div>
+        <div className="metric-strip" aria-live="polite"><span><small>Progress</small><strong>{props.metrics.progress}%</strong></span>{props.state.settings.showLiveWpm && <span><small>WPM</small><strong>{props.metrics.wpm}</strong></span>}<span><small>Accuracy</small><strong>{props.metrics.accuracy}%</strong></span><span><small>Errors</small><strong>{props.draft.rejectedKeystrokes}</strong></span><span><small>Time</small><strong>{formatDuration(props.metrics.durationMs)}</strong></span><span className="strict-indicator"><i />{props.state.settings.strictMode ? "Strict correction" : "Free correction"}</span></div>
+        <div className="editor-wrap" style={{ "--font-size": `${props.state.settings.fontSize}px`, "--editor-lines": props.state.settings.editorLines, "--code-height": `${problemLineCount(props.item) * props.state.settings.fontSize * 1.65 + 56}px` } as React.CSSProperties}><pre className="line-numbers" aria-hidden="true">{Array.from({ length: problemLineCount(props.item) }, (_, index) => index + 1).join("\n")}</pre><pre className="ghost-layer" aria-hidden="true">{props.ghostCode}</pre><pre className="typed-layer" aria-hidden="true">{props.draft.value.split("").map((char, index) => <span className={char === props.item.code[index] ? "right" : "wrong"} key={`${index}-${char}`}>{char}</span>)}</pre><textarea value={props.draft.value} onChange={props.onChange} onKeyDown={props.onKeyDown} onPaste={props.onPaste} spellCheck={false} autoCapitalize="off" autoComplete="off" aria-label={`Type the Swift solution for ${props.item.title}. Press Escape to leave the editor.`} /></div>
+        <div className="editor-footer"><span><i className="key-swatch typed" />typed</span><span><i className="key-swatch ghost" />ghost</span><span><i className="key-swatch hidden" />hidden</span><span className="spacer" /><span>Tab inserts {props.state.settings.tabSize} spaces · Esc leaves editor</span></div><div className="progress-line"><i style={{ width: `${props.metrics.progress}%` }} /></div>
+      </div>
+      <div className="practice-notes"><article><small>Complexity check</small><strong>{props.item.complexity}</strong></article><article><small>Ownership rule</small><strong>95%+ accuracy, no peeks. Stage 5 proves independent recall; other passes build syntax.</strong></article>{Object.keys(props.errorKeys).length > 0 && <article><small>Recent friction</small><strong>{Object.entries(props.errorKeys).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([key, count]) => `${key} ×${count}`).join(" · ")}</strong></article>}</div>{props.state.settings.showKeyboard && <KeyboardGuide errors={props.errorKeys} />}
+    </section>
+  </main>;
 }
 
-function LibraryView({ state, onOpen, onFavorite }: { state: AppState; onOpen: (problem: Problem, stage?: number) => void; onFavorite: (id: number) => void }) {
-  const [query, setQuery] = useState("");
-  const [pattern, setPattern] = useState<Pattern | "All">("All");
-  const [difficulty, setDifficulty] = useState<Difficulty | "All">("All");
-  const [status, setStatus] = useState<"All" | "New" | "Learning" | "Owned" | "Due" | "Favorites">("All");
-  const [sort, setSort] = useState<Sort>("recommended");
-
-  const filtered = useMemo(() => {
-    const result = PROBLEMS.filter((problem) => {
-      const stats = problemStats(state, problem.id);
-      const textMatch = `${problem.id} ${problem.title} ${problem.pattern} ${problem.cue}`.toLowerCase().includes(query.toLowerCase());
-      const statusMatch = status === "All" || (status === "New" && !stats.completions) || (status === "Learning" && stats.highestStage > 0 && stats.highestStage < 5) || (status === "Owned" && stats.highestStage === 5) || (status === "Due" && isReviewDue(state, problem.id)) || (status === "Favorites" && state.favorites.includes(problem.id));
-      return textMatch && (pattern === "All" || problem.pattern === pattern) && (difficulty === "All" || problem.difficulty === difficulty) && statusMatch;
-    });
-    return result.sort((a, b) => {
-      if (sort === "number") return a.id - b.id;
-      if (sort === "title") return a.title.localeCompare(b.title);
-      if (sort === "difficulty") return a.difficulty.localeCompare(b.difficulty);
-      return problemStats(state, a.id).highestStage - problemStats(state, b.id).highestStage || a.id - b.id;
-    });
-  }, [state, query, pattern, difficulty, status, sort]);
-
-  return (
-    <main className="page-container">
-      <PageHeading eyebrow="Swift interview catalog" title="Choose what to own next." copy="Original Swift implementations organized by the patterns you need under interview pressure." />
-      <div className="library-toolbar">
-        <label className="search-box wide"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search 33 problems, patterns, or cues" /></label>
-        <select value={pattern} onChange={(event) => setPattern(event.target.value as Pattern | "All")}><option>All</option>{PATTERN_ORDER.map((item) => <option key={item}>{item}</option>)}</select>
-        <select value={difficulty} onChange={(event) => setDifficulty(event.target.value as Difficulty | "All")}><option>All</option><option>Easy</option><option>Medium</option></select>
-        <select value={sort} onChange={(event) => setSort(event.target.value as Sort)}><option value="recommended">Recommended</option><option value="number">Problem number</option><option value="title">Title</option><option value="difficulty">Difficulty</option></select>
-      </div>
-      <div className="filter-chips">{(["All", "New", "Learning", "Owned", "Due", "Favorites"] as const).map((item) => <button className={status === item ? "active" : ""} onClick={() => setStatus(item)} key={item}>{item}{item === "Due" && ` (${PROBLEMS.filter((problem) => isReviewDue(state, problem.id)).length})`}</button>)}</div>
-      <div className="library-summary"><strong>{filtered.length}</strong> results <span /> <small>Five progressive recall stages per problem</small></div>
-      <div className="problem-grid">
-        {filtered.map((problem) => {
-          const stats = problemStats(state, problem.id);
-          const due = reviewDueAt(state, problem.id);
-          return (
-            <article className="problem-card" key={problem.id}>
-              <div className="problem-card-top"><span className="problem-number">#{problem.id}</span><button onClick={() => onFavorite(problem.id)} aria-label="Toggle favorite">{state.favorites.includes(problem.id) ? "★" : "☆"}</button></div>
-              <h2>{problem.title}</h2>
-              <div className="problem-tags"><span className={`difficulty ${problem.difficulty.toLowerCase()}`}>{problem.difficulty}</span><span>{problem.pattern}</span></div>
-              <p>{problem.cue}</p>
-              <div className="mini-stage-track">{STAGES.map((stage) => <i key={stage.id} className={stage.id <= stats.highestStage ? "complete" : stage.id === stats.highestStage + 1 ? "next" : ""} />)}</div>
-              <div className="problem-card-meta"><span>{stats.completions ? `${stats.completions} passes · ${stats.bestWpm} best WPM` : `${problemLineCount(problem)} lines · ~${problem.estimatedMinutes} min`}</span>{due && <span className={isReviewDue(state, problem.id) ? "due" : ""}>{isReviewDue(state, problem.id) ? "Due now" : `Review ${new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(due)}`}</span>}</div>
-              <button className="primary-button" onClick={() => onOpen(problem)}>{stats.highestStage ? `Continue at stage ${Math.min(5, stats.highestStage + 1)}` : "Start with full ghost"}<span>→</span></button>
-            </article>
-          );
-        })}
-      </div>
-      {!filtered.length && <div className="empty-state"><span>⌕</span><h2>No matching problems</h2><p>Try a broader pattern or reset the status filter.</p></div>}
-    </main>
-  );
+function LibraryView({ state, items, onOpen, onFavorite, onCreate, onArchive }: { state: AppState; items: PracticeItem[]; onOpen: (item: PracticeItem, stage?: number) => void; onFavorite: (id: ItemId) => void; onCreate: () => void; onArchive: (id: ItemId) => void }) {
+  const [query, setQuery] = useState(""); const [pattern, setPattern] = useState<Pattern | "All">("All"); const [difficulty, setDifficulty] = useState<Difficulty | "All">("All"); const [status, setStatus] = useState<"All" | "New" | "Learning" | "Owned" | "Due" | "Favorites" | "My snippets">("All"); const [sort, setSort] = useState<Sort>("recommended");
+  const filtered = useMemo(() => items.filter((item) => { const stats = itemStats(state, item.itemId); const text = `${itemDisplayId(item)} ${item.title} ${item.pattern} ${item.cue} ${item.tags.join(" ")}`.toLowerCase().includes(query.toLowerCase()); const statusMatch = status === "All" || (status === "New" && !stats.completions) || (status === "Learning" && stats.highestStage > 0 && !stats.owned) || (status === "Owned" && stats.owned) || (status === "Due" && isReviewDue(state, item.itemId)) || (status === "Favorites" && state.favorites.includes(item.itemId)) || (status === "My snippets" && item.source === "custom"); return text && (pattern === "All" || item.pattern === pattern) && (difficulty === "All" || item.difficulty === difficulty) && statusMatch; }).sort((a, b) => sort === "number" ? a.id - b.id : sort === "title" ? a.title.localeCompare(b.title) : sort === "difficulty" ? a.difficulty.localeCompare(b.difficulty) : itemStats(state, a.itemId).highestStage - itemStats(state, b.itemId).highestStage || a.title.localeCompare(b.title)), [items, state, query, pattern, difficulty, status, sort]);
+  return <main className="page-container"><div className="heading-actions"><PageHeading eyebrow="Swift interview catalog" title="Choose what to own next." copy="Built-in interview patterns plus your own iOS and Swift snippets, all practiced through the same recall ladder." /><button className="primary-button" onClick={onCreate}>+ Add Swift snippet</button></div><div className="library-toolbar"><label className="search-box wide"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search ${items.length} items, patterns, or cues`} /></label><select value={pattern} onChange={(event) => setPattern(event.target.value as Pattern | "All")}><option>All</option>{PATTERN_ORDER.map((value) => <option key={value}>{value}</option>)}</select><select value={difficulty} onChange={(event) => setDifficulty(event.target.value as Difficulty | "All")}><option>All</option><option>Easy</option><option>Medium</option></select><select value={sort} onChange={(event) => setSort(event.target.value as Sort)}><option value="recommended">Recommended</option><option value="number">Problem number</option><option value="title">Title</option><option value="difficulty">Difficulty</option></select></div>
+    <div className="filter-chips">{(["All", "New", "Learning", "Owned", "Due", "Favorites", "My snippets"] as const).map((value) => <button className={status === value ? "active" : ""} onClick={() => setStatus(value)} key={value}>{value}{value === "Due" && ` (${items.filter((item) => isReviewDue(state, item.itemId)).length})`}</button>)}</div><div className="library-summary"><strong>{filtered.length}</strong> results <span /><small>Ownership requires clean stage-5 recall</small></div>
+    <div className="problem-grid">{filtered.map((item) => { const stats = itemStats(state, item.itemId); const due = reviewDueAt(state, item.itemId); return <article className="problem-card" key={item.itemId}><div className="problem-card-top"><span className="problem-number">{itemDisplayId(item)}{item.source === "custom" ? " · LOCAL" : ""}</span><div><button onClick={() => onFavorite(item.itemId)} aria-label="Toggle favorite">{state.favorites.includes(item.itemId) ? "★" : "☆"}</button>{item.source === "custom" && <button className="archive-button" onClick={() => onArchive(item.itemId)} aria-label="Archive snippet">×</button>}</div></div><h2>{item.title}</h2><div className="problem-tags"><span className={`difficulty ${item.difficulty.toLowerCase()}`}>{item.difficulty}</span><span>{item.pattern}</span></div><p>{item.cue}</p><div className="mini-stage-track">{STAGES.map((step) => <i key={step.id} className={step.id <= stats.highestStage ? "complete" : step.id === stats.highestStage + 1 ? "next" : ""} />)}</div><div className="problem-card-meta"><span>{stats.completions ? `${stats.completions} passes · ${stats.bestWpm} eligible best WPM` : `${problemLineCount(item)} lines · ~${item.estimatedMinutes} min`}</span>{due && <span className={isReviewDue(state, item.itemId) ? "due" : ""}>{isReviewDue(state, item.itemId) ? "Due now" : `Review ${formatDay(due)}`}</span>}</div><button className="primary-button" onClick={() => onOpen(item)}>{stats.owned ? "Practice independent recall" : stats.highestStage ? `Continue at stage ${Math.min(5, stats.highestStage + 1)}` : "Start with full ghost"}<span>→</span></button></article>; })}</div>{!filtered.length && <div className="empty-state"><span>⌕</span><h2>No matching items</h2><p>Try a broader filter or add your own Swift snippet.</p></div>}
+  </main>;
 }
 
-function ProgressView({ state, onOpen, onReview }: { state: AppState; onOpen: (problem: Problem, stage?: number) => void; onReview: () => void }) {
-  const attempts = completedAttempts(state);
-  const recent = attempts.slice(-14);
-  const avgWpm = attempts.length ? Math.round(attempts.reduce((sum, item) => sum + item.wpm, 0) / attempts.length) : 0;
-  const avgAccuracy = attempts.length ? Math.round(attempts.reduce((sum, item) => sum + item.accuracy, 0) / attempts.length) : 0;
-  const mastered = PROBLEMS.filter((problem) => problemStats(state, problem.id).highestStage === 5).length;
-  const due = PROBLEMS.filter((problem) => isReviewDue(state, problem.id));
-  const maxWpm = Math.max(1, ...recent.map((item) => item.wpm));
-  const patternStats = PATTERN_ORDER.map((pattern) => {
-    const problems = PROBLEMS.filter((problem) => problem.pattern === pattern);
-    const points = problems.reduce((sum, problem) => sum + problemStats(state, problem.id).highestStage, 0);
-    return { pattern, percent: Math.round((points / (problems.length * 5)) * 100), count: problems.length };
-  });
-
-  return (
-    <main className="page-container">
-      <PageHeading eyebrow="Local practice profile" title="Your recall, not just your speed." copy="Every completed and abandoned attempt stays on this device. Blank-editor reconstruction is the strongest signal." />
-      <div className="stat-grid">
-        <StatCard label="Completed passes" value={String(attempts.length)} note={`${state.attempts.filter((item) => item.outcome === "abandoned").length} abandoned attempts`} />
-        <StatCard label="Average speed" value={`${avgWpm} WPM`} note={`${avgAccuracy}% average accuracy`} />
-        <StatCard label="Current streak" value={`${activeStreak(state)} days`} note={`${practicedMinutesToday(state)} minutes today`} />
-        <StatCard label="Owned problems" value={`${mastered}/${PROBLEMS.length}`} note="Completed at blank recall" />
-      </div>
-      <div className="dashboard-grid">
-        <section className="dashboard-card chart-card">
-          <div className="section-head"><div><small>Last 14 completed passes</small><h2>Typing rhythm</h2></div><span>WPM</span></div>
-          {recent.length ? <div className="bar-chart">{recent.map((item) => <div className="bar-column" key={item.id} title={`${item.wpm} WPM · ${item.accuracy}%`}><span>{item.wpm}</span><i style={{ height: `${Math.max(8, (item.wpm / maxWpm) * 100)}%` }} /><small>S{item.stage}</small></div>)}</div> : <EmptyChart />}
-        </section>
-        <section className="dashboard-card review-card">
-          <div className="section-head"><div><small>Spaced review</small><h2>{due.length ? `${due.length} due now` : "Queue is clear"}</h2></div><span className="review-orbit">↻</span></div>
-          <p>Successful passes return after 1, 3, 7, 14, and 30 days as your recall stage grows.</p>
-          {due.slice(0, 3).map((problem) => <button className="review-row" key={problem.id} onClick={() => onOpen(problem)}><span>#{problem.id} {problem.title}</span><strong>Stage {recommendedStage(state, problem)} →</strong></button>)}
-          <button className="primary-button" disabled={!due.length} onClick={onReview}>{due.length ? "Start due review" : "Nothing due yet"}</button>
-        </section>
-      </div>
-      <section className="dashboard-card mastery-card">
-        <div className="section-head"><div><small>Curriculum coverage</small><h2>Pattern mastery</h2></div><span>{patternStats.filter((item) => item.percent > 0).length}/{patternStats.length} patterns started</span></div>
-        <div className="mastery-grid">{patternStats.map((item) => <div className="mastery-row" key={item.pattern}><span><strong>{item.pattern}</strong><small>{item.count} problems</small></span><div><i style={{ width: `${item.percent}%` }} /></div><b>{item.percent}%</b></div>)}</div>
-      </section>
-      <section className="dashboard-card history-card">
-        <div className="section-head"><div><small>Immutable local log</small><h2>Attempt history</h2></div><span>{state.attempts.length} recorded</span></div>
-        <div className="history-table"><div className="history-head"><span>Problem</span><span>Stage</span><span>Result</span><span>Speed</span><span>Accuracy</span><span>When</span></div>{state.attempts.slice().reverse().slice(0, 20).map((attempt) => { const problem = PROBLEMS.find((item) => item.id === attempt.problemId); return <button className="history-row" key={attempt.id} onClick={() => problem && onOpen(problem, attempt.stage)}><span><strong>{problem?.title ?? `#${attempt.problemId}`}</strong><small>#{attempt.problemId}</small></span><span>{STAGES[attempt.stage - 1]?.short}</span><span className={attempt.outcome}>{attempt.outcome}</span><span>{attempt.wpm} WPM</span><span>{attempt.accuracy}%</span><span>{formatDate(attempt.completedAt)}</span></button>; })}</div>
-        {!state.attempts.length && <div className="empty-history">Your first completed pass will appear here.</div>}
-      </section>
-    </main>
-  );
+function RecordsView({ state, items, onOpen, onReview }: { state: AppState; items: PracticeItem[]; onOpen: (item: PracticeItem, stage?: number) => void; onReview: () => void }) {
+  const attempts = completedAttempts(state); const eligible = attempts.filter(eligibleAttempt); const recent = attempts.slice(-14); const avgWpm = eligible.length ? Math.round(eligible.reduce((sum, attempt) => sum + attempt.wpm, 0) / eligible.length) : 0; const avgAccuracy = attempts.length ? Math.round(attempts.reduce((sum, attempt) => sum + attempt.accuracy, 0) / attempts.length) : 0; const owned = items.filter((item) => itemStats(state, item.itemId).owned).length; const due = items.filter((item) => isReviewDue(state, item.itemId)); const maxWpm = Math.max(1, ...recent.map((attempt) => attempt.wpm));
+  const patternStats = PATTERN_ORDER.map((pattern) => { const group = BUILTIN_ITEMS.filter((item) => item.pattern === pattern); const points = group.reduce((sum, item) => sum + itemStats(state, item.itemId).highestStage, 0); return { pattern, percent: Math.round((points / (group.length * 5)) * 100), count: group.length }; });
+  const bests = eligible.reduce<AttemptRecord[]>((records, attempt) => { const existing = records.findIndex((record) => record.itemId === attempt.itemId && record.stage === attempt.stage && record.mode === attempt.mode); if (existing < 0) records.push(attempt); else if (attempt.wpm > records[existing].wpm) records[existing] = attempt; return records; }, []).sort((a, b) => b.wpm - a.wpm).slice(0, 8);
+  return <main className="page-container"><PageHeading eyebrow="Private local profile" title="Records you can trust." copy="Personal bests require 95%+ accuracy and no peeks. Assisted passes stay visible, but never inflate mastery or speed records." /><div className="stat-grid"><StatCard label="Completed passes" value={String(attempts.length)} note={`${eligible.length} eligible for records`} /><StatCard label="Eligible speed" value={`${avgWpm} WPM`} note={`${avgAccuracy}% average across all passes`} /><StatCard label="Current streak" value={`${activeStreak(state)} days`} note={`${practicedMinutesToday(state)} minutes today`} /><StatCard label="Owned solutions" value={`${owned}/${items.length}`} note="Clean blank-editor recall" /></div>
+    <div className="dashboard-grid"><section className="dashboard-card chart-card"><div className="section-head"><div><small>Last 14 completed passes</small><h2>Typing rhythm</h2></div><span>WPM</span></div>{recent.length ? <div className="bar-chart">{recent.map((attempt) => <div className={`bar-column ${eligibleAttempt(attempt) ? "" : "assisted"}`} key={attempt.id} title={`${attempt.wpm} WPM · ${attempt.accuracy}% · ${attempt.qualification}`}><span>{attempt.wpm}</span><i style={{ height: `${Math.max(8, (attempt.wpm / maxWpm) * 100)}%` }} /><small>S{attempt.stage}</small></div>)}</div> : <EmptyChart />}</section><section className="dashboard-card review-card"><div className="section-head"><div><small>Spaced review</small><h2>{due.length ? `${due.length} due now` : "Queue is clear"}</h2></div><span className="review-orbit">↻</span></div><p>Clean passes expand from 1 to 30 days. Peeks, low accuracy, and abandoned attempts return tomorrow and reduce the interval.</p>{due.slice(0, 3).map((item) => <button className="review-row" key={item.itemId} onClick={() => onOpen(item)}><span>{itemDisplayId(item)} {item.title}</span><strong>Stage {recommendedStage(state, item)} →</strong></button>)}<button className="primary-button" disabled={!due.length} onClick={onReview}>{due.length ? "Start due review" : "Nothing due yet"}</button></section></div>
+    <section className="dashboard-card milestone-card"><div className="section-head"><div><small>Learning milestones</small><h2>Evidence of durable recall</h2></div><span>{milestones(state).filter((milestone) => milestone.achieved).length}/{milestones(state).length} unlocked</span></div><div className="milestone-grid">{milestones(state).map((milestone) => <article className={milestone.achieved ? "achieved" : ""} key={milestone.id}><span>{milestone.achieved ? "✓" : "○"}</span><div><strong>{milestone.title}</strong><small>{milestone.note}</small></div></article>)}</div></section>
+    <section className="dashboard-card mastery-card"><div className="section-head"><div><small>Curriculum coverage</small><h2>Pattern mastery</h2></div><span>{patternStats.filter((pattern) => pattern.percent > 0).length}/{patternStats.length} patterns started</span></div><div className="mastery-grid">{patternStats.map((value) => <div className="mastery-row" key={value.pattern}><span><strong>{value.pattern}</strong><small>{value.count} problems</small></span><div><i style={{ width: `${value.percent}%` }} /></div><b>{value.percent}%</b></div>)}</div></section>
+    <section className="dashboard-card records-card"><div className="section-head"><div><small>Qualified only</small><h2>Personal bests</h2></div><span>Exact item · stage · mode</span></div>{bests.length ? <div className="records-grid">{bests.map((attempt) => <article key={attempt.id}><span><small>{attempt.mode} · stage {attempt.stage}</small><strong>{attempt.titleSnapshot}</strong></span><b>{attempt.wpm}<small> WPM</small></b><em>{attempt.accuracy}%</em></article>)}</div> : <div className="empty-history">Complete a 95%+ no-peek pass to set your first personal best.</div>}</section>
+    <section className="dashboard-card history-card"><div className="section-head"><div><small>Immutable local log</small><h2>Attempt history</h2></div><span>{state.attempts.length} recorded</span></div><div className="history-table"><div className="history-head"><span>Item</span><span>Stage</span><span>Result</span><span>Speed</span><span>Accuracy</span><span>When</span></div>{state.attempts.slice().reverse().slice(0, 30).map((attempt) => { const found = items.find((item) => item.itemId === attempt.itemId); return <button className="history-row" key={attempt.id} disabled={!found} title={found ? "Practice this item again" : "This custom snippet is archived"} onClick={() => found && onOpen(found, attempt.stage)}><span><strong>{attempt.titleSnapshot}</strong><small>{found ? attempt.qualification : `${attempt.qualification} · archived`}</small></span><span>{STAGES[attempt.stage - 1]?.short}</span><span className={attempt.outcome}>{attempt.outcome}</span><span>{attempt.wpm} WPM</span><span>{attempt.accuracy}%</span><span>{formatDate(attempt.completedAt)}</span></button>; })}</div>{!state.attempts.length && <div className="empty-history">Your first practice pass will appear here.</div>}</section>
+  </main>;
 }
 
 function SettingsView({ state, onUpdate, onExport, onImport, onReset }: { state: AppState; onUpdate: (patch: Partial<Settings>) => void; onExport: () => void; onImport: () => void; onReset: () => void }) {
-  return (
-    <main className="page-container settings-page">
-      <PageHeading eyebrow="Make it yours" title="Practice settings." copy="Tune the editor for comfort. These preferences and your history stay in this browser." />
-      <section className="settings-section"><div className="settings-intro"><small>Appearance</small><h2>Color theme</h2><p>Six low-distraction palettes built for long practice sessions.</p></div><div className="theme-grid">{THEMES.map((theme) => <button className={state.settings.theme === theme.id ? "active" : ""} onClick={() => onUpdate({ theme: theme.id })} key={theme.id}><span>{theme.colors.map((color) => <i key={color} style={{ background: color }} />)}</span><strong>{theme.label}</strong>{state.settings.theme === theme.id && <b>✓</b>}</button>)}</div></section>
-      <section className="settings-section"><div className="settings-intro"><small>Editor</small><h2>Typing surface</h2><p>Match the rhythm of the editor you use every day.</p></div><div className="setting-list">
-        <SettingRow label="Font family" note="Choose a coding voice."><select value={state.settings.font} onChange={(event) => onUpdate({ font: event.target.value as Settings["font"] })}><option value="mono">Jet Mono</option><option value="rounded">Rounded Mono</option><option value="classic">Classic Mono</option></select></SettingRow>
-        <SettingRow label="Font size" note="Editor text size."><div className="stepper"><button onClick={() => onUpdate({ fontSize: Math.max(12, state.settings.fontSize - 1) })}>−</button><span>{state.settings.fontSize}px</span><button onClick={() => onUpdate({ fontSize: Math.min(24, state.settings.fontSize + 1) })}>+</button></div></SettingRow>
-        <SettingRow label="Indentation" note="Spaces inserted by Tab."><Segmented value={String(state.settings.tabSize)} options={["2", "4"]} onChange={(value) => onUpdate({ tabSize: Number(value) as 2 | 4 })} /></SettingRow>
-        <SettingRow label="Editor height" note="Visible lines before scrolling."><Segmented value={String(state.settings.editorLines)} options={["12", "16", "20"]} onChange={(value) => onUpdate({ editorLines: Number(value) as 12 | 16 | 20 })} /></SettingRow>
-      </div></section>
-      <section className="settings-section"><div className="settings-intro"><small>Behavior</small><h2>Practice rules</h2><p>Strict mode is ideal while rebuilding muscle memory.</p></div><div className="setting-list">
-        <ToggleRow label="Strict correction" note="Reject incorrect characters immediately." checked={state.settings.strictMode} onChange={(checked) => onUpdate({ strictMode: checked })} />
-        <ToggleRow label="Live WPM" note="Show speed during the attempt." checked={state.settings.showLiveWpm} onChange={(checked) => onUpdate({ showLiveWpm: checked })} />
-        <ToggleRow label="Keyboard guide" note="Show a friction heatmap below the editor." checked={state.settings.showKeyboard} onChange={(checked) => onUpdate({ showKeyboard: checked })} />
-        <SettingRow label="Daily practice goal" note="Minutes practiced before the ring closes."><div className="stepper"><button onClick={() => onUpdate({ dailyGoalMinutes: Math.max(5, state.settings.dailyGoalMinutes - 5) })}>−</button><span>{state.settings.dailyGoalMinutes} min</span><button onClick={() => onUpdate({ dailyGoalMinutes: Math.min(120, state.settings.dailyGoalMinutes + 5) })}>+</button></div></SettingRow>
-      </div></section>
-      <section className="settings-section"><div className="settings-intro"><small>Your data</small><h2>Local profile</h2><p>Export a portable JSON backup or restore one on another browser.</p></div><div className="data-actions"><button className="outline-button" onClick={onExport}>Export progress</button><button className="outline-button" onClick={onImport}>Import backup</button><button className="danger-button" onClick={onReset}>Clear local data</button></div></section>
-    </main>
-  );
+  return <main className="page-container settings-page"><PageHeading eyebrow="Make it yours" title="Practice settings." copy="Tune the editor for comfort. Preferences, snippets, and history stay in this browser unless you export them." /><section className="settings-section"><div className="settings-intro"><small>Appearance</small><h2>Color theme</h2><p>Six low-distraction palettes built for long practice sessions.</p></div><div className="theme-grid">{THEMES.map((theme) => <button className={state.settings.theme === theme.id ? "active" : ""} onClick={() => onUpdate({ theme: theme.id })} key={theme.id}><span>{theme.colors.map((color) => <i key={color} style={{ background: color }} />)}</span><strong>{theme.label}</strong>{state.settings.theme === theme.id && <b>✓</b>}</button>)}</div></section><section className="settings-section"><div className="settings-intro"><small>Editor</small><h2>Typing surface</h2><p>Match the rhythm of the editor you use every day.</p></div><div className="setting-list"><SettingRow label="Font family" note="Choose a coding voice."><select value={state.settings.font} onChange={(event) => onUpdate({ font: event.target.value as Settings["font"] })}><option value="mono">Jet Mono</option><option value="rounded">Rounded Mono</option><option value="classic">Classic Mono</option></select></SettingRow><SettingRow label="Font size" note="Editor text size."><div className="stepper"><button onClick={() => onUpdate({ fontSize: Math.max(12, state.settings.fontSize - 1) })}>−</button><span>{state.settings.fontSize}px</span><button onClick={() => onUpdate({ fontSize: Math.min(24, state.settings.fontSize + 1) })}>+</button></div></SettingRow><SettingRow label="Indentation" note="Spaces inserted by Tab."><Segmented value={String(state.settings.tabSize)} options={["2", "4"]} onChange={(value) => onUpdate({ tabSize: Number(value) as 2 | 4 })} /></SettingRow><SettingRow label="Editor height" note="Visible lines before scrolling."><Segmented value={String(state.settings.editorLines)} options={["12", "16", "20"]} onChange={(value) => onUpdate({ editorLines: Number(value) as 12 | 16 | 20 })} /></SettingRow></div></section><section className="settings-section"><div className="settings-intro"><small>Behavior</small><h2>Practice rules</h2><p>Strict mode is ideal while rebuilding muscle memory.</p></div><div className="setting-list"><ToggleRow label="Strict correction" note="Reject incorrect characters immediately." checked={state.settings.strictMode} onChange={(checked) => onUpdate({ strictMode: checked })} /><ToggleRow label="Live WPM" note="Show speed during the attempt." checked={state.settings.showLiveWpm} onChange={(checked) => onUpdate({ showLiveWpm: checked })} /><ToggleRow label="Keyboard guide" note="Show a friction heatmap below the editor." checked={state.settings.showKeyboard} onChange={(checked) => onUpdate({ showKeyboard: checked })} /><SettingRow label="Daily practice goal" note="Minutes practiced before the ring closes."><div className="stepper"><button onClick={() => onUpdate({ dailyGoalMinutes: Math.max(5, state.settings.dailyGoalMinutes - 5) })}>−</button><span>{state.settings.dailyGoalMinutes} min</span><button onClick={() => onUpdate({ dailyGoalMinutes: Math.min(120, state.settings.dailyGoalMinutes + 5) })}>+</button></div></SettingRow></div></section><section className="settings-section"><div className="settings-intro"><small>Your data</small><h2>Local profile</h2><p>Export a portable v3 JSON backup, including custom snippets, or restore an older v2 backup.</p></div><div className="data-actions"><button className="outline-button" onClick={onExport}>Export progress</button><button className="outline-button" onClick={onImport}>Import backup</button><button className="danger-button" onClick={onReset}>Clear local data</button></div></section></main>;
+}
+
+function CustomSnippetDialog({ onClose, onSave }: { onClose: () => void; onSave: (input: Parameters<typeof makeCustomItem>[0]) => void }) {
+  const [title, setTitle] = useState(""); const [pattern, setPattern] = useState<Pattern>(PATTERN_ORDER[0]); const [difficulty, setDifficulty] = useState<"Easy" | "Medium">("Easy"); const [code, setCode] = useState("func example() {\n    // Type your Swift implementation here\n}"); const [cue, setCue] = useState(""); const [invariant, setInvariant] = useState(""); const [complexity, setComplexity] = useState(""); const [swiftNote, setSwiftNote] = useState(""); const valid = title.trim().length >= 1 && title.trim().length <= 80 && code.trim().length >= 10 && code.length <= 20000;
+  const dialogRef = useRef<HTMLElement>(null); useModalKeyboard(onClose, dialogRef);
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="custom-dialog" role="dialog" aria-modal="true" aria-labelledby="custom-title"><button className="dialog-close" onClick={onClose} aria-label="Close">×</button><span className="eyebrow">Device-local curriculum</span><h2 id="custom-title">Add a Swift snippet</h2><p>Turn an iOS pattern, API example, or interview solution into the same progressive recall exercise.</p><div className="custom-form"><label><span>Title</span><input data-modal-autofocus maxLength={80} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Debounced async search" /></label><div className="form-pair"><label><span>Pattern</span><select value={pattern} onChange={(event) => setPattern(event.target.value as Pattern)}>{PATTERN_ORDER.map((value) => <option key={value}>{value}</option>)}</select></label><label><span>Difficulty</span><select value={difficulty} onChange={(event) => setDifficulty(event.target.value as "Easy" | "Medium")}><option>Easy</option><option>Medium</option></select></label></div><label><span>Swift code</span><textarea value={code} onChange={(event) => setCode(event.target.value)} spellCheck={false} /></label><label><span>Pattern cue</span><input value={cue} onChange={(event) => setCue(event.target.value)} placeholder="What should you recognize before coding?" /></label><label><span>Invariant</span><input value={invariant} onChange={(event) => setInvariant(event.target.value)} placeholder="What must remain true?" /></label><div className="form-pair"><label><span>Complexity</span><input value={complexity} onChange={(event) => setComplexity(event.target.value)} placeholder="O(n) time · O(1) space" /></label><label><span>Swift note</span><input value={swiftNote} onChange={(event) => setSwiftNote(event.target.value)} placeholder="Syntax or API detail to remember" /></label></div></div><div className="result-actions"><button className="outline-button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={!valid} onClick={() => onSave({ title, pattern, difficulty, code, cue, invariant, complexity, swiftNote })}>Save and practice →</button></div></section></div>;
 }
 
 function ResultDialog({ result, onClose, onNext, onRandom }: { result: Result; onClose: () => void; onNext: () => void; onRandom: () => void }) {
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="result-dialog" role="dialog" aria-modal="true" aria-labelledby="result-title"><button className="dialog-close" onClick={onClose} aria-label="Close">×</button><div className="result-mark">✓</div><span className="eyebrow">Pass complete · Stage {result.stage}</span><h2 id="result-title">{result.problem.title}</h2><p>You completed the {STAGES[result.stage - 1].name.toLowerCase()} pass. Speed is useful; independent reconstruction is the goal.</p><div className="result-stats"><span><small>WPM</small><strong>{result.wpm}</strong></span><span><small>Accuracy</small><strong>{result.accuracy}%</strong></span><span><small>Time</small><strong>{formatDuration(result.durationMs)}</strong></span><span><small>Corrections</small><strong>{result.corrections + result.rejectedKeystrokes}</strong></span></div><div className="result-actions"><button className="outline-button" onClick={onRandom}>Different problem</button><button className="primary-button" onClick={onNext}>{result.stage < 5 ? "Climb to next stage →" : "Practice recall again →"}</button></div></section></div>;
+  const eligible = eligibleAttempt(result); const isBest = eligible && (!result.previousBest || result.wpm > result.previousBest.wpm); const delta = result.previousBest ? result.wpm - result.previousBest.wpm : null;
+  const dialogRef = useRef<HTMLElement>(null); useModalKeyboard(onClose, dialogRef);
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section ref={dialogRef} className="result-dialog" role="dialog" aria-modal="true" aria-labelledby="result-title"><button className="dialog-close" onClick={onClose} aria-label="Close">×</button><div className={`result-mark ${eligible ? "" : "assisted"}`}>{eligible ? "✓" : "~"}</div><span className="eyebrow">Pass complete · Stage {result.stage}</span><h2 id="result-title">{result.item.title}</h2><p>{eligible ? result.qualification === "independent" ? "Independent recall verified. This solution now counts as owned." : "Clean pass recorded. Keep climbing toward blank-editor recall." : result.peeks ? "Assisted pass recorded. Because you peeked, it does not advance mastery or personal records." : "Practice saved, but 95% accuracy is required for mastery and personal records."}</p><div className="result-stats"><span><small>WPM</small><strong>{result.wpm}</strong></span><span><small>Accuracy</small><strong>{result.accuracy}%</strong></span><span><small>Time</small><strong>{formatDuration(result.durationMs)}</strong></span><span><small>Record</small><strong>{isBest ? "New PB" : delta === null ? "—" : `${delta >= 0 ? "+" : ""}${delta}`}</strong></span></div>{result.nextReview && <div className="result-review"><span>Next review</span><strong>{formatDay(result.nextReview)}</strong><small>{eligible ? "Interval advanced" : "Returns tomorrow"}</small></div>}<div className="result-actions"><button className="outline-button" onClick={onRandom}>Different problem</button><button className="primary-button" onClick={onNext}>{result.stage < 5 ? "Climb to next stage →" : "Practice recall again →"}</button></div></section></div>;
 }
 
-function PageHeading({ eyebrow, title, copy }: { eyebrow: string; title: string; copy: string }) {
-  return <header className="page-heading"><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{copy}</p></header>;
-}
-
-function StatCard({ label, value, note }: { label: string; value: string; note: string }) {
-  return <article className="stat-card"><small>{label}</small><strong>{value}</strong><span>{note}</span></article>;
-}
-
-function EmptyChart() {
-  return <div className="empty-chart"><span>⌨</span><strong>No completed passes yet</strong><small>Finish one practice stage to start your rhythm chart.</small></div>;
-}
-
-function KeyboardGuide({ errors }: { errors: Record<string, number> }) {
-  const rows = ["1234567890", "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"];
-  const max = Math.max(1, ...Object.values(errors));
-  return <section className="keyboard-guide"><div><small>Key friction</small><strong>Rejected-key heatmap</strong></div><div className="keyboard-rows">{rows.map((row) => <div key={row}>{row.split("").map((key) => { const count = errors[key] ?? errors[key.toLowerCase()] ?? 0; return <span key={key} className={count ? "hot" : ""} style={{ "--heat": String(count / max) } as React.CSSProperties}>{key}<small>{count || ""}</small></span>; })}</div>)}<div><span className="space-key">space<small>{errors.space || ""}</small></span></div></div></section>;
-}
-
-function SettingRow({ label, note, children }: { label: string; note: string; children: React.ReactNode }) {
-  return <div className="setting-row"><span><strong>{label}</strong><small>{note}</small></span>{children}</div>;
-}
-
-function ToggleRow({ label, note, checked, onChange }: { label: string; note: string; checked: boolean; onChange: (checked: boolean) => void }) {
-  return <SettingRow label={label} note={note}><button role="switch" aria-label={label} aria-checked={checked} className={`toggle ${checked ? "on" : ""}`} onClick={() => onChange(!checked)}><i /></button></SettingRow>;
-}
-
-function Segmented({ value, options, onChange }: { value: string; options: string[]; onChange: (value: string) => void }) {
-  return <div className="segmented">{options.map((option) => <button className={value === option ? "active" : ""} onClick={() => onChange(option)} key={option}>{option}</button>)}</div>;
-}
+function PageHeading({ eyebrow, title, copy }: { eyebrow: string; title: string; copy: string }) { return <header className="page-heading"><span className="eyebrow">{eyebrow}</span><h1>{title}</h1><p>{copy}</p></header>; }
+function StatCard({ label, value, note }: { label: string; value: string; note: string }) { return <article className="stat-card"><small>{label}</small><strong>{value}</strong><span>{note}</span></article>; }
+function EmptyChart() { return <div className="empty-chart"><span>⌨</span><strong>No completed passes yet</strong><small>Finish one practice stage to start your rhythm chart.</small></div>; }
+function KeyboardGuide({ errors }: { errors: Record<string, number> }) { const rows = ["1234567890", "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"]; const max = Math.max(1, ...Object.values(errors)); return <section className="keyboard-guide"><div><small>Key friction</small><strong>Rejected-key heatmap</strong></div><div className="keyboard-rows">{rows.map((row) => <div key={row}>{row.split("").map((key) => { const count = errors[key] ?? errors[key.toLowerCase()] ?? 0; return <span key={key} className={count ? "hot" : ""} style={{ "--heat": String(count / max) } as React.CSSProperties}>{key}<small>{count || ""}</small></span>; })}</div>)}<div><span className="space-key">space<small>{errors.space || ""}</small></span></div></div></section>; }
+function SettingRow({ label, note, children }: { label: string; note: string; children: React.ReactNode }) { return <div className="setting-row"><span><strong>{label}</strong><small>{note}</small></span>{children}</div>; }
+function ToggleRow({ label, note, checked, onChange }: { label: string; note: string; checked: boolean; onChange: (checked: boolean) => void }) { return <SettingRow label={label} note={note}><button role="switch" aria-label={label} aria-checked={checked} className={`toggle ${checked ? "on" : ""}`} onClick={() => onChange(!checked)}><i /></button></SettingRow>; }
+function Segmented({ value, options, onChange }: { value: string; options: string[]; onChange: (value: string) => void }) { return <div className="segmented">{options.map((option) => <button className={value === option ? "active" : ""} onClick={() => onChange(option)} key={option}>{option}</button>)}</div>; }

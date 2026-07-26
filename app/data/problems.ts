@@ -27,6 +27,8 @@ export type Problem = {
   swiftNote: string;
   estimatedMinutes: number;
   code: string;
+  isCustom?: boolean;
+  sourceUrl?: string;
 };
 
 export const PATTERN_ORDER: Pattern[] = [
@@ -1092,9 +1094,671 @@ export const PROBLEMS: Problem[] = [
     }
 }`,
   },
+  {
+    id: 128,
+    title: "Longest Consecutive Sequence",
+    slug: "longest-consecutive-sequence",
+    difficulty: "Medium",
+    pattern: "Arrays & Hashing",
+    summary: "Find the longest run of consecutive values regardless of input order.",
+    cue: "Only values with no predecessor can begin a new sequence.",
+    invariant: "Every counted run begins at its unique smallest value.",
+    complexity: "O(n) expected time · O(n) space",
+    swiftNote: "Build Set(nums), then extend only from values whose predecessor is absent.",
+    estimatedMinutes: 7,
+    code: `class Solution {
+    func longestConsecutive(_ nums: [Int]) -> Int {
+        let values = Set(nums)
+        var best = 0
+
+        for value in values where !values.contains(value - 1) {
+            var current = value
+            var length = 1
+
+            while values.contains(current + 1) {
+                current += 1
+                length += 1
+            }
+
+            best = max(best, length)
+        }
+
+        return best
+    }
+}`,
+  },
+  {
+    id: 560,
+    title: "Subarray Sum Equals K",
+    slug: "subarray-sum-equals-k",
+    difficulty: "Medium",
+    pattern: "Arrays & Hashing",
+    summary: "Count contiguous subarrays whose values sum to a target.",
+    cue: "A subarray sums to k when two prefix sums differ by k.",
+    invariant: "The dictionary counts prefix sums ending before the current position.",
+    complexity: "O(n) time · O(n) space",
+    swiftNote: "Seed prefixCounts with [0: 1] so subarrays starting at index zero are counted.",
+    estimatedMinutes: 8,
+    code: `class Solution {
+    func subarraySum(_ nums: [Int], _ k: Int) -> Int {
+        var prefixCounts = [0: 1]
+        var prefix = 0
+        var result = 0
+
+        for value in nums {
+            prefix += value
+            result += prefixCounts[prefix - k, default: 0]
+            prefixCounts[prefix, default: 0] += 1
+        }
+
+        return result
+    }
+}`,
+  },
+  {
+    id: 567,
+    title: "Permutation in String",
+    slug: "permutation-in-string",
+    difficulty: "Medium",
+    pattern: "Sliding Window",
+    summary: "Determine whether any fixed-length window is a permutation of another string.",
+    cue: "A permutation preserves frequencies, and its window length is known.",
+    invariant: "missing is the number of pattern characters not satisfied by the active window.",
+    complexity: "O(n + m) time · O(1) space",
+    swiftNote: "The lowercase-English constraint makes UTF-8 byte indexing with 26 counters safe.",
+    estimatedMinutes: 8,
+    code: `class Solution {
+    func checkInclusion(_ s1: String, _ s2: String) -> Bool {
+        let pattern = Array(s1.utf8)
+        let text = Array(s2.utf8)
+
+        if pattern.isEmpty {
+            return true
+        }
+        guard pattern.count <= text.count else {
+            return false
+        }
+
+        var balance = Array(repeating: 0, count: 26)
+        for byte in pattern {
+            balance[Int(byte) - 97] += 1
+        }
+
+        var missing = pattern.count
+
+        for right in text.indices {
+            let entering = Int(text[right]) - 97
+            if balance[entering] > 0 {
+                missing -= 1
+            }
+            balance[entering] -= 1
+
+            if right >= pattern.count {
+                let leaving = Int(text[right - pattern.count]) - 97
+                if balance[leaving] >= 0 {
+                    missing += 1
+                }
+                balance[leaving] += 1
+            }
+
+            if missing == 0 {
+                return true
+            }
+        }
+
+        return false
+    }
+}`,
+  },
+  {
+    id: 150,
+    title: "Evaluate Reverse Polish Notation",
+    slug: "evaluate-reverse-polish-notation",
+    difficulty: "Medium",
+    pattern: "Stack",
+    summary: "Evaluate an arithmetic expression written in postfix order.",
+    cue: "Each operator consumes the two most recent completed operands.",
+    invariant: "The stack contains values of completed subexpressions in encounter order.",
+    complexity: "O(n) time · O(n) space",
+    swiftNote: "Pop the right operand before the left; Swift integer division truncates toward zero.",
+    estimatedMinutes: 6,
+    code: `class Solution {
+    func evalRPN(_ tokens: [String]) -> Int {
+        var stack: [Int] = []
+
+        for token in tokens {
+            if let value = Int(token) {
+                stack.append(value)
+                continue
+            }
+
+            let right = stack.removeLast()
+            let left = stack.removeLast()
+
+            switch token {
+            case "+":
+                stack.append(left + right)
+            case "-":
+                stack.append(left - right)
+            case "*":
+                stack.append(left * right)
+            default:
+                stack.append(left / right)
+            }
+        }
+
+        return stack.last!
+    }
+}`,
+  },
+  {
+    id: 155,
+    title: "Min Stack",
+    slug: "min-stack",
+    difficulty: "Medium",
+    pattern: "Stack",
+    summary: "Implement a stack that also returns its current minimum in constant time.",
+    cue: "Each depth can remember the minimum that existed when it was created.",
+    invariant: "minimums[i] is the minimum of values[0...i].",
+    complexity: "O(1) per operation · O(n) space",
+    swiftNote: "LeetCode expects a top-level MinStack class rather than class Solution.",
+    estimatedMinutes: 6,
+    code: `class MinStack {
+    private var values: [Int] = []
+    private var minimums: [Int] = []
+
+    init() {}
+
+    func push(_ val: Int) {
+        values.append(val)
+        minimums.append(min(val, minimums.last ?? val))
+    }
+
+    func pop() {
+        values.removeLast()
+        minimums.removeLast()
+    }
+
+    func top() -> Int {
+        values.last!
+    }
+
+    func getMin() -> Int {
+        minimums.last!
+    }
+}`,
+  },
+  {
+    id: 875,
+    title: "Koko Eating Bananas",
+    slug: "koko-eating-bananas",
+    difficulty: "Medium",
+    pattern: "Binary Search",
+    summary: "Find the smallest integer eating speed that finishes every pile on time.",
+    cue: "If one speed is feasible, every faster speed is also feasible.",
+    invariant: "The minimum feasible speed always remains inside [left, right].",
+    complexity: "O(n log maximumPile) time · O(1) space",
+    swiftNote: "Compute ceiling division as (pile + speed - 1) / speed.",
+    estimatedMinutes: 8,
+    code: `class Solution {
+    func minEatingSpeed(_ piles: [Int], _ h: Int) -> Int {
+        var left = 1
+        var right = piles.max()!
+
+        while left < right {
+            let speed = left + (right - left) / 2
+            var hours = 0
+
+            for pile in piles {
+                hours += (pile + speed - 1) / speed
+            }
+
+            if hours <= h {
+                right = speed
+            } else {
+                left = speed + 1
+            }
+        }
+
+        return left
+    }
+}`,
+  },
+  {
+    id: 19,
+    title: "Remove Nth Node From End of List",
+    slug: "remove-nth-node-from-end-of-list",
+    difficulty: "Medium",
+    pattern: "Linked List",
+    summary: "Remove a node identified by its distance from the list's end.",
+    cue: "A fixed gap lets one pointer locate the predecessor when the other reaches the end.",
+    invariant: "The fast pointer remains n nodes ahead of the slow pointer.",
+    complexity: "O(n) time · O(1) space",
+    swiftNote: "A dummy ListNode handles removing the original head without a separate branch.",
+    estimatedMinutes: 8,
+    code: `class Solution {
+    func removeNthFromEnd(_ head: ListNode?, _ n: Int) -> ListNode? {
+        let dummy = ListNode(0)
+        dummy.next = head
+        var fast: ListNode? = dummy
+        var slow: ListNode? = dummy
+
+        for _ in 0..<n {
+            fast = fast?.next
+        }
+
+        while fast?.next != nil {
+            fast = fast?.next
+            slow = slow?.next
+        }
+
+        slow?.next = slow?.next?.next
+        return dummy.next
+    }
+}`,
+  },
+  {
+    id: 230,
+    title: "Kth Smallest Element in a BST",
+    slug: "kth-smallest-element-in-a-bst",
+    difficulty: "Medium",
+    pattern: "Trees",
+    summary: "Return the kth value encountered in a binary search tree's sorted order.",
+    cue: "An in-order traversal of a BST visits values from smallest to largest.",
+    invariant: "The stack holds ancestors whose value and right subtree remain unvisited.",
+    complexity: "O(h + k) time · O(h) space",
+    swiftNote: "Use an explicit [TreeNode] stack; TreeNode is supplied by LeetCode.",
+    estimatedMinutes: 7,
+    code: `class Solution {
+    func kthSmallest(_ root: TreeNode?, _ k: Int) -> Int {
+        var stack: [TreeNode] = []
+        var current = root
+        var remaining = k
+
+        while current != nil || !stack.isEmpty {
+            while let node = current {
+                stack.append(node)
+                current = node.left
+            }
+
+            let node = stack.removeLast()
+            remaining -= 1
+            if remaining == 0 {
+                return node.val
+            }
+            current = node.right
+        }
+
+        return -1
+    }
+}`,
+  },
+  {
+    id: 57,
+    title: "Insert Interval",
+    slug: "insert-interval",
+    difficulty: "Medium",
+    pattern: "Intervals",
+    summary: "Insert one range into sorted disjoint ranges and merge any overlaps.",
+    cue: "Intervals separate into those before, overlapping, and after the new range.",
+    invariant: "result is sorted and disjoint, while merged covers every overlap seen so far.",
+    complexity: "O(n) time · O(n) space",
+    swiftNote: "Copy newInterval into a var before widening its endpoints.",
+    estimatedMinutes: 8,
+    code: `class Solution {
+    func insert(_ intervals: [[Int]], _ newInterval: [Int]) -> [[Int]] {
+        var result: [[Int]] = []
+        var merged = newInterval
+        var index = 0
+
+        while index < intervals.count && intervals[index][1] < merged[0] {
+            result.append(intervals[index])
+            index += 1
+        }
+
+        while index < intervals.count && intervals[index][0] <= merged[1] {
+            merged[0] = min(merged[0], intervals[index][0])
+            merged[1] = max(merged[1], intervals[index][1])
+            index += 1
+        }
+
+        result.append(merged)
+        result.append(contentsOf: intervals[index...])
+        return result
+    }
+}`,
+  },
+  {
+    id: 435,
+    title: "Non-overlapping Intervals",
+    slug: "non-overlapping-intervals",
+    difficulty: "Medium",
+    pattern: "Intervals",
+    summary: "Find the fewest ranges to remove so the remainder do not overlap.",
+    cue: "Keeping the interval that ends earliest leaves the most room for later choices.",
+    invariant: "lastEnd is the smallest possible end among equally large valid kept sets.",
+    complexity: "O(n log n) time · O(n) space",
+    swiftNote: "Swift sorted() returns a new array; touching endpoints are not overlapping.",
+    estimatedMinutes: 7,
+    code: `class Solution {
+    func eraseOverlapIntervals(_ intervals: [[Int]]) -> Int {
+        guard !intervals.isEmpty else {
+            return 0
+        }
+
+        let sorted = intervals.sorted { $0[1] < $1[1] }
+        var removals = 0
+        var lastEnd = sorted[0][1]
+
+        for interval in sorted.dropFirst() {
+            if interval[0] < lastEnd {
+                removals += 1
+            } else {
+                lastEnd = interval[1]
+            }
+        }
+
+        return removals
+    }
+}`,
+  },
+  {
+    id: 133,
+    title: "Clone Graph",
+    slug: "clone-graph",
+    difficulty: "Medium",
+    pattern: "Graphs",
+    summary: "Create a deep copy of every node and edge reachable from a starting node.",
+    cue: "Cycles require recording a copy before recursively cloning neighbors.",
+    invariant: "Each original object identity maps to exactly one cloned node.",
+    complexity: "O(V + E) time · O(V) space",
+    swiftNote: "Node is not Hashable; key the clone dictionary by ObjectIdentifier.",
+    estimatedMinutes: 10,
+    code: `class Solution {
+    func cloneGraph(_ node: Node?) -> Node? {
+        var cloneByIdentity: [ObjectIdentifier: Node] = [:]
+
+        func clone(_ original: Node) -> Node {
+            let identity = ObjectIdentifier(original)
+            if let existing = cloneByIdentity[identity] {
+                return existing
+            }
+
+            let copy = Node(original.val)
+            cloneByIdentity[identity] = copy
+            copy.neighbors = original.neighbors.map { neighbor -> Node? in
+                guard let neighbor else {
+                    return nil
+                }
+                return clone(neighbor)
+            }
+            return copy
+        }
+
+        guard let node else {
+            return nil
+        }
+        return clone(node)
+    }
+}`,
+  },
+  {
+    id: 994,
+    title: "Rotting Oranges",
+    slug: "rotting-oranges",
+    difficulty: "Medium",
+    pattern: "Graphs",
+    summary: "Find how many simultaneous spreading steps are needed to reach every fresh cell.",
+    cue: "All initially active sources must enter the same first BFS layer.",
+    invariant: "Each completed queue layer represents exactly one elapsed minute.",
+    complexity: "O(rows · columns) time · O(rows · columns) space",
+    swiftNote: "Copy the grid into var state and use a queue head index instead of removeFirst().",
+    estimatedMinutes: 10,
+    code: `class Solution {
+    func orangesRotting(_ grid: [[Int]]) -> Int {
+        guard let columns = grid.first?.count, columns > 0 else {
+            return 0
+        }
+
+        let rows = grid.count
+        var state = grid
+        var queue: [(Int, Int)] = []
+        var fresh = 0
+
+        for row in 0..<rows {
+            for column in 0..<columns {
+                if state[row][column] == 2 {
+                    queue.append((row, column))
+                } else if state[row][column] == 1 {
+                    fresh += 1
+                }
+            }
+        }
+
+        let directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+        var head = 0
+        var minutes = 0
+
+        while fresh > 0 && head < queue.count {
+            let levelEnd = queue.count
+            minutes += 1
+
+            while head < levelEnd {
+                let (row, column) = queue[head]
+                head += 1
+
+                for (rowOffset, columnOffset) in directions {
+                    let nextRow = row + rowOffset
+                    let nextColumn = column + columnOffset
+
+                    guard nextRow >= 0, nextRow < rows,
+                          nextColumn >= 0, nextColumn < columns,
+                          state[nextRow][nextColumn] == 1 else {
+                        continue
+                    }
+
+                    state[nextRow][nextColumn] = 2
+                    fresh -= 1
+                    queue.append((nextRow, nextColumn))
+                }
+            }
+        }
+
+        return fresh == 0 ? minutes : -1
+    }
+}`,
+  },
+  {
+    id: 39,
+    title: "Combination Sum",
+    slug: "combination-sum",
+    difficulty: "Medium",
+    pattern: "Backtracking",
+    summary: "Generate combinations of reusable values that total a target.",
+    cue: "Reuse keeps the recursive start index unchanged after choosing a value.",
+    invariant: "path sums to target minus remaining and never decreases in candidate order.",
+    complexity: "Output-sensitive time · O(target / minimumCandidate) stack space",
+    swiftNote: "Sort candidates so a value greater than remaining can stop the loop.",
+    estimatedMinutes: 10,
+    code: `class Solution {
+    func combinationSum(_ candidates: [Int], _ target: Int) -> [[Int]] {
+        let values = candidates.sorted()
+        var result: [[Int]] = []
+        var path: [Int] = []
+
+        func backtrack(_ start: Int, _ remaining: Int) {
+            if remaining == 0 {
+                result.append(path)
+                return
+            }
+
+            for index in start..<values.count {
+                let value = values[index]
+                if value > remaining {
+                    break
+                }
+
+                path.append(value)
+                backtrack(index, remaining - value)
+                path.removeLast()
+            }
+        }
+
+        backtrack(0, target)
+        return result
+    }
+}`,
+  },
+  {
+    id: 46,
+    title: "Permutations",
+    slug: "permutations",
+    difficulty: "Medium",
+    pattern: "Backtracking",
+    summary: "Generate every ordering of a list of unique values.",
+    cue: "At each position, choose one remaining value and restore the choice afterward.",
+    invariant: "Indices before the recursion position form a fixed permutation prefix.",
+    complexity: "O(n · n!) time · O(n) stack space excluding output",
+    swiftNote: "In-place swapAt avoids a separate used set and must be undone after recursion.",
+    estimatedMinutes: 8,
+    code: `class Solution {
+    func permute(_ nums: [Int]) -> [[Int]] {
+        var values = nums
+        var result: [[Int]] = []
+
+        func backtrack(_ position: Int) {
+            if position == values.count {
+                result.append(values)
+                return
+            }
+
+            for index in position..<values.count {
+                values.swapAt(position, index)
+                backtrack(position + 1)
+                values.swapAt(position, index)
+            }
+        }
+
+        backtrack(0)
+        return result
+    }
+}`,
+  },
+  {
+    id: 763,
+    title: "Partition Labels",
+    slug: "partition-labels",
+    difficulty: "Medium",
+    pattern: "Greedy",
+    summary: "Split a string into the most segments that keep each character in one segment.",
+    cue: "A segment cannot close before the last occurrence of every character it contains.",
+    invariant: "end is the farthest final occurrence required by the active segment.",
+    complexity: "O(n) time · O(k) space",
+    swiftNote: "Convert to [Character] once so stored integer positions remain cheap to revisit.",
+    estimatedMinutes: 7,
+    code: `class Solution {
+    func partitionLabels(_ s: String) -> [Int] {
+        let characters = Array(s)
+        var lastIndex: [Character: Int] = [:]
+
+        for (index, character) in characters.enumerated() {
+            lastIndex[character] = index
+        }
+
+        var result: [Int] = []
+        var start = 0
+        var end = 0
+
+        for index in characters.indices {
+            end = max(end, lastIndex[characters[index]]!)
+
+            if index == end {
+                result.append(end - start + 1)
+                start = index + 1
+            }
+        }
+
+        return result
+    }
+}`,
+  },
+  {
+    id: 139,
+    title: "Word Break",
+    slug: "word-break",
+    difficulty: "Medium",
+    pattern: "Dynamic Programming",
+    summary: "Determine whether a string can be divided entirely into dictionary words.",
+    cue: "A prefix is reachable when a shorter reachable prefix can append one word.",
+    invariant: "dp[i] is true exactly when characters before i form a valid segmentation.",
+    complexity: "O(n · words · maxWordLength) time · O(n + dictionary) space",
+    swiftNote: "Convert both the source and words to Character arrays to avoid invalid integer String indexing.",
+    estimatedMinutes: 10,
+    code: `class Solution {
+    func wordBreak(_ s: String, _ wordDict: [String]) -> Bool {
+        let characters = Array(s)
+        let words = wordDict.map { Array($0) }
+        var dp = Array(repeating: false, count: characters.count + 1)
+        dp[0] = true
+
+        for start in 0...characters.count where dp[start] {
+            for word in words {
+                let end = start + word.count
+
+                if end <= characters.count &&
+                   Array(characters[start..<end]) == word {
+                    dp[end] = true
+                }
+            }
+        }
+
+        return dp[characters.count]
+    }
+}`,
+  },
+  {
+    id: 300,
+    title: "Longest Increasing Subsequence",
+    slug: "longest-increasing-subsequence",
+    difficulty: "Medium",
+    pattern: "Dynamic Programming",
+    summary: "Find the maximum length of a strictly increasing subsequence.",
+    cue: "For each possible length, retain the smallest tail value seen so far.",
+    invariant: "tails[i] is the smallest ending value for an increasing subsequence of length i + 1.",
+    complexity: "O(n log n) time · O(n) space",
+    swiftNote: "Implement lower-bound manually; replacing a tail changes possibilities, not the current length.",
+    estimatedMinutes: 10,
+    code: `class Solution {
+    func lengthOfLIS(_ nums: [Int]) -> Int {
+        var tails: [Int] = []
+
+        for value in nums {
+            var left = 0
+            var right = tails.count
+
+            while left < right {
+                let middle = left + (right - left) / 2
+                if tails[middle] < value {
+                    left = middle + 1
+                } else {
+                    right = middle
+                }
+            }
+
+            if left == tails.count {
+                tails.append(value)
+            } else {
+                tails[left] = value
+            }
+        }
+
+        return tails.count
+    }
+}`,
+  },
 ];
 
 export const problemUrl = (problem: Problem) =>
-  `https://leetcode.com/problems/${problem.slug}/`;
+  problem.isCustom ? problem.sourceUrl ?? null : `https://leetcode.com/problems/${problem.slug}/`;
 
 export const problemLineCount = (problem: Problem) => problem.code.split("\n").length;

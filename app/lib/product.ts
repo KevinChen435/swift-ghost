@@ -1,4 +1,7 @@
-import { PROBLEMS, type Problem } from "../data/problems";
+import { BUILTIN_ITEMS, type ItemId, type PracticeItem } from "./items";
+import { correctPositionCount } from "./typing-engine.mjs";
+
+export { analyzeEdit, correctPositionCount } from "./typing-engine.mjs";
 
 export const STAGES = [
   { id: 1, name: "Full ghost", short: "Full", note: "Copy once while noticing the Swift shape." },
@@ -8,8 +11,9 @@ export const STAGES = [
   { id: 5, name: "Blank editor", short: "Recall", note: "Produce the solution without ghost text." },
 ] as const;
 
-export type View = "practice" | "library" | "progress" | "settings";
+export type View = "today" | "practice" | "library" | "records" | "settings";
 export type Theme = "midnight" | "paper" | "forest" | "synthwave" | "ember" | "ocean";
+export type AttemptQualification = "syntax" | "guided" | "independent" | "assisted" | "incomplete";
 
 export type Settings = {
   theme: Theme;
@@ -25,8 +29,10 @@ export type Settings = {
 
 export type AttemptRecord = {
   id: string;
-  problemId: number;
+  itemId: ItemId;
+  titleSnapshot: string;
   stage: number;
+  mode: "strict" | "free";
   startedAt: string;
   completedAt: string;
   durationMs: number;
@@ -40,10 +46,12 @@ export type AttemptRecord = {
   accuracy: number;
   consistency: number;
   outcome: "completed" | "abandoned";
+  qualification: AttemptQualification;
+  challengeDate?: string;
 };
 
 export type Draft = {
-  problemId: number;
+  itemId: ItemId;
   stage: number;
   value: string;
   startedAt: number | null;
@@ -52,19 +60,22 @@ export type Draft = {
   rejectedKeystrokes: number;
   corrections: number;
   peeks: number;
+  challengeDate?: string;
 };
 
 export type AppState = {
-  version: 2;
+  version: 3;
   attempts: AttemptRecord[];
-  favorites: number[];
+  favorites: ItemId[];
+  customItems: PracticeItem[];
   settings: Settings;
   draft: Draft | null;
-  lastProblemId: number;
+  lastItemId: ItemId;
   lastStage: number;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v2";
+export const STORAGE_KEY = "swift-ghost-state-v3";
+export const LEGACY_STORAGE_KEY = "swift-ghost-state-v2";
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: "midnight",
@@ -79,12 +90,13 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 2,
+  version: 3,
   attempts: [],
   favorites: [],
+  customItems: [],
   settings: DEFAULT_SETTINGS,
   draft: null,
-  lastProblemId: 1,
+  lastItemId: BUILTIN_ITEMS[0].itemId,
   lastStage: 1,
 };
 
@@ -93,76 +105,147 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function finiteNumber(value: unknown, fallback: number, min: number, max: number) {
-  return typeof value === "number" && Number.isFinite(value)
-    ? Math.min(max, Math.max(min, value))
-    : fallback;
+  return typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+}
+
+function normalizeSettings(value: unknown): Settings {
+  const raw = isRecord(value) ? value : {};
+  const themes: Theme[] = ["midnight", "paper", "forest", "synthwave", "ember", "ocean"];
+  const fonts: Settings["font"][] = ["mono", "rounded", "classic"];
+  const tabSize = finiteNumber(raw.tabSize, DEFAULT_SETTINGS.tabSize, 2, 4);
+  const editorLines = finiteNumber(raw.editorLines, DEFAULT_SETTINGS.editorLines, 12, 20);
+  return {
+    theme: themes.includes(raw.theme as Theme) ? raw.theme as Theme : DEFAULT_SETTINGS.theme,
+    font: fonts.includes(raw.font as Settings["font"]) ? raw.font as Settings["font"] : DEFAULT_SETTINGS.font,
+    fontSize: Math.round(finiteNumber(raw.fontSize, DEFAULT_SETTINGS.fontSize, 12, 24)),
+    tabSize: tabSize <= 2 ? 2 : 4,
+    editorLines: editorLines <= 12 ? 12 : editorLines <= 16 ? 16 : 20,
+    strictMode: typeof raw.strictMode === "boolean" ? raw.strictMode : DEFAULT_SETTINGS.strictMode,
+    showLiveWpm: typeof raw.showLiveWpm === "boolean" ? raw.showLiveWpm : DEFAULT_SETTINGS.showLiveWpm,
+    showKeyboard: typeof raw.showKeyboard === "boolean" ? raw.showKeyboard : DEFAULT_SETTINGS.showKeyboard,
+    dailyGoalMinutes: Math.round(finiteNumber(raw.dailyGoalMinutes, DEFAULT_SETTINGS.dailyGoalMinutes, 5, 120)),
+  };
+}
+
+function normalizeCustomItems(value: unknown): PracticeItem[] {
+  if (!Array.isArray(value)) return [];
+  const patterns = new Set(BUILTIN_ITEMS.map((item) => item.pattern));
+  return value.filter((item): item is PracticeItem => {
+    if (!isRecord(item)) return false;
+    return typeof item.itemId === "string" && item.itemId.startsWith("custom:") && item.source === "custom" &&
+      typeof item.title === "string" && item.title.trim().length > 0 && item.title.length <= 80 &&
+      typeof item.code === "string" && item.code.length >= 10 && item.code.length <= 20000 &&
+      typeof item.pattern === "string" && patterns.has(item.pattern as PracticeItem["pattern"]) &&
+      (item.difficulty === "Easy" || item.difficulty === "Medium");
+  }).map((item) => {
+    let sourceUrl: string | undefined;
+    if (typeof item.sourceUrl === "string") {
+      try {
+        const parsed = new URL(item.sourceUrl);
+        if (parsed.protocol === "https:" || parsed.protocol === "http:") sourceUrl = parsed.toString();
+      } catch { /* ignore malformed and unsafe imported links */ }
+    }
+    return {
+      ...item,
+      id: 0,
+      title: item.title.trim(),
+      slug: typeof item.slug === "string" ? item.slug.slice(0, 140) : item.itemId.replace(":", "-"),
+      difficulty: item.difficulty,
+      pattern: item.pattern,
+      summary: typeof item.summary === "string" ? item.summary.slice(0, 500) : "A device-local Swift snippet for deliberate recall practice.",
+      cue: typeof item.cue === "string" ? item.cue.slice(0, 1000) : "State what this code is trying to preserve before typing.",
+      invariant: typeof item.invariant === "string" ? item.invariant.slice(0, 1000) : "Describe the condition that must stay true throughout the implementation.",
+      complexity: typeof item.complexity === "string" ? item.complexity.slice(0, 300) : "Add your own complexity check.",
+      swiftNote: typeof item.swiftNote === "string" ? item.swiftNote.slice(0, 1000) : "Notice the Swift syntax and APIs you want to recall reliably.",
+      estimatedMinutes: Math.round(finiteNumber(item.estimatedMinutes, 5, 2, 30)),
+      isCustom: true,
+      code: item.code.replace(/\r\n?/g, "\n").trimEnd(),
+      sourceUrl,
+      tags: Array.isArray(item.tags) ? item.tags.filter((tag): tag is string => typeof tag === "string").map((tag) => tag.slice(0, 40)).slice(0, 8) : [],
+      archivedAt: typeof item.archivedAt === "string" && !Number.isNaN(Date.parse(item.archivedAt)) ? item.archivedAt : undefined,
+    };
+  }).slice(-100);
+}
+
+function itemIdFromRaw(value: unknown): ItemId | null {
+  if (typeof value === "string" && /^(builtin:\d+|custom:[\w-]+)$/.test(value)) return value as ItemId;
+  if (typeof value === "number" && Number.isFinite(value)) return `builtin:${value}` as ItemId;
+  return null;
+}
+
+export function qualificationFor(input: Pick<AttemptRecord, "outcome" | "stage" | "peeks" | "accuracy">): AttemptQualification {
+  if (input.outcome !== "completed") return "incomplete";
+  if (input.peeks > 0 || input.accuracy < 95) return "assisted";
+  if (input.stage === 5) return "independent";
+  if (input.stage === 4) return "guided";
+  return "syntax";
 }
 
 export function normalizeState(value: unknown): AppState {
-  if (!isRecord(value) || value.version !== 2) return EMPTY_STATE;
-  const validIds = new Set(PROBLEMS.map((problem) => problem.id));
-  const rawSettings = isRecord(value.settings) ? value.settings : {};
-  const themes: Theme[] = ["midnight", "paper", "forest", "synthwave", "ember", "ocean"];
-  const fonts: Settings["font"][] = ["mono", "rounded", "classic"];
-  const tabSize = finiteNumber(rawSettings.tabSize, DEFAULT_SETTINGS.tabSize, 2, 4);
-  const editorLines = finiteNumber(rawSettings.editorLines, DEFAULT_SETTINGS.editorLines, 12, 20);
-  const settings: Settings = {
-    theme: themes.includes(rawSettings.theme as Theme) ? rawSettings.theme as Theme : DEFAULT_SETTINGS.theme,
-    font: fonts.includes(rawSettings.font as Settings["font"]) ? rawSettings.font as Settings["font"] : DEFAULT_SETTINGS.font,
-    fontSize: Math.round(finiteNumber(rawSettings.fontSize, DEFAULT_SETTINGS.fontSize, 12, 24)),
-    tabSize: tabSize <= 2 ? 2 : 4,
-    editorLines: editorLines <= 12 ? 12 : editorLines <= 16 ? 16 : 20,
-    strictMode: typeof rawSettings.strictMode === "boolean" ? rawSettings.strictMode : DEFAULT_SETTINGS.strictMode,
-    showLiveWpm: typeof rawSettings.showLiveWpm === "boolean" ? rawSettings.showLiveWpm : DEFAULT_SETTINGS.showLiveWpm,
-    showKeyboard: typeof rawSettings.showKeyboard === "boolean" ? rawSettings.showKeyboard : DEFAULT_SETTINGS.showKeyboard,
-    dailyGoalMinutes: Math.round(finiteNumber(rawSettings.dailyGoalMinutes, DEFAULT_SETTINGS.dailyGoalMinutes, 5, 120)),
-  };
-
-  const attempts = (Array.isArray(value.attempts) ? value.attempts : [])
-    .filter((attempt): attempt is Record<string, unknown> => isRecord(attempt) && typeof attempt.id === "string" && validIds.has(Number(attempt.problemId)) && (attempt.outcome === "completed" || attempt.outcome === "abandoned"))
-    .map((attempt): AttemptRecord => ({
-      id: attempt.id as string,
-      problemId: Number(attempt.problemId),
-      stage: Math.round(finiteNumber(attempt.stage, 1, 1, 5)),
-      startedAt: typeof attempt.startedAt === "string" && !Number.isNaN(Date.parse(attempt.startedAt)) ? attempt.startedAt : new Date(0).toISOString(),
-      completedAt: typeof attempt.completedAt === "string" && !Number.isNaN(Date.parse(attempt.completedAt)) ? attempt.completedAt : new Date(0).toISOString(),
-      durationMs: finiteNumber(attempt.durationMs, 0, 0, 86400000),
-      totalKeystrokes: Math.round(finiteNumber(attempt.totalKeystrokes, 0, 0, 1000000)),
-      correctKeystrokes: Math.round(finiteNumber(attempt.correctKeystrokes, 0, 0, 1000000)),
-      rejectedKeystrokes: Math.round(finiteNumber(attempt.rejectedKeystrokes, 0, 0, 1000000)),
-      corrections: Math.round(finiteNumber(attempt.corrections, 0, 0, 1000000)),
-      peeks: Math.round(finiteNumber(attempt.peeks, 0, 0, 100000)),
-      rawWpm: Math.round(finiteNumber(attempt.rawWpm, 0, 0, 500)),
-      wpm: Math.round(finiteNumber(attempt.wpm, 0, 0, 500)),
-      accuracy: Math.round(finiteNumber(attempt.accuracy, 0, 0, 100)),
-      consistency: Math.round(finiteNumber(attempt.consistency, 0, 0, 100)),
-      outcome: attempt.outcome as AttemptRecord["outcome"],
-    }))
-    .slice(-500);
+  if (!isRecord(value) || (value.version !== 2 && value.version !== 3)) return EMPTY_STATE;
+  const customItems = normalizeCustomItems(value.customItems);
+  const validIds = new Set<ItemId>([...BUILTIN_ITEMS.map((item) => item.itemId), ...customItems.map((item) => item.itemId)]);
+  const activeIds = new Set<ItemId>([...BUILTIN_ITEMS.map((item) => item.itemId), ...customItems.filter((item) => !item.archivedAt).map((item) => item.itemId)]);
+  const attempts = (Array.isArray(value.attempts) ? value.attempts : []).flatMap((raw): AttemptRecord[] => {
+    if (!isRecord(raw) || typeof raw.id !== "string" || (raw.outcome !== "completed" && raw.outcome !== "abandoned")) return [];
+    const itemId = itemIdFromRaw(raw.itemId ?? raw.problemId);
+    if (!itemId || !validIds.has(itemId)) return [];
+    const stage = Math.round(finiteNumber(raw.stage, 1, 1, 5));
+    const outcome = raw.outcome as AttemptRecord["outcome"];
+    const peeks = Math.round(finiteNumber(raw.peeks, 0, 0, 100000));
+    const accuracy = Math.round(finiteNumber(raw.accuracy, 0, 0, 100));
+    const item = [...BUILTIN_ITEMS, ...customItems].find((candidate) => candidate.itemId === itemId);
+    const attempt: AttemptRecord = {
+      id: raw.id,
+      itemId,
+      titleSnapshot: typeof raw.titleSnapshot === "string" ? raw.titleSnapshot : item?.title ?? itemId,
+      stage,
+      mode: raw.mode === "free" ? "free" : "strict",
+      startedAt: typeof raw.startedAt === "string" && !Number.isNaN(Date.parse(raw.startedAt)) ? raw.startedAt : new Date(0).toISOString(),
+      completedAt: typeof raw.completedAt === "string" && !Number.isNaN(Date.parse(raw.completedAt)) ? raw.completedAt : new Date(0).toISOString(),
+      durationMs: finiteNumber(raw.durationMs, 0, 0, 86400000),
+      totalKeystrokes: Math.round(finiteNumber(raw.totalKeystrokes, 0, 0, 1000000)),
+      correctKeystrokes: Math.round(finiteNumber(raw.correctKeystrokes, 0, 0, 1000000)),
+      rejectedKeystrokes: Math.round(finiteNumber(raw.rejectedKeystrokes, 0, 0, 1000000)),
+      corrections: Math.round(finiteNumber(raw.corrections, 0, 0, 1000000)),
+      peeks,
+      rawWpm: Math.round(finiteNumber(raw.rawWpm, 0, 0, 500)),
+      wpm: Math.round(finiteNumber(raw.wpm, 0, 0, 500)),
+      accuracy,
+      consistency: Math.round(finiteNumber(raw.consistency, 0, 0, 100)),
+      outcome,
+      qualification: "assisted",
+      challengeDate: typeof raw.challengeDate === "string" ? raw.challengeDate : undefined,
+    };
+    attempt.qualification = qualificationFor(attempt);
+    return [attempt];
+  }).slice(-1000);
 
   const rawDraft = isRecord(value.draft) ? value.draft : null;
-  const draft = rawDraft && validIds.has(Number(rawDraft.problemId)) && typeof rawDraft.value === "string" && rawDraft.value.length <= 50000
-    ? {
-        problemId: Number(rawDraft.problemId),
-        stage: Math.round(finiteNumber(rawDraft.stage, 1, 1, 5)),
-        value: rawDraft.value,
-        startedAt: typeof rawDraft.startedAt === "number" && Number.isFinite(rawDraft.startedAt) ? rawDraft.startedAt : null,
-        totalKeystrokes: Math.round(finiteNumber(rawDraft.totalKeystrokes, 0, 0, 1000000)),
-        correctKeystrokes: Math.round(finiteNumber(rawDraft.correctKeystrokes, 0, 0, 1000000)),
-        rejectedKeystrokes: Math.round(finiteNumber(rawDraft.rejectedKeystrokes, 0, 0, 1000000)),
-        corrections: Math.round(finiteNumber(rawDraft.corrections, 0, 0, 1000000)),
-        peeks: Math.round(finiteNumber(rawDraft.peeks, 0, 0, 100000)),
-      } satisfies Draft
-    : null;
+  const draftItemId = rawDraft ? itemIdFromRaw(rawDraft.itemId ?? rawDraft.problemId) : null;
+  const draft: Draft | null = rawDraft && draftItemId && activeIds.has(draftItemId) && typeof rawDraft.value === "string" && rawDraft.value.length <= 50000 ? {
+    itemId: draftItemId,
+    stage: Math.round(finiteNumber(rawDraft.stage, 1, 1, 5)),
+    value: rawDraft.value,
+    startedAt: typeof rawDraft.startedAt === "number" && Number.isFinite(rawDraft.startedAt) ? rawDraft.startedAt : null,
+    totalKeystrokes: Math.round(finiteNumber(rawDraft.totalKeystrokes, 0, 0, 1000000)),
+    correctKeystrokes: Math.round(finiteNumber(rawDraft.correctKeystrokes, 0, 0, 1000000)),
+    rejectedKeystrokes: Math.round(finiteNumber(rawDraft.rejectedKeystrokes, 0, 0, 1000000)),
+    corrections: Math.round(finiteNumber(rawDraft.corrections, 0, 0, 1000000)),
+    peeks: Math.round(finiteNumber(rawDraft.peeks, 0, 0, 100000)),
+    challengeDate: typeof rawDraft.challengeDate === "string" ? rawDraft.challengeDate : undefined,
+  } : null;
 
-  const lastProblemId = validIds.has(Number(value.lastProblemId)) ? Number(value.lastProblemId) : EMPTY_STATE.lastProblemId;
+  const lastItemId = itemIdFromRaw(value.lastItemId ?? value.lastProblemId);
+  const favorites = Array.isArray(value.favorites) ? [...new Set(value.favorites.map(itemIdFromRaw).filter((id): id is ItemId => Boolean(id && activeIds.has(id))))] : [];
   return {
-    version: 2,
+    version: 3,
     attempts,
-    favorites: Array.isArray(value.favorites) ? [...new Set(value.favorites.map(Number).filter((id) => validIds.has(id)))] : [],
-    settings,
+    favorites,
+    customItems,
+    settings: normalizeSettings(value.settings),
     draft,
-    lastProblemId,
+    lastItemId: lastItemId && activeIds.has(lastItemId) ? lastItemId : EMPTY_STATE.lastItemId,
     lastStage: Math.round(finiteNumber(value.lastStage, draft?.stage ?? 1, 1, 5)),
   };
 }
@@ -170,7 +253,10 @@ export function normalizeState(value: unknown): AppState {
 export function loadState(): AppState {
   if (typeof window === "undefined") return EMPTY_STATE;
   try {
-    return normalizeState(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null"));
+    const current = localStorage.getItem(STORAGE_KEY);
+    if (current) return normalizeState(JSON.parse(current));
+    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+    return legacy ? normalizeState(JSON.parse(legacy)) : EMPTY_STATE;
   } catch {
     return EMPTY_STATE;
   }
@@ -178,49 +264,32 @@ export function loadState(): AppState {
 
 export function saveState(state: AppState) {
   if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // Practice remains usable if storage is unavailable.
-  }
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* local-only mode still works */ }
 }
 
-export function maskCode(code: string, stage: number, reveal = false) {
+export function maskCode(code: string, stage: number, reveal = false, authored?: PracticeItem["masks"]) {
   if (reveal || stage === 1) return code;
+  if (stage >= 2 && stage <= 4 && authored?.[stage as 2 | 3 | 4]) return authored[stage as 2 | 3 | 4] as string;
   if (stage === 5) return code.replace(/[^\n]/g, " ");
-
-  return code
-    .split("\n")
-    .map((line, index) => {
-      const trimmed = line.trim();
-      if (!trimmed) return line;
-      if (stage === 4) {
-        const keep = /^(class |struct |func |}|\{)/.test(trimmed) || trimmed.endsWith("{");
-        return keep ? line : line.replace(/\S/g, " ");
-      }
-      if (stage === 3) {
-        const keep = index === 0 || index % 3 === 0 || /^(class |func |}|\{)/.test(trimmed);
-        return keep ? line : line.replace(/\S/g, " ");
-      }
-      return line.replace(/\b(?:var|let|if|else|for|while|return|guard)\b|(?<=[=\[(, ])\w+(?=[\], ):=+\-])/g, (match) => "_".repeat(match.length));
-    })
-    .join("\n");
+  return code.split("\n").map((line, index) => {
+    const trimmed = line.trim();
+    if (!trimmed) return line;
+    if (stage === 4) return /^(class |struct |func |}|\{)/.test(trimmed) || trimmed.endsWith("{") ? line : line.replace(/\S/g, " ");
+    if (stage === 3) return index === 0 || index % 3 === 0 || /^(class |func |}|\{)/.test(trimmed) ? line : line.replace(/\S/g, " ");
+    return line.replace(/\b(?:var|let|if|else|for|while|return|guard)\b|(?<=[=\[(, ])\w+(?=[\], ):=+\-])/g, (match) => "_".repeat(match.length));
+  }).join("\n");
 }
 
 export function currentMetrics(draft: Draft, target: string, now = Date.now()) {
   const durationMs = draft.startedAt ? Math.max(1000, now - draft.startedAt) : 0;
   const minutes = durationMs / 60000;
   const rawWpm = minutes ? Math.round((draft.totalKeystrokes / 5) / minutes) : 0;
-  const wpm = minutes ? Math.round((draft.value.length / 5) / minutes) : 0;
-  const accuracy = draft.totalKeystrokes
-    ? Math.round((draft.correctKeystrokes / draft.totalKeystrokes) * 100)
-    : 100;
+  const positionCorrect = correctPositionCount(draft.value, target);
+  const wpm = minutes ? Math.round((positionCorrect / 5) / minutes) : 0;
+  const accuracy = draft.totalKeystrokes ? Math.round((draft.correctKeystrokes / draft.totalKeystrokes) * 100) : 100;
   let correctPrefix = 0;
-  while (correctPrefix < draft.value.length && draft.value[correctPrefix] === target[correctPrefix]) {
-    correctPrefix += 1;
-  }
-  const progress = target.length ? Math.round((correctPrefix / target.length) * 100) : 0;
-  return { durationMs, rawWpm, wpm, accuracy, progress };
+  while (correctPrefix < draft.value.length && draft.value[correctPrefix] === target[correctPrefix]) correctPrefix += 1;
+  return { durationMs, rawWpm, wpm, accuracy, progress: target.length ? Math.round((correctPrefix / target.length) * 100) : 0 };
 }
 
 export function consistencyFromSamples(samples: number[]) {
@@ -231,72 +300,90 @@ export function consistencyFromSamples(samples: number[]) {
   return Math.max(0, Math.round(100 - (Math.sqrt(variance) / mean) * 100));
 }
 
-export function completedAttempts(state: AppState) {
-  return state.attempts.filter((attempt) => attempt.outcome === "completed");
-}
+export function completedAttempts(state: AppState) { return state.attempts.filter((attempt) => attempt.outcome === "completed"); }
+export function eligibleAttempt(attempt: AttemptRecord) { return attempt.outcome === "completed" && attempt.peeks === 0 && attempt.accuracy >= 95; }
 
-export function problemStats(state: AppState, problemId: number) {
-  const attempts = completedAttempts(state).filter((attempt) => attempt.problemId === problemId);
+export function itemStats(state: AppState, itemId: ItemId) {
+  const attempts = completedAttempts(state).filter((attempt) => attempt.itemId === itemId);
+  const qualified = attempts.filter(eligibleAttempt);
+  const independent = qualified.filter((attempt) => attempt.stage === 5);
   return {
     attempts,
     completions: attempts.length,
-    highestStage: attempts.reduce((highest, attempt) => Math.max(highest, attempt.stage), 0),
-    bestWpm: attempts.reduce((best, attempt) => Math.max(best, attempt.wpm), 0),
-    bestAccuracy: attempts.reduce((best, attempt) => Math.max(best, attempt.accuracy), 0),
+    qualifiedCompletions: qualified.length,
+    highestStage: qualified.reduce((highest, attempt) => Math.max(highest, attempt.stage), 0),
+    highestPracticedStage: attempts.reduce((highest, attempt) => Math.max(highest, attempt.stage), 0),
+    owned: independent.length > 0,
+    bestWpm: qualified.reduce((best, attempt) => Math.max(best, attempt.wpm), 0),
+    bestAccuracy: qualified.reduce((best, attempt) => Math.max(best, attempt.accuracy), 0),
     lastCompletedAt: attempts.at(-1)?.completedAt ?? null,
   };
 }
 
 const REVIEW_DAYS = [1, 3, 7, 14, 30];
-
-export function reviewDueAt(state: AppState, problemId: number) {
-  const stats = problemStats(state, problemId);
-  if (!stats.lastCompletedAt) return null;
-  const days = REVIEW_DAYS[Math.max(0, Math.min(4, stats.highestStage - 1))];
-  return new Date(new Date(stats.lastCompletedAt).getTime() + days * 86400000);
-}
-
-export function isReviewDue(state: AppState, problemId: number, now = Date.now()) {
-  const due = reviewDueAt(state, problemId);
-  return Boolean(due && due.getTime() <= now);
-}
-
-export function dayKey(date: Date) {
-  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
-}
-
-export function activeStreak(state: AppState) {
-  const days = new Set(completedAttempts(state).map((attempt) => dayKey(new Date(attempt.completedAt))));
-  let cursor = new Date();
-  if (!days.has(dayKey(cursor))) cursor = new Date(cursor.getTime() - 86400000);
-  let streak = 0;
-  while (days.has(dayKey(cursor))) {
-    streak += 1;
-    cursor = new Date(cursor.getTime() - 86400000);
+export function reviewStatus(state: AppState, itemId: ItemId) {
+  const attempts = state.attempts.filter((attempt) => attempt.itemId === itemId).slice().sort((a, b) => Date.parse(a.completedAt) - Date.parse(b.completedAt));
+  let level = 0;
+  let dueAt: Date | null = null;
+  for (const attempt of attempts) {
+    if (eligibleAttempt(attempt)) {
+      const days = REVIEW_DAYS[Math.min(level, REVIEW_DAYS.length - 1)];
+      level = Math.min(REVIEW_DAYS.length, level + 1);
+      dueAt = new Date(Date.parse(attempt.completedAt) + days * 86400000);
+    } else if (attempt.outcome === "abandoned" || attempt.qualification === "assisted") {
+      level = Math.max(0, level - 1);
+      dueAt = new Date(Date.parse(attempt.completedAt) + 86400000);
+    }
   }
+  return { level, dueAt };
+}
+export function reviewDueAt(state: AppState, itemId: ItemId) { return reviewStatus(state, itemId).dueAt; }
+export function isReviewDue(state: AppState, itemId: ItemId, now = Date.now()) { const due = reviewDueAt(state, itemId); return Boolean(due && due.getTime() <= now); }
+
+export function localDayKey(date: Date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
+export const dayKey = localDayKey;
+export function activeStreak(state: AppState) {
+  const days = new Set(completedAttempts(state).map((attempt) => localDayKey(new Date(attempt.completedAt))));
+  let cursor = new Date();
+  if (!days.has(localDayKey(cursor))) cursor = new Date(cursor.getTime() - 86400000);
+  let streak = 0;
+  while (days.has(localDayKey(cursor))) { streak += 1; cursor = new Date(cursor.getTime() - 86400000); }
   return streak;
 }
-
 export function practicedMinutesToday(state: AppState) {
-  const today = dayKey(new Date());
-  const ms = state.attempts
-    .filter((attempt) => dayKey(new Date(attempt.startedAt)) === today)
-    .reduce((sum, attempt) => sum + attempt.durationMs, 0);
+  const today = localDayKey(new Date());
+  const ms = state.attempts.filter((attempt) => localDayKey(new Date(attempt.startedAt)) === today).reduce((sum, attempt) => sum + attempt.durationMs, 0);
   return Math.round(ms / 60000);
 }
 
-export function recommendedStage(state: AppState, problem: Problem) {
-  return Math.min(5, problemStats(state, problem.id).highestStage + 1 || 1);
+export function recommendedStage(state: AppState, item: PracticeItem) { return Math.min(5, itemStats(state, item.itemId).highestStage + 1 || 1); }
+
+export function dailyItem(items: PracticeItem[], date = new Date()) {
+  if (!items.length) return null;
+  const key = `${localDayKey(date)}-catalog-v2`;
+  let hash = 2166136261;
+  for (const char of key) { hash ^= char.charCodeAt(0); hash = Math.imul(hash, 16777619); }
+  return items[Math.abs(hash) % items.length];
 }
 
-export function formatDuration(ms: number) {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const minutes = Math.floor(total / 60);
-  return `${minutes}:${String(total % 60).padStart(2, "0")}`;
+export function personalBest(state: AppState, itemId: ItemId, stage: number, mode: AttemptRecord["mode"], excludeId?: string) {
+  return state.attempts.filter((attempt) => attempt.id !== excludeId && attempt.itemId === itemId && attempt.stage === stage && attempt.mode === mode && eligibleAttempt(attempt)).reduce<AttemptRecord | null>((best, attempt) => !best || attempt.wpm > best.wpm || (attempt.wpm === best.wpm && attempt.accuracy > best.accuracy) ? attempt : best, null);
 }
 
-export function makeId() {
-  return typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+export type Milestone = { id: string; title: string; note: string; achieved: boolean };
+export function milestones(state: AppState): Milestone[] {
+  const completed = completedAttempts(state);
+  const independent = completed.filter((attempt) => attempt.qualification === "independent");
+  const qualifiedPatterns = new Set(BUILTIN_ITEMS.filter((item) => completed.some((attempt) => attempt.itemId === item.itemId && eligibleAttempt(attempt))).map((item) => item.pattern));
+  const recovered = state.attempts.some((attempt, index) => attempt.outcome === "completed" && eligibleAttempt(attempt) && state.attempts.slice(0, index).some((earlier) => earlier.itemId === attempt.itemId && (earlier.outcome === "abandoned" || earlier.qualification === "assisted")));
+  return [
+    { id: "first-pass", title: "First clean pass", note: "Finish any pass at 95%+ without peeking.", achieved: completed.some(eligibleAttempt) },
+    { id: "first-recall", title: "Independent recall", note: "Own one solution from a blank editor.", achieved: independent.length > 0 },
+    { id: "pattern-transfer", title: "Pattern transfer", note: "Qualify across three interview patterns.", achieved: qualifiedPatterns.size >= 3 },
+    { id: "recovery", title: "Recovery", note: "Return after a lapse and finish cleanly.", achieved: recovered },
+    { id: "custom-ownership", title: "Make it yours", note: "Independently recall a custom Swift snippet.", achieved: independent.some((attempt) => attempt.itemId.startsWith("custom:")) },
+  ];
 }
+
+export function formatDuration(ms: number) { const total = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`; }
+export function makeId() { return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`; }

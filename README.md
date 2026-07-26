@@ -12,13 +12,15 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 
 ## Current feature set
 
-- 33 original Swift implementations across 12 interview patterns
+- 50 original Swift implementations across 12 interview patterns
+- A Today dashboard with a deterministic Daily Type, due recall, and resumable drafts
 - Searchable, filterable, sortable problem library
-- Strict and free-correction typing modes with character-level feedback
+- Strict and free-correction typing modes with selection-aware character feedback
 - WPM, raw keystrokes, accuracy, corrections, peeks, timing, and consistency records
-- Five-stage per-problem recall ladder and personal bests
+- Five-stage per-problem recall ladder with honest mastery and qualified personal bests
 - Local attempt history, streaks, daily goals, pattern coverage, and progress charts
-- Spaced review queue at 1, 3, 7, 14, and 30 days
+- Spaced review at 1, 3, 7, 14, and 30 days, with lapses returning tomorrow
+- Device-local custom Swift snippets and learning milestones
 - Favorites, random practice, focus mode, autosaved drafts, and JSON backup/restore
 - Six themes, three code fonts, editor sizing, indentation, and an optional key-friction heatmap
 - Responsive desktop and mobile layouts
@@ -54,7 +56,7 @@ Problem names link to their public LeetCode pages. The pattern cues, invariants,
 
 ## Roadmap
 
-The local-first training core is the priority. Planned work includes a larger 75-problem catalog, authored semantic masks, executable Swift test cases, custom snippets, achievements, optional account sync, and privacy-preserving community benchmarks.
+The local-first training core is the priority. Planned work includes a larger 75-problem catalog, authored semantic masks, executable Swift test cases, session queues, editable custom snippets, optional account sync, and privacy-preserving community benchmarks.
 
 ## License
 

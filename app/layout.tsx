@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: "Swift Ghost — Type it. Fade it. Own it.",
   description:
-    "Rebuild Swift interview fluency with progressively fading solutions, local progress, spaced review, and a 33-problem pattern library.",
+    "Rebuild Swift interview fluency with 50 progressively fading solutions, custom snippets, honest personal records, and spaced review.",
   openGraph: {
     title: "Swift Ghost — Swift interview typing practice",
     description: "Type it. Fade it. Own it.",

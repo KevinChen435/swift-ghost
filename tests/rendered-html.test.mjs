@@ -32,10 +32,10 @@ test("server-renders the Swift Ghost practice shell", async () => {
   assert.match(html, /<title>Swift Ghost/);
   assert.match(html, /Type it\./);
   assert.match(html, /Fade it\./);
-  assert.match(html, /Two Sum/);
-  assert.match(html, /33-problem pattern library/);
-  assert.match(html, /Recall ladder/);
-  assert.match(html, /Strict correction/);
+  assert.match(html, /Daily Type/);
+  assert.match(html, /Build recall, one clean pass at a time/);
+  assert.match(html, /Add Swift snippet/);
+  assert.match(html, /Records/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/i);
 });
 
@@ -55,13 +55,20 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
+  assert.match(product, /swift-ghost-state-v3/);
   assert.match(product, /swift-ghost-state-v2/);
+  assert.match(product, /localDayKey\(date\)}-catalog-v2/);
+  assert.match(product, /replace\(\/\\r\\n\?\/g, "\\n"\)/);
   assert.match(product, /correctKeystrokes/);
   assert.match(product, /outcome: "completed" \| "abandoned"/);
   assert.match(catalog, /`https:\/\/leetcode\.com\/problems\/\$\{problem\.slug\}\/`/);
-  assert.equal((catalog.match(/^    id:/gm) ?? []).length, 33);
+  assert.equal((catalog.match(/^    id:/gm) ?? []).length, 50);
   assert.match(page, /Strict correction/);
   assert.match(page, /Spaced review/);
   assert.match(page, /Pattern mastery/);
+  assert.match(page, /Personal bests/);
+  assert.match(page, /CustomSnippetDialog/);
+  assert.match(page, /setStage\(restored\.lastStage\)/);
+  assert.match(page, /edit\.insertedCount > 0/);
   assert.match(layout, /"og\.png"/);
 });
