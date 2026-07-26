@@ -281,13 +281,18 @@ kbd { color: var(--faint); font: 7px var(--font-code); }
 .today-ring { --goal: 0deg; width: 145px; height: 145px; display: grid; place-content: center; border-radius: 50%; background: radial-gradient(circle, var(--panel) 60%, transparent 62%), conic-gradient(var(--accent) var(--goal), var(--border-soft) 0); box-shadow: 0 0 40px var(--accent-soft); }
 .today-ring strong { font: 500 35px var(--font-code); }
 .today-ring small { color: var(--faint); font: 8px var(--font-code); }
-.today-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; margin-top: 12px; }
+.today-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 11px; margin-top: 12px; }
 .today-card { min-height: 190px; display: flex; flex-direction: column; padding: 21px; border: 1px solid var(--border-soft); border-radius: 13px; background: var(--panel); }
 .today-card.priority { border-color: color-mix(in srgb, var(--accent) 42%, var(--border)); background: linear-gradient(145deg, var(--accent-soft), var(--panel) 55%); }
 .today-card h3 { margin: 9px 0 7px; font-size: 17px; }
 .today-card p { margin: 0 0 18px; color: var(--muted); font-size: 9px; line-height: 1.55; }
 .today-card > button, .today-card .card-actions { margin-top: auto; }
 .card-actions { display: flex; gap: 7px; flex-wrap: wrap; }
+.ios-reactivation { border-color: color-mix(in srgb, var(--violet) 40%, var(--border)); background: linear-gradient(145deg, color-mix(in srgb, var(--violet) 9%, var(--panel)), var(--panel)); }
+.track-tabs { display: flex; gap: 7px; margin: -10px 0 18px; overflow-x: auto; }
+.track-tabs button { display: flex; align-items: center; gap: 8px; white-space: nowrap; padding: 9px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); color: var(--muted); cursor: pointer; font-size: 9px; }
+.track-tabs button.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.track-tabs small { min-width: 19px; padding: 2px 5px; border-radius: 999px; background: var(--bg-raised); color: var(--faint); font: 7px var(--font-code); }
 
 .milestone-card, .records-card { margin-top: 10px; }
 .milestone-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 18px; }
@@ -305,6 +310,8 @@ kbd { color: var(--faint); font: 7px var(--font-code); }
 .records-grid article small { color: var(--faint); font: 7px var(--font-code); }
 .records-grid article b { color: var(--accent); font: 500 18px var(--font-code); }
 .records-grid article em { color: var(--muted); font: normal 8px var(--font-code); }
+.track-coverage { display: grid; gap: 12px; margin-top: 18px; }.track-coverage article { display: grid; grid-template-columns: 1fr 1.2fr 38px; gap: 12px; align-items: center; }.track-coverage article > span { display: flex; flex-direction: column; }.track-coverage strong { font-size: 9px; }.track-coverage small { margin-top: 4px; color: var(--faint); font-size: 7px; }.track-coverage article > div, .friction-list i { height: 7px; overflow: hidden; border-radius: 99px; background: var(--border-soft); }.track-coverage article > div i, .friction-list i b { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--violet)); }.track-coverage article > b { color: var(--accent); font: 9px var(--font-code); }
+.friction-list { display: grid; gap: 9px; margin-top: 18px; }.friction-list > div { display: grid; grid-template-columns: 90px 1fr; gap: 12px; align-items: center; }.friction-list span { display: flex; align-items: center; gap: 7px; }.friction-list kbd { min-width: 34px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; text-align: center; color: var(--accent); background: var(--bg-raised); font: 8px var(--font-code); }.friction-list small { color: var(--faint); font-size: 7px; }
 
 .result-mark.assisted { border-color: var(--warning); background: color-mix(in srgb, var(--warning) 10%, transparent); color: var(--warning); }
 .result-review { margin: -10px 0 20px; display: grid; grid-template-columns: 1fr auto; gap: 2px 15px; align-items: center; padding: 10px 13px; border: 1px solid var(--border-soft); border-radius: 9px; text-align: left; background: var(--bg-raised); }
@@ -331,7 +338,7 @@ kbd { color: var(--faint); font: 7px var(--font-code); }
   .practice-layout { grid-template-columns: 215px minmax(0,1fr); }.problem-rail { padding: 20px 12px; }.practice-main { padding: 28px 24px 60px; }
   .insight-grid { grid-template-columns: 1fr; }.stage-panel { grid-template-columns: 1fr; gap: 10px; }
   .problem-grid { grid-template-columns: repeat(2, 1fr); }.stat-grid { grid-template-columns: repeat(2, 1fr); }.dashboard-grid { grid-template-columns: 1fr; }
-  .milestone-grid { grid-template-columns: repeat(3, 1fr); }
+  .milestone-grid { grid-template-columns: repeat(3, 1fr); }.today-grid { grid-template-columns: repeat(2, 1fr); }
   .session-builder { grid-template-columns: 1fr; }.session-form { border-right: 0; border-bottom: 1px solid var(--border-soft); }
 }
 

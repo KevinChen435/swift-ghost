@@ -12,7 +12,17 @@ export type Pattern =
   | "Graphs"
   | "Backtracking"
   | "Dynamic Programming"
-  | "Greedy";
+  | "Greedy"
+  | "Swift Semantics"
+  | "Optionals & Errors"
+  | "Protocols & Generics"
+  | "Memory Management"
+  | "Concurrency"
+  | "UIKit"
+  | "SwiftUI"
+  | "Networking"
+  | "Architecture & Testing"
+  | "Accessibility";
 
 export type Problem = {
   id: number;
@@ -31,7 +41,7 @@ export type Problem = {
   sourceUrl?: string;
 };
 
-export const PATTERN_ORDER: Pattern[] = [
+export const INTERVIEW_PATTERN_ORDER: Pattern[] = [
   "Arrays & Hashing",
   "Two Pointers",
   "Sliding Window",
@@ -45,6 +55,21 @@ export const PATTERN_ORDER: Pattern[] = [
   "Greedy",
   "Dynamic Programming",
 ];
+
+export const IOS_PATTERN_ORDER: Pattern[] = [
+  "Swift Semantics",
+  "Optionals & Errors",
+  "Protocols & Generics",
+  "Memory Management",
+  "Concurrency",
+  "UIKit",
+  "SwiftUI",
+  "Networking",
+  "Architecture & Testing",
+  "Accessibility",
+];
+
+export const PATTERN_ORDER: Pattern[] = [...INTERVIEW_PATTERN_ORDER, ...IOS_PATTERN_ORDER];
 
 export const PROBLEMS: Problem[] = [
   {
@@ -1759,6 +1784,6 @@ export const PROBLEMS: Problem[] = [
 ];
 
 export const problemUrl = (problem: Problem) =>
-  problem.isCustom ? problem.sourceUrl ?? null : `https://leetcode.com/problems/${problem.slug}/`;
+  problem.sourceUrl ?? (problem.isCustom ? null : `https://leetcode.com/problems/${problem.slug}/`);
 
 export const problemLineCount = (problem: Problem) => problem.code.split("\n").length;

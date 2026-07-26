@@ -1,12 +1,15 @@
 export const SESSION_SOURCES = ["mixed", "due", "new", "favorites", "custom"];
+export const SESSION_TRACKS = ["all", "interview", "ios"];
 export const SESSION_STAGE_MODES = ["recommended", "recall"];
 
 export function buildSessionQueue(items, signals, options, random = Math.random) {
   const source = SESSION_SOURCES.includes(options.source) ? options.source : "mixed";
+  const track = SESSION_TRACKS.includes(options.track) ? options.track : "all";
   const count = Math.max(1, Math.min(20, Math.round(Number(options.count) || 5)));
   const stageMode = SESSION_STAGE_MODES.includes(options.stageMode) ? options.stageMode : "recommended";
   const candidates = items.filter((item) => {
     const signal = signals[item.itemId] ?? {};
+    if (track !== "all" && item.track !== track) return false;
     if (options.pattern && options.pattern !== "All" && item.pattern !== options.pattern) return false;
     if (options.difficulty && options.difficulty !== "All" && item.difficulty !== options.difficulty) return false;
     if (source === "due" && !signal.due) return false;

@@ -1,6 +1,6 @@
 import { BUILTIN_ITEMS, type ItemId, type PracticeItem } from "./items";
 import { correctPositionCount } from "./typing-engine.mjs";
-import type { SessionQueueEntry, SessionSource, SessionStageMode } from "./sessions.mjs";
+import type { SessionQueueEntry, SessionSource, SessionStageMode, SessionTrack } from "./sessions.mjs";
 
 export { analyzeEdit, correctPositionCount } from "./typing-engine.mjs";
 
@@ -43,6 +43,7 @@ export type AttemptRecord = {
   rejectedKeystrokes: number;
   corrections: number;
   peeks: number;
+  keyErrors: Record<string, number>;
   rawWpm: number;
   wpm: number;
   accuracy: number;
@@ -64,6 +65,7 @@ export type Draft = {
   rejectedKeystrokes: number;
   corrections: number;
   peeks: number;
+  keyErrors: Record<string, number>;
   challengeDate?: string;
   sessionId?: string;
 };
@@ -72,6 +74,7 @@ export type TrainingSession = {
   id: string;
   name: string;
   source: SessionSource;
+  track: SessionTrack;
   stageMode: SessionStageMode;
   createdAt: string;
   entries: SessionQueueEntry[];
@@ -88,7 +91,7 @@ export type SessionHistoryRecord = {
 };
 
 export type AppState = {
-  version: 4;
+  version: 5;
   attempts: AttemptRecord[];
   favorites: ItemId[];
   customItems: PracticeItem[];
@@ -100,9 +103,10 @@ export type AppState = {
   sessionHistory: SessionHistoryRecord[];
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v4";
-export const LEGACY_STORAGE_KEY = "swift-ghost-state-v3";
-export const OLDER_STORAGE_KEY = "swift-ghost-state-v2";
+export const STORAGE_KEY = "swift-ghost-state-v5";
+export const LEGACY_STORAGE_KEY = "swift-ghost-state-v4";
+export const OLDER_STORAGE_KEY = "swift-ghost-state-v3";
+export const OLDEST_STORAGE_KEY = "swift-ghost-state-v2";
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: "midnight",
@@ -117,7 +121,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 4,
+  version: 5,
   attempts: [],
   favorites: [],
   customItems: [],
@@ -135,6 +139,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function finiteNumber(value: unknown, fallback: number, min: number, max: number) {
   return typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+}
+
+function normalizeKeyErrors(value: unknown) {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(Object.entries(value).flatMap(([key, count]) => {
+    const normalizedKey = key.slice(0, 20);
+    const normalizedCount = Math.round(finiteNumber(count, 0, 0, 1000000));
+    return normalizedKey && normalizedCount ? [[normalizedKey, normalizedCount]] : [];
+  }).slice(0, 100));
 }
 
 function normalizeSettings(value: unknown): Settings {
@@ -176,6 +189,7 @@ function normalizeCustomItems(value: unknown): PracticeItem[] {
     }
     return {
       ...item,
+      track: (item.track === "ios" ? "ios" : "interview") as PracticeItem["track"],
       id: 0,
       title: item.title.trim(),
       slug: typeof item.slug === "string" ? item.slug.slice(0, 140) : item.itemId.replace(":", "-"),
@@ -201,18 +215,20 @@ function normalizeCustomItems(value: unknown): PracticeItem[] {
 }
 
 function itemIdFromRaw(value: unknown): ItemId | null {
-  if (typeof value === "string" && /^(builtin:\d+|custom:[\w-]+)$/.test(value)) return value as ItemId;
+  if (typeof value === "string" && /^(builtin:\d+|ios:[\w-]+|custom:[\w-]+)$/.test(value)) return value as ItemId;
   if (typeof value === "number" && Number.isFinite(value)) return `builtin:${value}` as ItemId;
   return null;
 }
 
-function normalizeActiveSession(value: unknown, activeIds: Set<ItemId>, revisions: Map<ItemId, number>): TrainingSession | null {
+function normalizeActiveSession(value: unknown, activeIds: Set<ItemId>, revisions: Map<ItemId, number>, tracks: Map<ItemId, PracticeItem["track"]>): TrainingSession | null {
   if (!isRecord(value) || typeof value.id !== "string" || !Array.isArray(value.entries)) return null;
+  const sessionTrack: SessionTrack = value.track === "interview" || value.track === "ios" ? value.track : "all";
   const seen = new Set<string>();
   const entries = value.entries.flatMap((raw): SessionQueueEntry[] => {
     if (!isRecord(raw)) return [];
     const itemId = itemIdFromRaw(raw.itemId);
     if (!itemId || !activeIds.has(itemId)) return [];
+    if (sessionTrack !== "all" && tracks.get(itemId) !== sessionTrack) return [];
     const stage = Math.round(finiteNumber(raw.stage, 1, 1, 5));
     const key = `${itemId}:${stage}`; if (seen.has(key)) return []; seen.add(key);
     const status = raw.status === "completed" || raw.status === "skipped" ? raw.status : "pending";
@@ -233,6 +249,7 @@ function normalizeActiveSession(value: unknown, activeIds: Set<ItemId>, revision
     id: value.id,
     name: typeof value.name === "string" && value.name.trim() ? value.name.trim().slice(0, 80) : "Practice session",
     source: sources.includes(value.source as SessionSource) ? value.source as SessionSource : "mixed",
+    track: sessionTrack,
     stageMode: value.stageMode === "recall" ? "recall" : "recommended",
     createdAt: typeof value.createdAt === "string" && !Number.isNaN(Date.parse(value.createdAt)) ? value.createdAt : new Date(0).toISOString(),
     entries,
@@ -265,11 +282,12 @@ export function qualificationFor(input: Pick<AttemptRecord, "outcome" | "stage" 
 }
 
 export function normalizeState(value: unknown): AppState {
-  if (!isRecord(value) || ![2, 3, 4].includes(Number(value.version))) return EMPTY_STATE;
+  if (!isRecord(value) || ![2, 3, 4, 5].includes(Number(value.version))) return EMPTY_STATE;
   const customItems = normalizeCustomItems(value.customItems);
   const validIds = new Set<ItemId>([...BUILTIN_ITEMS.map((item) => item.itemId), ...customItems.map((item) => item.itemId)]);
   const activeIds = new Set<ItemId>([...BUILTIN_ITEMS.map((item) => item.itemId), ...customItems.filter((item) => !item.archivedAt).map((item) => item.itemId)]);
   const revisions = new Map<ItemId, number>([...BUILTIN_ITEMS, ...customItems].map((item) => [item.itemId, item.contentRevision]));
+  const tracks = new Map<ItemId, PracticeItem["track"]>([...BUILTIN_ITEMS, ...customItems].map((item) => [item.itemId, item.track]));
   const attempts = (Array.isArray(value.attempts) ? value.attempts : []).flatMap((raw): AttemptRecord[] => {
     if (!isRecord(raw) || typeof raw.id !== "string" || (raw.outcome !== "completed" && raw.outcome !== "abandoned")) return [];
     const itemId = itemIdFromRaw(raw.itemId ?? raw.problemId);
@@ -279,6 +297,7 @@ export function normalizeState(value: unknown): AppState {
     const peeks = Math.round(finiteNumber(raw.peeks, 0, 0, 100000));
     const accuracy = Math.round(finiteNumber(raw.accuracy, 0, 0, 100));
     const item = [...BUILTIN_ITEMS, ...customItems].find((candidate) => candidate.itemId === itemId);
+    const keyErrors = normalizeKeyErrors(raw.keyErrors);
     const attempt: AttemptRecord = {
       id: raw.id,
       itemId,
@@ -300,6 +319,7 @@ export function normalizeState(value: unknown): AppState {
       consistency: Math.round(finiteNumber(raw.consistency, 0, 0, 100)),
       outcome,
       qualification: "assisted",
+      keyErrors,
       challengeDate: typeof raw.challengeDate === "string" ? raw.challengeDate : undefined,
       sessionId: typeof raw.sessionId === "string" ? raw.sessionId : undefined,
     };
@@ -321,18 +341,19 @@ export function normalizeState(value: unknown): AppState {
     rejectedKeystrokes: Math.round(finiteNumber(rawDraft.rejectedKeystrokes, 0, 0, 1000000)),
     corrections: Math.round(finiteNumber(rawDraft.corrections, 0, 0, 1000000)),
     peeks: Math.round(finiteNumber(rawDraft.peeks, 0, 0, 100000)),
+    keyErrors: normalizeKeyErrors(rawDraft.keyErrors),
     challengeDate: typeof rawDraft.challengeDate === "string" ? rawDraft.challengeDate : undefined,
     sessionId: typeof rawDraft.sessionId === "string" ? rawDraft.sessionId : undefined,
   } : null;
 
   const lastItemId = itemIdFromRaw(value.lastItemId ?? value.lastProblemId);
   const favorites = Array.isArray(value.favorites) ? [...new Set(value.favorites.map(itemIdFromRaw).filter((id): id is ItemId => Boolean(id && activeIds.has(id))))] : [];
-  const activeSession = normalizeActiveSession(value.activeSession, activeIds, revisions);
+  const activeSession = normalizeActiveSession(value.activeSession, activeIds, revisions, tracks);
   const activeEntry = activeSession?.entries[activeSession.currentIndex];
   const draftMatchesSession = Boolean(draft?.sessionId && activeSession && activeEntry && draft.sessionId === activeSession.id && draft.itemId === activeEntry.itemId && draft.stage === activeEntry.stage && draft.itemRevision === activeEntry.itemRevision);
   const normalizedDraft = draft ? { ...draft, sessionId: draftMatchesSession ? draft.sessionId : undefined } : null;
   return {
-    version: 4,
+    version: 5,
     attempts,
     favorites,
     customItems,
@@ -353,7 +374,9 @@ export function loadState(): AppState {
     const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
     if (legacy) return normalizeState(JSON.parse(legacy));
     const older = localStorage.getItem(OLDER_STORAGE_KEY);
-    return older ? normalizeState(JSON.parse(older)) : EMPTY_STATE;
+    if (older) return normalizeState(JSON.parse(older));
+    const oldest = localStorage.getItem(OLDEST_STORAGE_KEY);
+    return oldest ? normalizeState(JSON.parse(oldest)) : EMPTY_STATE;
   } catch {
     return EMPTY_STATE;
   }
@@ -478,7 +501,7 @@ export type Milestone = { id: string; title: string; note: string; achieved: boo
 export function milestones(state: AppState): Milestone[] {
   const completed = completedAttempts(state);
   const independent = completed.filter((attempt) => attempt.qualification === "independent");
-  const qualifiedPatterns = new Set(BUILTIN_ITEMS.filter((item) => completed.some((attempt) => attempt.itemId === item.itemId && eligibleAttempt(attempt))).map((item) => item.pattern));
+  const qualifiedPatterns = new Set(BUILTIN_ITEMS.filter((item) => item.track === "interview" && completed.some((attempt) => attempt.itemId === item.itemId && eligibleAttempt(attempt))).map((item) => item.pattern));
   const recovered = state.attempts.some((attempt, index) => attempt.outcome === "completed" && eligibleAttempt(attempt) && state.attempts.slice(0, index).some((earlier) => earlier.itemId === attempt.itemId && (earlier.outcome === "abandoned" || earlier.qualification === "assisted")));
   return [
     { id: "first-pass", title: "First clean pass", note: "Finish any pass at 95%+ without peeking.", achieved: completed.some(eligibleAttempt) },
