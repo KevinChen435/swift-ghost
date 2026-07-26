@@ -1,12 +1,16 @@
 import { PROBLEMS, type Pattern, type Problem } from "../data/problems";
 import { FUNDAMENTALS } from "../data/fundamentals";
+import { PYTHON_PROBLEMS } from "../data/python-problems";
 
 export type PracticeTrack = "interview" | "ios";
-export type ItemId = `builtin:${number}` | `ios:${string}` | `custom:${string}`;
+export type CodeLanguage = "swift" | "python";
+export type ItemId = `builtin:${number}` | `python:${number}` | `ios:${string}` | `custom:${string}`;
 
-export type PracticeItem = Problem & {
+export type PracticeItem = Omit<Problem, "swiftNote"> & {
   itemId: ItemId;
   track: PracticeTrack;
+  language: CodeLanguage;
+  languageNote: string;
   source: "builtin" | "custom";
   tags: string[];
   contentRevision: number;
@@ -17,25 +21,38 @@ export type PracticeItem = Problem & {
   recallChecks?: readonly [string, string, string];
 };
 
-export const INTERVIEW_ITEMS: PracticeItem[] = PROBLEMS.map((problem) => ({
+export const INTERVIEW_ITEMS: PracticeItem[] = PROBLEMS.map(({ swiftNote, ...problem }) => ({
   ...problem,
+  languageNote: swiftNote,
   itemId: `builtin:${problem.id}` as ItemId,
   track: "interview",
+  language: "swift",
   source: "builtin",
   tags: [problem.pattern],
   contentRevision: 1,
 }));
 
-export const IOS_ITEMS: PracticeItem[] = FUNDAMENTALS.map((fundamental, index) => ({
-  ...fundamental,
-  id: 10001 + index,
-  itemId: fundamental.id as ItemId,
-  pattern: fundamental.pattern as Pattern,
+export const PYTHON_ITEMS: PracticeItem[] = PYTHON_PROBLEMS.map((problem) => ({
+  ...problem,
+  itemId: `python:${problem.id}` as ItemId,
+  track: "interview",
+  language: "python",
   source: "builtin",
   contentRevision: 1,
 }));
 
-export const BUILTIN_ITEMS: PracticeItem[] = [...INTERVIEW_ITEMS, ...IOS_ITEMS];
+export const IOS_ITEMS: PracticeItem[] = FUNDAMENTALS.map(({ swiftNote, ...fundamental }, index) => ({
+  ...fundamental,
+  id: 10001 + index,
+  itemId: fundamental.id as ItemId,
+  pattern: fundamental.pattern as Pattern,
+  language: "swift",
+  languageNote: swiftNote,
+  source: "builtin",
+  contentRevision: 1,
+}));
+
+export const BUILTIN_ITEMS: PracticeItem[] = [...PYTHON_ITEMS, ...INTERVIEW_ITEMS, ...IOS_ITEMS];
 
 export function itemIdFor(problem: Pick<PracticeItem, "itemId">) {
   return problem.itemId;
@@ -43,19 +60,21 @@ export function itemIdFor(problem: Pick<PracticeItem, "itemId">) {
 
 export function itemDisplayId(item: PracticeItem) {
   if (item.source === "custom") return "Custom";
+  if (item.language === "python") return item.id >= 10000 ? `Py Lab ${String(item.id - 10000).padStart(2, "0")}` : `Py #${item.id}`;
   return item.track === "ios" ? `iOS ${String(IOS_ITEMS.findIndex((candidate) => candidate.itemId === item.itemId) + 1).padStart(2, "0")}` : `#${item.id}`;
 }
 
 export function makeCustomItem(input: {
   title: string;
   track: PracticeTrack;
+  language: CodeLanguage;
   pattern: Pattern;
   difficulty: "Easy" | "Medium";
   code: string;
   cue: string;
   invariant: string;
   complexity: string;
-  swiftNote: string;
+  languageNote: string;
   tags?: string[];
   sourceUrl?: string;
 }): PracticeItem {
@@ -67,17 +86,18 @@ export function makeCustomItem(input: {
   return {
     itemId: `custom:${token}`,
     track: input.track,
+    language: input.track === "ios" ? "swift" : input.language,
     source: "custom",
     id: 0,
     title,
     slug: `custom-${token}`,
     difficulty: input.difficulty,
     pattern: input.pattern,
-    summary: "A device-local Swift snippet for deliberate recall practice.",
+    summary: `A device-local ${input.track === "ios" || input.language === "swift" ? "Swift" : "Python"} snippet for deliberate recall practice.`,
     cue: input.cue.trim() || "State what this code is trying to preserve before typing.",
     invariant: input.invariant.trim() || "Describe the condition that must stay true throughout the implementation.",
     complexity: input.complexity.trim() || "Add your own complexity check.",
-    swiftNote: input.swiftNote.trim() || "Notice the Swift syntax and APIs you want to recall reliably.",
+    languageNote: input.languageNote.trim() || `Notice the ${input.track === "ios" || input.language === "swift" ? "Swift" : "Python"} syntax and APIs you want to recall reliably.`,
     estimatedMinutes: Math.max(2, Math.min(30, Math.ceil(input.code.split("\n").length / 3))),
     code: input.code.replace(/\r\n?/g, "\n").trimEnd(),
     isCustom: true,
@@ -99,12 +119,13 @@ export function updateCustomItem(
     ...item,
     title,
     track: input.track,
+    language: input.track === "ios" ? "swift" : input.language,
     difficulty: input.difficulty,
     pattern: input.pattern,
     cue: input.cue.trim() || "State what this code is trying to preserve before typing.",
     invariant: input.invariant.trim() || "Describe the condition that must stay true throughout the implementation.",
     complexity: input.complexity.trim() || "Add your own complexity check.",
-    swiftNote: input.swiftNote.trim() || "Notice the Swift syntax and APIs you want to recall reliably.",
+    languageNote: input.languageNote.trim() || `Notice the ${input.track === "ios" || input.language === "swift" ? "Swift" : "Python"} syntax and APIs you want to recall reliably.`,
     estimatedMinutes: Math.max(2, Math.min(30, Math.ceil(input.code.split("\n").length / 3))),
     code,
     sourceUrl: input.sourceUrl === undefined ? item.sourceUrl : input.sourceUrl.trim() || undefined,

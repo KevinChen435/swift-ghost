@@ -211,6 +211,18 @@ test("attempt batches are deduplicated, capped, normalized, and omit client WPM"
   assert.equal(Object.hasOwn(sent.attempts[0], "wpm"), false);
 });
 
+test("Python built-ins are eligible for the same defensive upload path", async () => {
+  let sent;
+  const client = createCloudClient({
+    location: { hostname: "swift.test" },
+    fetchImpl: async (_url, init) => { sent = JSON.parse(init.body); return json({ accepted: ["attempt-python"], duplicates: [], rejected: [], serverTime: "2026-07-25T20:02:00.000Z" }); },
+  });
+  const result = await client.postAttemptBatch([attempt(1, { id: "attempt-python", itemId: "python:1", track: "interview", titleSnapshot: "Two Sum in Python" })]);
+  assert.equal(result.available, true);
+  assert.equal(sent.attempts[0].itemId, "python:1");
+  assert.equal(sent.attempts[0].track, "interview");
+});
+
 test("community results drop malformed rows and bound fields and limits", async () => {
   const mock = recorder(() => json({ entries: [
     { user: { id: "must-not-survive", displayName: `  ${"K".repeat(80)} ` }, itemId: "ios:actor-cache", itemRevision: 3, itemTitle: "Actor cache", track: "ios", stage: 9, wpm: 5_000, accuracy: 105, durationMs: 5000, completedAt: "2026-07-25T20:01:00Z" },

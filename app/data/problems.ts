@@ -1,6 +1,7 @@
 export type Difficulty = "Easy" | "Medium";
 
 export type Pattern =
+  | "Python Fluency"
   | "Arrays & Hashing"
   | "Two Pointers"
   | "Sliding Window"
@@ -8,6 +9,7 @@ export type Pattern =
   | "Binary Search"
   | "Linked List"
   | "Trees"
+  | "Heaps & Priority Queues"
   | "Intervals"
   | "Graphs"
   | "Backtracking"
@@ -56,6 +58,23 @@ export const INTERVIEW_PATTERN_ORDER: Pattern[] = [
   "Dynamic Programming",
 ];
 
+export const PYTHON_PATTERN_ORDER: Pattern[] = [
+  "Python Fluency",
+  "Arrays & Hashing",
+  "Two Pointers",
+  "Sliding Window",
+  "Stack",
+  "Binary Search",
+  "Linked List",
+  "Trees",
+  "Heaps & Priority Queues",
+  "Intervals",
+  "Graphs",
+  "Backtracking",
+  "Greedy",
+  "Dynamic Programming",
+];
+
 export const IOS_PATTERN_ORDER: Pattern[] = [
   "Swift Semantics",
   "Optionals & Errors",
@@ -69,7 +88,7 @@ export const IOS_PATTERN_ORDER: Pattern[] = [
   "Accessibility",
 ];
 
-export const PATTERN_ORDER: Pattern[] = [...INTERVIEW_PATTERN_ORDER, ...IOS_PATTERN_ORDER];
+export const PATTERN_ORDER: Pattern[] = [...new Set([...PYTHON_PATTERN_ORDER, ...INTERVIEW_PATTERN_ORDER, ...IOS_PATTERN_ORDER])];
 
 export const PROBLEMS: Problem[] = [
   {
@@ -1783,7 +1802,7 @@ export const PROBLEMS: Problem[] = [
   },
 ];
 
-export const problemUrl = (problem: Problem) =>
-  problem.sourceUrl ?? (problem.isCustom ? null : `https://leetcode.com/problems/${problem.slug}/`);
+export const problemUrl = (problem: Pick<Problem, "id" | "sourceUrl" | "isCustom" | "slug">) =>
+  problem.sourceUrl ?? (problem.isCustom || problem.id >= 10000 ? null : `https://leetcode.com/problems/${problem.slug}/`);
 
-export const problemLineCount = (problem: Problem) => problem.code.split("\n").length;
+export const problemLineCount = (problem: Pick<Problem, "code">) => problem.code.split("\n").length;

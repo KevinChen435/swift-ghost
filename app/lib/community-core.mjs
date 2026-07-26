@@ -83,7 +83,7 @@ export function validateAttemptUpload(raw, now = Date.now()) {
     const clientAttemptId = cleanText(raw.clientAttemptId ?? raw.id, 96, { required: true });
     const itemId = cleanText(raw.itemId, 96, { required: true });
     const itemTitle = cleanText(raw.itemTitle ?? raw.title ?? raw.titleSnapshot ?? raw.itemId, 120, { required: true });
-    if (!/^(?:builtin:\d+|ios:[a-z0-9][a-z0-9-]*)$/i.test(itemId)) throw new Error("only built-in items can be uploaded");
+    if (!/^(?:builtin:\d+|python:\d+|ios:[a-z0-9][a-z0-9-]*)$/i.test(itemId)) throw new Error("only built-in items can be uploaded");
     if (!Number.isInteger(raw.itemRevision) || raw.itemRevision < 1 || raw.itemRevision > 1_000_000) {
       throw new Error("itemRevision is invalid");
     }

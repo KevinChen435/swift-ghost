@@ -1,6 +1,6 @@
 # Swift Ghost
 
-[Swift Ghost](https://kevinchen435.github.io/swift-ghost/) is a deliberate-practice trainer for rebuilding Swift interview and iOS engineering fluency. You type an original Swift solution while its ghost text progressively fades through five passes:
+[Swift Ghost](https://kevinchen435.github.io/swift-ghost/) is a deliberate-practice trainer for rebuilding Python interview fluency while keeping Swift and iOS engineering fundamentals sharp. You type an original solution while its ghost text progressively fades through five passes:
 
 1. Full ghost
 2. Missing expressions
@@ -12,18 +12,20 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 
 ## Current feature set
 
+- 36 Python exercises: 8 language-fluency drills and 28 interview problems across 14 patterns
 - 50 original Swift implementations across 12 interview patterns
 - 16 iOS and Swift fundamentals covering language semantics, concurrency, UIKit, SwiftUI, networking, testing, and accessibility
-- A Today dashboard with a deterministic Daily Type, iOS reactivation exercise, due recall, and resumable drafts
+- A Today dashboard with a deterministic Daily Type, Python and iOS reactivation exercises, due recall, and resumable drafts
 - Searchable, filterable, sortable problem library
 - Strict and free-correction typing modes with selection-aware character feedback
 - WPM, raw keystrokes, accuracy, corrections, peeks, timing, and consistency records
 - Five-stage per-problem recall ladder with honest mastery and qualified personal bests
 - Local attempt history, streaks, daily goals, pattern coverage, and progress charts
 - Spaced review at 1, 3, 7, 14, and 30 days, with lapses returning tomorrow
-- Device-local custom Swift snippets with safe content revisions and learning milestones
+- Device-local custom Python or Swift snippets with safe content revisions and learning milestones
 - Persistent multi-problem sessions with independent track, source, category, difficulty, count, and recall-policy controls
-- Separate interview/iOS catalog filtering, track coverage, and persisted key-friction analytics
+- Separate Python interview, Swift interview, and iOS catalog filtering, coverage, and persisted key-friction analytics
+- Shareable query-string links for exact exercises, languages, stages, records tabs, and public profiles that work on GitHub Pages and the hosted edition
 - An optional hosted community edition with ChatGPT identity, public profiles, recent qualifying runs, per-exercise records, and a shared daily benchmark
 - Server-validated rankings that accept only current, built-in, strict, no-peek passes with at least 95% accuracy
 - Favorites, random practice, focus mode, autosaved drafts, and JSON backup/restore
@@ -32,7 +34,7 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 
 ## Why it exists
 
-Swift interview content and code-typing products usually exist separately. Swift Ghost combines a curated Swift curriculum with ghost-code typing and progressively removes support. It is designed for engineers who understand programming but need to restore syntax fluency and reliable recall.
+Interview content and code-typing products usually exist separately. Swift Ghost combines a curated Python, Swift, and iOS curriculum with ghost-code typing and progressively removes support. It is designed for engineers who understand programming but need to restore syntax fluency and reliable recall.
 
 ## Privacy
 
@@ -59,11 +61,11 @@ npm run build:pages
 
 ## Content note
 
-Interview problem names link to their public LeetCode pages; iOS fundamentals link to current Apple or Swift.org documentation. The cues, invariants, Swift notes, and implementations in this repository are original educational material. `ListNode` and `TreeNode` are supplied by LeetCode for corresponding problems. Swift Ghost is not affiliated with or endorsed by LeetCode or Apple.
+Interview problem names link to their public LeetCode pages; iOS fundamentals link to current Apple or Swift.org documentation. The cues, invariants, language notes, and implementations in this repository are original educational material. `ListNode` and `TreeNode` are supplied by LeetCode for corresponding problems. Swift Ghost is not affiliated with or endorsed by LeetCode or Apple.
 
 ## Roadmap
 
-The local-first training core remains the priority. Planned work includes a larger 75-problem catalog, authored semantic masks, executable Swift test cases, deeper session analytics, addressable exercise URLs, and broader language support.
+The local-first training core remains the priority. Planned work includes authored semantic masks, runnable verification, attempt timelines, weak-line drills, teach-back debriefs, and a larger advanced catalog.
 
 ## License
 

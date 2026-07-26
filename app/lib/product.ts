@@ -1,11 +1,11 @@
-import { BUILTIN_ITEMS, type ItemId, type PracticeItem } from "./items";
+import { BUILTIN_ITEMS, type CodeLanguage, type ItemId, type PracticeItem } from "./items";
 import { correctPositionCount } from "./typing-engine.mjs";
-import type { SessionQueueEntry, SessionSource, SessionStageMode, SessionTrack } from "./sessions.mjs";
+import type { SessionLanguage, SessionQueueEntry, SessionSource, SessionStageMode, SessionTrack } from "./sessions.mjs";
 
 export { analyzeEdit, correctPositionCount } from "./typing-engine.mjs";
 
 export const STAGES = [
-  { id: 1, name: "Full ghost", short: "Full", note: "Copy once while noticing the Swift shape." },
+  { id: 1, name: "Full ghost", short: "Full", note: "Copy once while noticing the solution shape." },
   { id: 2, name: "Missing expressions", short: "Gaps", note: "Recover names, conditions, and updates." },
   { id: 3, name: "Missing lines", short: "Lines", note: "Recall complete implementation steps." },
   { id: 4, name: "Skeleton only", short: "Skeleton", note: "Rebuild from signatures and braces." },
@@ -26,6 +26,7 @@ export type Settings = {
   showLiveWpm: boolean;
   showKeyboard: boolean;
   dailyGoalMinutes: number;
+  preferredLanguage: CodeLanguage;
 };
 
 export type AttemptRecord = {
@@ -33,6 +34,7 @@ export type AttemptRecord = {
   itemId: ItemId;
   itemRevision: number;
   titleSnapshot: string;
+  language: CodeLanguage;
   stage: number;
   mode: "strict" | "free";
   startedAt: string;
@@ -75,6 +77,7 @@ export type TrainingSession = {
   name: string;
   source: SessionSource;
   track: SessionTrack;
+  language: SessionLanguage;
   stageMode: SessionStageMode;
   createdAt: string;
   entries: SessionQueueEntry[];
@@ -97,7 +100,7 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 6;
+  version: 7;
   attempts: AttemptRecord[];
   favorites: ItemId[];
   customItems: PracticeItem[];
@@ -110,11 +113,12 @@ export type AppState = {
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v6";
-export const LEGACY_STORAGE_KEY = "swift-ghost-state-v5";
-export const OLDER_STORAGE_KEY = "swift-ghost-state-v4";
-export const OLDEST_STORAGE_KEY = "swift-ghost-state-v3";
-export const ORIGINAL_STORAGE_KEY = "swift-ghost-state-v2";
+export const STORAGE_KEY = "swift-ghost-state-v7";
+export const LEGACY_STORAGE_KEY = "swift-ghost-state-v6";
+export const OLDER_STORAGE_KEY = "swift-ghost-state-v5";
+export const OLDEST_STORAGE_KEY = "swift-ghost-state-v4";
+export const ORIGINAL_STORAGE_KEY = "swift-ghost-state-v3";
+export const FIRST_STORAGE_KEY = "swift-ghost-state-v2";
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: "midnight",
@@ -126,10 +130,11 @@ export const DEFAULT_SETTINGS: Settings = {
   showLiveWpm: true,
   showKeyboard: false,
   dailyGoalMinutes: 20,
+  preferredLanguage: "python",
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 6,
+  version: 7,
   attempts: [],
   favorites: [],
   customItems: [],
@@ -175,6 +180,7 @@ function normalizeSettings(value: unknown): Settings {
     showLiveWpm: typeof raw.showLiveWpm === "boolean" ? raw.showLiveWpm : DEFAULT_SETTINGS.showLiveWpm,
     showKeyboard: typeof raw.showKeyboard === "boolean" ? raw.showKeyboard : DEFAULT_SETTINGS.showKeyboard,
     dailyGoalMinutes: Math.round(finiteNumber(raw.dailyGoalMinutes, DEFAULT_SETTINGS.dailyGoalMinutes, 5, 120)),
+    preferredLanguage: raw.preferredLanguage === "swift" ? "swift" : "python",
   };
 }
 
@@ -189,6 +195,8 @@ function normalizeCustomItems(value: unknown): PracticeItem[] {
       typeof item.pattern === "string" && patterns.has(item.pattern as PracticeItem["pattern"]) &&
       (item.difficulty === "Easy" || item.difficulty === "Medium");
   }).map((item) => {
+    const legacySwiftNote = (item as unknown as Record<string, unknown>).swiftNote;
+    const normalizedLanguage: CodeLanguage = item.track === "ios" ? "swift" : item.language === "python" ? "python" : "swift";
     let sourceUrl: string | undefined;
     if (typeof item.sourceUrl === "string") {
       try {
@@ -199,16 +207,17 @@ function normalizeCustomItems(value: unknown): PracticeItem[] {
     return {
       ...item,
       track: (item.track === "ios" ? "ios" : "interview") as PracticeItem["track"],
+      language: normalizedLanguage,
       id: 0,
       title: item.title.trim(),
       slug: typeof item.slug === "string" ? item.slug.slice(0, 140) : item.itemId.replace(":", "-"),
       difficulty: item.difficulty,
       pattern: item.pattern,
-      summary: typeof item.summary === "string" ? item.summary.slice(0, 500) : "A device-local Swift snippet for deliberate recall practice.",
+      summary: typeof item.summary === "string" ? item.summary.slice(0, 500) : `A device-local ${normalizedLanguage === "python" ? "Python" : "Swift"} snippet for deliberate recall practice.`,
       cue: typeof item.cue === "string" ? item.cue.slice(0, 1000) : "State what this code is trying to preserve before typing.",
       invariant: typeof item.invariant === "string" ? item.invariant.slice(0, 1000) : "Describe the condition that must stay true throughout the implementation.",
       complexity: typeof item.complexity === "string" ? item.complexity.slice(0, 300) : "Add your own complexity check.",
-      swiftNote: typeof item.swiftNote === "string" ? item.swiftNote.slice(0, 1000) : "Notice the Swift syntax and APIs you want to recall reliably.",
+      languageNote: typeof item.languageNote === "string" ? item.languageNote.slice(0, 1000) : typeof legacySwiftNote === "string" ? legacySwiftNote.slice(0, 1000) : `Notice the ${normalizedLanguage === "python" ? "Python" : "Swift"} syntax and APIs you want to recall reliably.`,
       estimatedMinutes: Math.round(finiteNumber(item.estimatedMinutes, 5, 2, 30)),
       contentRevision: Math.round(finiteNumber(item.contentRevision, 1, 1, 1000000)),
       isCustom: true,
@@ -224,20 +233,22 @@ function normalizeCustomItems(value: unknown): PracticeItem[] {
 }
 
 function itemIdFromRaw(value: unknown): ItemId | null {
-  if (typeof value === "string" && /^(builtin:\d+|ios:[\w-]+|custom:[\w-]+)$/.test(value)) return value as ItemId;
+  if (typeof value === "string" && /^(builtin:\d+|python:\d+|ios:[\w-]+|custom:[\w-]+)$/.test(value)) return value as ItemId;
   if (typeof value === "number" && Number.isFinite(value)) return `builtin:${value}` as ItemId;
   return null;
 }
 
-function normalizeActiveSession(value: unknown, activeIds: Set<ItemId>, revisions: Map<ItemId, number>, tracks: Map<ItemId, PracticeItem["track"]>): TrainingSession | null {
+function normalizeActiveSession(value: unknown, activeIds: Set<ItemId>, revisions: Map<ItemId, number>, tracks: Map<ItemId, PracticeItem["track"]>, languages: Map<ItemId, CodeLanguage>): TrainingSession | null {
   if (!isRecord(value) || typeof value.id !== "string" || !Array.isArray(value.entries)) return null;
   const sessionTrack: SessionTrack = value.track === "interview" || value.track === "ios" ? value.track : "all";
+  const sessionLanguage: SessionLanguage = value.language === "python" || value.language === "swift" ? value.language : "all";
   const seen = new Set<string>();
   const entries = value.entries.flatMap((raw): SessionQueueEntry[] => {
     if (!isRecord(raw)) return [];
     const itemId = itemIdFromRaw(raw.itemId);
     if (!itemId || !activeIds.has(itemId)) return [];
     if (sessionTrack !== "all" && tracks.get(itemId) !== sessionTrack) return [];
+    if (sessionLanguage !== "all" && languages.get(itemId) !== sessionLanguage) return [];
     const stage = Math.round(finiteNumber(raw.stage, 1, 1, 5));
     const key = `${itemId}:${stage}`; if (seen.has(key)) return []; seen.add(key);
     const status = raw.status === "completed" || raw.status === "skipped" ? raw.status : "pending";
@@ -259,6 +270,7 @@ function normalizeActiveSession(value: unknown, activeIds: Set<ItemId>, revision
     name: typeof value.name === "string" && value.name.trim() ? value.name.trim().slice(0, 80) : "Practice session",
     source: sources.includes(value.source as SessionSource) ? value.source as SessionSource : "mixed",
     track: sessionTrack,
+    language: sessionLanguage,
     stageMode: value.stageMode === "recall" ? "recall" : "recommended",
     createdAt: typeof value.createdAt === "string" && !Number.isNaN(Date.parse(value.createdAt)) ? value.createdAt : new Date(0).toISOString(),
     entries,
@@ -303,12 +315,13 @@ export function qualificationFor(input: Pick<AttemptRecord, "outcome" | "stage" 
 }
 
 export function normalizeState(value: unknown): AppState {
-  if (!isRecord(value) || ![2, 3, 4, 5, 6].includes(Number(value.version))) return EMPTY_STATE;
+  if (!isRecord(value) || ![2, 3, 4, 5, 6, 7].includes(Number(value.version))) return EMPTY_STATE;
   const customItems = normalizeCustomItems(value.customItems);
   const validIds = new Set<ItemId>([...BUILTIN_ITEMS.map((item) => item.itemId), ...customItems.map((item) => item.itemId)]);
   const activeIds = new Set<ItemId>([...BUILTIN_ITEMS.map((item) => item.itemId), ...customItems.filter((item) => !item.archivedAt).map((item) => item.itemId)]);
   const revisions = new Map<ItemId, number>([...BUILTIN_ITEMS, ...customItems].map((item) => [item.itemId, item.contentRevision]));
   const tracks = new Map<ItemId, PracticeItem["track"]>([...BUILTIN_ITEMS, ...customItems].map((item) => [item.itemId, item.track]));
+  const languages = new Map<ItemId, CodeLanguage>([...BUILTIN_ITEMS, ...customItems].map((item) => [item.itemId, item.language]));
   const attempts = (Array.isArray(value.attempts) ? value.attempts : []).flatMap((raw): AttemptRecord[] => {
     if (!isRecord(raw) || typeof raw.id !== "string" || (raw.outcome !== "completed" && raw.outcome !== "abandoned")) return [];
     const itemId = itemIdFromRaw(raw.itemId ?? raw.problemId);
@@ -324,6 +337,7 @@ export function normalizeState(value: unknown): AppState {
       itemId,
       itemRevision: Math.round(finiteNumber(raw.itemRevision, 1, 1, 1000000)),
       titleSnapshot: typeof raw.titleSnapshot === "string" ? raw.titleSnapshot : item?.title ?? itemId,
+      language: raw.language === "python" || raw.language === "swift" ? raw.language : item?.language ?? "swift",
       stage,
       mode: raw.mode === "free" ? "free" : "strict",
       startedAt: typeof raw.startedAt === "string" && !Number.isNaN(Date.parse(raw.startedAt)) ? raw.startedAt : new Date(0).toISOString(),
@@ -369,12 +383,12 @@ export function normalizeState(value: unknown): AppState {
 
   const lastItemId = itemIdFromRaw(value.lastItemId ?? value.lastProblemId);
   const favorites = Array.isArray(value.favorites) ? [...new Set(value.favorites.map(itemIdFromRaw).filter((id): id is ItemId => Boolean(id && activeIds.has(id))))] : [];
-  const activeSession = normalizeActiveSession(value.activeSession, activeIds, revisions, tracks);
+  const activeSession = normalizeActiveSession(value.activeSession, activeIds, revisions, tracks, languages);
   const activeEntry = activeSession?.entries[activeSession.currentIndex];
   const draftMatchesSession = Boolean(draft?.sessionId && activeSession && activeEntry && draft.sessionId === activeSession.id && draft.itemId === activeEntry.itemId && draft.stage === activeEntry.stage && draft.itemRevision === activeEntry.itemRevision);
   const normalizedDraft = draft ? { ...draft, sessionId: draftMatchesSession ? draft.sessionId : undefined } : null;
   return {
-    version: 6,
+    version: 7,
     attempts,
     favorites,
     customItems,
@@ -400,7 +414,9 @@ export function loadState(): AppState {
     const oldest = localStorage.getItem(OLDEST_STORAGE_KEY);
     if (oldest) return normalizeState(JSON.parse(oldest));
     const original = localStorage.getItem(ORIGINAL_STORAGE_KEY);
-    return original ? normalizeState(JSON.parse(original)) : EMPTY_STATE;
+    if (original) return normalizeState(JSON.parse(original));
+    const first = localStorage.getItem(FIRST_STORAGE_KEY);
+    return first ? normalizeState(JSON.parse(first)) : EMPTY_STATE;
   } catch {
     return EMPTY_STATE;
   }
@@ -411,16 +427,22 @@ export function saveState(state: AppState) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* local-only mode still works */ }
 }
 
-export function maskCode(code: string, stage: number, reveal = false, authored?: PracticeItem["masks"]) {
+export function maskCode(code: string, stage: number, reveal = false, authored?: PracticeItem["masks"], language: CodeLanguage = "swift") {
   if (reveal || stage === 1) return code;
   if (stage >= 2 && stage <= 4 && authored?.[stage as 2 | 3 | 4]) return authored[stage as 2 | 3 | 4] as string;
   if (stage === 5) return code.replace(/[^\n]/g, " ");
   return code.split("\n").map((line, index) => {
     const trimmed = line.trim();
     if (!trimmed) return line;
-    if (stage === 4) return /^(class |struct |func |}|\{)/.test(trimmed) || trimmed.endsWith("{") ? line : line.replace(/\S/g, " ");
-    if (stage === 3) return index === 0 || index % 3 === 0 || /^(class |func |}|\{)/.test(trimmed) ? line : line.replace(/\S/g, " ");
-    return line.replace(/\b(?:var|let|if|else|for|while|return|guard)\b|(?<=[=\[(, ])\w+(?=[\], ):=+\-])/g, (match) => "_".repeat(match.length));
+    const structural = language === "python"
+      ? /^(class |def |async def |if |elif |else:|for |while |try:|except |finally:)/.test(trimmed)
+      : /^(class |struct |func |}|\{)/.test(trimmed) || trimmed.endsWith("{");
+    if (stage === 4) return /^(class |def |async def |func |struct )/.test(trimmed) ? line : line.replace(/\S/g, " ");
+    if (stage === 3) return index === 0 || index % 3 === 0 || structural ? line : line.replace(/\S/g, " ");
+    const keywords = language === "python"
+      ? /\b(?:def|class|if|elif|else|for|while|return|in|not|and|or|None|True|False)\b|(?<=[=\[(, ])\w+(?=[\], ):=+\-])/g
+      : /\b(?:var|let|if|else|for|while|return|guard)\b|(?<=[=\[(, ])\w+(?=[\], ):=+\-])/g;
+    return line.replace(keywords, (match) => "_".repeat(match.length));
   }).join("\n");
 }
 
@@ -448,7 +470,7 @@ export function completedAttempts(state: AppState) { return state.attempts.filte
 export function eligibleAttempt(attempt: AttemptRecord) { return attempt.outcome === "completed" && attempt.peeks === 0 && attempt.accuracy >= 95; }
 
 export function itemRevision(state: AppState, itemId: ItemId) {
-  return state.customItems.find((item) => item.itemId === itemId)?.contentRevision ?? 1;
+  return state.customItems.find((item) => item.itemId === itemId)?.contentRevision ?? BUILTIN_ITEMS.find((item) => item.itemId === itemId)?.contentRevision ?? 1;
 }
 
 export function itemStats(state: AppState, itemId: ItemId) {
@@ -532,7 +554,7 @@ export function milestones(state: AppState): Milestone[] {
     { id: "first-recall", title: "Independent recall", note: "Own one solution from a blank editor.", achieved: independent.length > 0 },
     { id: "pattern-transfer", title: "Pattern transfer", note: "Qualify across three interview patterns.", achieved: qualifiedPatterns.size >= 3 },
     { id: "recovery", title: "Recovery", note: "Return after a lapse and finish cleanly.", achieved: recovered },
-    { id: "custom-ownership", title: "Make it yours", note: "Independently recall a custom Swift snippet.", achieved: independent.some((attempt) => state.customItems.some((item) => item.itemId === attempt.itemId && item.contentRevision === attempt.itemRevision)) },
+    { id: "custom-ownership", title: "Make it yours", note: "Independently recall a custom Python or Swift snippet.", achieved: independent.some((attempt) => state.customItems.some((item) => item.itemId === attempt.itemId && item.contentRevision === attempt.itemRevision)) },
   ];
 }
 

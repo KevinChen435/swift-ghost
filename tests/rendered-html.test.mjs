@@ -58,6 +58,7 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
+  assert.match(product, /swift-ghost-state-v7/);
   assert.match(product, /swift-ghost-state-v6/);
   assert.match(product, /swift-ghost-state-v5/);
   assert.match(product, /swift-ghost-state-v4/);
@@ -72,9 +73,16 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(catalog, /`https:\/\/leetcode\.com\/problems\/\$\{problem\.slug\}\/`/);
   assert.equal((catalog.match(/^    id:/gm) ?? []).length, 50);
   const fundamentals = await readFile(new URL("../app/data/fundamentals.ts", import.meta.url), "utf8");
+  const python = await readFile(new URL("../app/data/python-problems.ts", import.meta.url), "utf8");
   assert.equal((fundamentals.match(/^    id: "ios:/gm) ?? []).length, 16);
   assert.equal((fundamentals.match(/^    sourceUrl: "https:\/\/(?:developer\.apple\.com|docs\.swift\.org)/gm) ?? []).length, 16);
   assert.equal((fundamentals.match(/^    recallChecks: \[/gm) ?? []).length, 16);
+  assert.equal((python.match(/^    id:/gm) ?? []).length, 36);
+  assert.equal((python.match(/^    languageNote:/gm) ?? []).length, 36);
+  assert.equal((python.match(/^    recallChecks: \[/gm) ?? []).length, 36);
+  assert.match(page, /Python reactivation/);
+  assert.match(page, /solution\.py/);
+  assert.match(page, /Three learning lanes/);
   assert.match(page, /iOS reactivation/);
   assert.match(page, /Key friction/);
   assert.match(page, /Strict correction/);
@@ -94,5 +102,5 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(page, /sessionNext/);
   assert.match(page, /setStage\(restored\.lastStage\)/);
   assert.match(page, /edit\.insertedCount > 0/);
-  assert.match(layout, /"og\.png"/);
+  assert.match(layout, /"og-v7\.png"/);
 });

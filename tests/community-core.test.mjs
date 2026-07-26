@@ -85,6 +85,13 @@ test("attempt validation computes trusted WPM and eligibility", () => {
   assert.equal(result.value.itemRevision, 1);
 });
 
+test("Python catalog identities validate as built-in interview attempts", () => {
+  const result = validateAttemptUpload({ ...validAttempt, itemId: "python:1", title: "Two Sum in Python" }, NOW);
+  assert.equal(result.ok, true);
+  assert.equal(result.value.itemId, "python:1");
+  assert.equal(result.value.track, "interview");
+});
+
 test("free, peeked, inaccurate, and implausibly fast passes never rank", () => {
   for (const attempt of [
     { ...validAttempt, mode: "free" },

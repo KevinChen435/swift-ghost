@@ -155,6 +155,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .file-tab { align-self: stretch; border-left: 1px solid var(--border-soft); border-right: 1px solid var(--border-soft); display: flex; align-items: center; gap: 7px; padding: 0 13px; font: 9px var(--font-code); }
 .file-tab small { color: var(--faint); font-size: 7px; }
 .swift-badge { background: #f05138; color: white; width: 15px; height: 15px; border-radius: 4px; display: grid; place-items: center; font: 700 8px var(--font-code); }
+.swift-badge.python { width: 22px; background: linear-gradient(135deg, #3776ab 0 50%, #ffd343 50%); color: #07111f; text-shadow: 0 1px rgba(255,255,255,.55); }
 .editor-actions { margin-left: auto; display: flex; gap: 4px; }
 .editor-actions button { border: 0; background: none; color: var(--muted); font-size: 8px; cursor: pointer; padding: 6px 8px; border-radius: 6px; }
 .editor-actions button:hover { color: var(--text); background: var(--panel); }

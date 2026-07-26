@@ -2,6 +2,7 @@ import type { ItemId, PracticeItem } from "./items";
 
 export type SessionSource = "mixed" | "due" | "new" | "favorites" | "custom";
 export type SessionTrack = "all" | "interview" | "ios";
+export type SessionLanguage = "all" | "python" | "swift";
 export type SessionStageMode = "recommended" | "recall";
 export type SessionQueueEntry = {
   itemId: ItemId;
@@ -20,10 +21,11 @@ export type SessionSignals = Record<string, {
 
 export const SESSION_SOURCES: SessionSource[];
 export const SESSION_TRACKS: SessionTrack[];
+export const SESSION_LANGUAGES: SessionLanguage[];
 export const SESSION_STAGE_MODES: SessionStageMode[];
 export function buildSessionQueue(
   items: PracticeItem[],
   signals: SessionSignals,
-  options: { count: number; source: SessionSource; track: SessionTrack; pattern: string; difficulty: string; stageMode: SessionStageMode },
+  options: { count: number; source: SessionSource; track: SessionTrack; language: SessionLanguage; pattern: string; difficulty: string; stageMode: SessionStageMode },
   random?: () => number,
 ): SessionQueueEntry[];

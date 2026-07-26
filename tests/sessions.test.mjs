@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { buildSessionQueue } from "../app/lib/sessions.mjs";
 
 const items = [
-  { itemId: "builtin:1", pattern: "Arrays & Hashing", difficulty: "Easy", source: "builtin", track: "interview" },
-  { itemId: "builtin:2", pattern: "Two Pointers", difficulty: "Medium", source: "builtin", track: "interview" },
-  { itemId: "ios:1", pattern: "Concurrency", difficulty: "Medium", source: "builtin", track: "ios" },
-  { itemId: "custom:one", pattern: "Arrays & Hashing", difficulty: "Easy", source: "custom", track: "interview" },
+  { itemId: "builtin:1", pattern: "Arrays & Hashing", difficulty: "Easy", source: "builtin", track: "interview", language: "swift" },
+  { itemId: "builtin:2", pattern: "Two Pointers", difficulty: "Medium", source: "builtin", track: "interview", language: "swift" },
+  { itemId: "ios:1", pattern: "Concurrency", difficulty: "Medium", source: "builtin", track: "ios", language: "swift" },
+  { itemId: "custom:one", pattern: "Arrays & Hashing", difficulty: "Easy", source: "custom", track: "interview", language: "swift" },
 ];
 
 const signals = {
@@ -17,26 +17,36 @@ const signals = {
 };
 
 test("mixed sessions put due work before new and practiced work", () => {
-  const queue = buildSessionQueue(items, signals, { count: 4, source: "mixed", track: "all", pattern: "All", difficulty: "All", stageMode: "recommended" }, () => 0.5);
+  const queue = buildSessionQueue(items, signals, { count: 4, source: "mixed", track: "all", language: "all", pattern: "All", difficulty: "All", stageMode: "recommended" }, () => 0.5);
   assert.deepEqual(queue.map((entry) => entry.itemId), ["builtin:1", "builtin:2", "ios:1", "custom:one"]);
   assert.deepEqual(queue.map((entry) => entry.stage), [3, 1, 2, 4]);
 });
 
 test("filters and recall mode create a bounded blank-editor queue", () => {
-  const queue = buildSessionQueue(items, signals, { count: 20, source: "favorites", track: "all", pattern: "Arrays & Hashing", difficulty: "Easy", stageMode: "recall" }, () => 0.1);
+  const queue = buildSessionQueue(items, signals, { count: 20, source: "favorites", track: "all", language: "all", pattern: "Arrays & Hashing", difficulty: "Easy", stageMode: "recall" }, () => 0.1);
   assert.deepEqual(queue, [{ itemId: "custom:one", itemRevision: 1, stage: 5, status: "pending" }]);
 });
 
 test("due sessions do not silently fall back to unrelated items", () => {
-  const queue = buildSessionQueue(items, signals, { count: 5, source: "due", track: "all", pattern: "Two Pointers", difficulty: "All", stageMode: "recommended" });
+  const queue = buildSessionQueue(items, signals, { count: 5, source: "due", track: "all", language: "all", pattern: "Two Pointers", difficulty: "All", stageMode: "recommended" });
   assert.deepEqual(queue, []);
 });
 
 test("track filters combine cleanly with session sources", () => {
-  const ios = buildSessionQueue(items, signals, { count: 5, source: "new", track: "ios", pattern: "All", difficulty: "All", stageMode: "recommended" }, () => 0.2);
-  const interview = buildSessionQueue(items, signals, { count: 5, source: "mixed", track: "interview", pattern: "All", difficulty: "All", stageMode: "recommended" }, () => 0.2);
+  const ios = buildSessionQueue(items, signals, { count: 5, source: "new", track: "ios", language: "swift", pattern: "All", difficulty: "All", stageMode: "recommended" }, () => 0.2);
+  const interview = buildSessionQueue(items, signals, { count: 5, source: "mixed", track: "interview", language: "all", pattern: "All", difficulty: "All", stageMode: "recommended" }, () => 0.2);
   assert.deepEqual(ios.map((entry) => entry.itemId), ["ios:1"]);
   assert.equal(interview.some((entry) => entry.itemId === "ios:1"), false);
-  const iosCustom = buildSessionQueue(items, signals, { count: 5, source: "custom", track: "ios", pattern: "All", difficulty: "All", stageMode: "recommended" }, () => 0.2);
+  const iosCustom = buildSessionQueue(items, signals, { count: 5, source: "custom", track: "ios", language: "swift", pattern: "All", difficulty: "All", stageMode: "recommended" }, () => 0.2);
   assert.deepEqual(iosCustom, []);
+});
+
+test("language filters keep corresponding Python and Swift problems independent", () => {
+  const variants = [
+    { itemId: "builtin:1", pattern: "Arrays & Hashing", difficulty: "Easy", source: "builtin", track: "interview", language: "swift" },
+    { itemId: "python:1", pattern: "Arrays & Hashing", difficulty: "Easy", source: "builtin", track: "interview", language: "python" },
+  ];
+  const variantSignals = { "builtin:1": { recommendedStage: 3 }, "python:1": { recommendedStage: 1 } };
+  const python = buildSessionQueue(variants, variantSignals, { count: 5, source: "mixed", track: "interview", language: "python", pattern: "All", difficulty: "All", stageMode: "recommended" }, () => 0.2);
+  assert.deepEqual(python.map((entry) => entry.itemId), ["python:1"]);
 });
