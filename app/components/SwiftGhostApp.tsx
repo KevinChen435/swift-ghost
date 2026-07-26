@@ -268,13 +268,6 @@ export default function SwiftGhostApp() {
       insertAtCursor(event.currentTarget, " ".repeat(state.settings.tabSize));
       return;
     }
-    if (event.key === "Enter" && state.settings.autoIndent) {
-      event.preventDefault();
-      const before = draft.value.slice(0, event.currentTarget.selectionStart);
-      const indent = before.split("\n").at(-1)?.match(/^\s*/)?.[0] ?? "";
-      const extra = before.trimEnd().endsWith("{") ? " ".repeat(state.settings.tabSize) : "";
-      insertAtCursor(event.currentTarget, `\n${indent}${extra}`);
-    }
   }
 
   function resetAttempt() {
@@ -673,7 +666,6 @@ function SettingsView({ state, onUpdate, onExport, onImport, onReset }: { state:
       <section className="settings-section"><div className="settings-intro"><small>Behavior</small><h2>Practice rules</h2><p>Strict mode is ideal while rebuilding muscle memory.</p></div><div className="setting-list">
         <ToggleRow label="Strict correction" note="Reject incorrect characters immediately." checked={state.settings.strictMode} onChange={(checked) => onUpdate({ strictMode: checked })} />
         <ToggleRow label="Live WPM" note="Show speed during the attempt." checked={state.settings.showLiveWpm} onChange={(checked) => onUpdate({ showLiveWpm: checked })} />
-        <ToggleRow label="Auto indentation" note="Carry indentation to the next line." checked={state.settings.autoIndent} onChange={(checked) => onUpdate({ autoIndent: checked })} />
         <ToggleRow label="Keyboard guide" note="Show a friction heatmap below the editor." checked={state.settings.showKeyboard} onChange={(checked) => onUpdate({ showKeyboard: checked })} />
         <SettingRow label="Daily practice goal" note="Minutes practiced before the ring closes."><div className="stepper"><button onClick={() => onUpdate({ dailyGoalMinutes: Math.max(5, state.settings.dailyGoalMinutes - 5) })}>−</button><span>{state.settings.dailyGoalMinutes} min</span><button onClick={() => onUpdate({ dailyGoalMinutes: Math.min(120, state.settings.dailyGoalMinutes + 5) })}>+</button></div></SettingRow>
       </div></section>
@@ -709,7 +701,7 @@ function SettingRow({ label, note, children }: { label: string; note: string; ch
 }
 
 function ToggleRow({ label, note, checked, onChange }: { label: string; note: string; checked: boolean; onChange: (checked: boolean) => void }) {
-  return <SettingRow label={label} note={note}><button role="switch" aria-checked={checked} className={`toggle ${checked ? "on" : ""}`} onClick={() => onChange(!checked)}><i /></button></SettingRow>;
+  return <SettingRow label={label} note={note}><button role="switch" aria-label={label} aria-checked={checked} className={`toggle ${checked ? "on" : ""}`} onClick={() => onChange(!checked)}><i /></button></SettingRow>;
 }
 
 function Segmented({ value, options, onChange }: { value: string; options: string[]; onChange: (value: string) => void }) {

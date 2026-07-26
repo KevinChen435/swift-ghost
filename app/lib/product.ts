@@ -20,7 +20,6 @@ export type Settings = {
   strictMode: boolean;
   showLiveWpm: boolean;
   showKeyboard: boolean;
-  autoIndent: boolean;
   dailyGoalMinutes: number;
 };
 
@@ -76,7 +75,6 @@ export const DEFAULT_SETTINGS: Settings = {
   strictMode: true,
   showLiveWpm: true,
   showKeyboard: false,
-  autoIndent: true,
   dailyGoalMinutes: 20,
 };
 
@@ -117,7 +115,6 @@ export function normalizeState(value: unknown): AppState {
     strictMode: typeof rawSettings.strictMode === "boolean" ? rawSettings.strictMode : DEFAULT_SETTINGS.strictMode,
     showLiveWpm: typeof rawSettings.showLiveWpm === "boolean" ? rawSettings.showLiveWpm : DEFAULT_SETTINGS.showLiveWpm,
     showKeyboard: typeof rawSettings.showKeyboard === "boolean" ? rawSettings.showKeyboard : DEFAULT_SETTINGS.showKeyboard,
-    autoIndent: typeof rawSettings.autoIndent === "boolean" ? rawSettings.autoIndent : DEFAULT_SETTINGS.autoIndent,
     dailyGoalMinutes: Math.round(finiteNumber(rawSettings.dailyGoalMinutes, DEFAULT_SETTINGS.dailyGoalMinutes, 5, 120)),
   };
 
@@ -218,7 +215,11 @@ export function currentMetrics(draft: Draft, target: string, now = Date.now()) {
   const accuracy = draft.totalKeystrokes
     ? Math.round((draft.correctKeystrokes / draft.totalKeystrokes) * 100)
     : 100;
-  const progress = target.length ? Math.min(100, Math.round((draft.value.length / target.length) * 100)) : 0;
+  let correctPrefix = 0;
+  while (correctPrefix < draft.value.length && draft.value[correctPrefix] === target[correctPrefix]) {
+    correctPrefix += 1;
+  }
+  const progress = target.length ? Math.round((correctPrefix / target.length) * 100) : 0;
   return { durationMs, rawWpm, wpm, accuracy, progress };
 }
 
