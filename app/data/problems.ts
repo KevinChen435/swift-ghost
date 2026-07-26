@@ -1,4 +1,4 @@
-export type Difficulty = "Easy" | "Medium";
+export type Difficulty = "Easy" | "Medium" | "Hard";
 
 export type Pattern =
   | "Python Fluency"
@@ -10,6 +10,9 @@ export type Pattern =
   | "Linked List"
   | "Trees"
   | "Heaps & Priority Queues"
+  | "Tries"
+  | "Union-Find"
+  | "Bit Manipulation"
   | "Intervals"
   | "Graphs"
   | "Backtracking"
@@ -68,6 +71,9 @@ export const PYTHON_PATTERN_ORDER: Pattern[] = [
   "Linked List",
   "Trees",
   "Heaps & Priority Queues",
+  "Tries",
+  "Union-Find",
+  "Bit Manipulation",
   "Intervals",
   "Graphs",
   "Backtracking",
@@ -88,7 +94,13 @@ export const IOS_PATTERN_ORDER: Pattern[] = [
   "Accessibility",
 ];
 
-export const PATTERN_ORDER: Pattern[] = [...new Set([...PYTHON_PATTERN_ORDER, ...INTERVIEW_PATTERN_ORDER, ...IOS_PATTERN_ORDER])];
+export const PATTERN_ORDER: Pattern[] = [
+  ...new Set([
+    ...PYTHON_PATTERN_ORDER,
+    ...INTERVIEW_PATTERN_ORDER,
+    ...IOS_PATTERN_ORDER,
+  ]),
+];
 
 export const PROBLEMS: Problem[] = [
   {
@@ -99,7 +111,8 @@ export const PROBLEMS: Problem[] = [
     pattern: "Arrays & Hashing",
     summary: "Return the two indices whose values add to a target.",
     cue: "You need to find a complement while scanning once.",
-    invariant: "The dictionary contains only values from indices before the current index.",
+    invariant:
+      "The dictionary contains only values from indices before the current index.",
     complexity: "O(n) time · O(n) space",
     swiftNote: "Use Dictionary subscript lookup with optional binding.",
     estimatedMinutes: 4,
@@ -128,7 +141,8 @@ export const PROBLEMS: Problem[] = [
     cue: "You only need to know whether a value has appeared before.",
     invariant: "The set contains every value already processed.",
     complexity: "O(n) time · O(n) space",
-    swiftNote: "Set.insert returns an inserted flag and the member after insertion.",
+    swiftNote:
+      "Set.insert returns an inserted flag and the member after insertion.",
     estimatedMinutes: 3,
     code: `class Solution {
     func containsDuplicate(_ nums: [Int]) -> Bool {
@@ -152,7 +166,8 @@ export const PROBLEMS: Problem[] = [
     pattern: "Arrays & Hashing",
     summary: "Check whether two strings contain identical character counts.",
     cue: "Order is irrelevant, but multiplicity matters.",
-    invariant: "Each count equals occurrences in the first string minus occurrences consumed by the second.",
+    invariant:
+      "Each count equals occurrences in the first string minus occurrences consumed by the second.",
     complexity: "O(n) time · O(k) space",
     swiftNote: "Character is Hashable and works directly as a dictionary key.",
     estimatedMinutes: 4,
@@ -186,7 +201,8 @@ export const PROBLEMS: Problem[] = [
     pattern: "Arrays & Hashing",
     summary: "Group words that share the same multiset of characters.",
     cue: "Equivalent words need a stable shared key.",
-    invariant: "Every word stored under a key has exactly the characters represented by that key.",
+    invariant:
+      "Every word stored under a key has exactly the characters represented by that key.",
     complexity: "O(n · k log k) time · O(nk) space",
     swiftNote: "String(word.sorted()) creates a simple Hashable canonical key.",
     estimatedMinutes: 7,
@@ -209,11 +225,14 @@ export const PROBLEMS: Problem[] = [
     slug: "product-of-array-except-self",
     difficulty: "Medium",
     pattern: "Arrays & Hashing",
-    summary: "Build each position’s product without using its own value or division.",
+    summary:
+      "Build each position’s product without using its own value or division.",
     cue: "Each answer is a left product multiplied by a right product.",
-    invariant: "Before the reverse pass reaches i, output[i] stores the product strictly left of i.",
+    invariant:
+      "Before the reverse pass reaches i, output[i] stores the product strictly left of i.",
     complexity: "O(n) time · O(1) extra space",
-    swiftNote: "Initialize a mutable output array with Array(repeating:count:).",
+    swiftNote:
+      "Initialize a mutable output array with Array(repeating:count:).",
     estimatedMinutes: 8,
     code: `class Solution {
     func productExceptSelf(_ nums: [Int]) -> [Int] {
@@ -241,11 +260,14 @@ export const PROBLEMS: Problem[] = [
     slug: "valid-palindrome",
     difficulty: "Easy",
     pattern: "Two Pointers",
-    summary: "Decide whether normalized text reads the same in both directions.",
+    summary:
+      "Decide whether normalized text reads the same in both directions.",
     cue: "Matching positions approach each other from opposite ends.",
-    invariant: "Everything outside the active pointer range has already matched.",
+    invariant:
+      "Everything outside the active pointer range has already matched.",
     complexity: "O(n) time · O(n) space",
-    swiftNote: "Converting String to [Character] makes integer indexing explicit.",
+    swiftNote:
+      "Converting String to [Character] makes integer indexing explicit.",
     estimatedMinutes: 5,
     code: `class Solution {
     func isPalindrome(_ s: String) -> Bool {
@@ -308,9 +330,11 @@ export const PROBLEMS: Problem[] = [
     pattern: "Two Pointers",
     summary: "Return unique triples whose values sum to zero.",
     cue: "Sorting converts each fixed first value into a two-pointer search.",
-    invariant: "Duplicate first and pointer values are skipped, so every emitted triple is unique.",
+    invariant:
+      "Duplicate first and pointer values are skipped, so every emitted triple is unique.",
     complexity: "O(n²) time · O(n) output space",
-    swiftNote: "Use indices rather than repeated Array slicing to avoid copies.",
+    swiftNote:
+      "Use indices rather than repeated Array slicing to avoid copies.",
     estimatedMinutes: 12,
     code: `class Solution {
     func threeSum(_ nums: [Int]) -> [[Int]] {
@@ -351,7 +375,8 @@ export const PROBLEMS: Problem[] = [
     pattern: "Two Pointers",
     summary: "Choose two vertical lines that hold the greatest area.",
     cue: "Width shrinks every step, so only replacing the shorter wall can help.",
-    invariant: "After moving the shorter side, no discarded pair could beat the best using that side.",
+    invariant:
+      "After moving the shorter side, no discarded pair could beat the best using that side.",
     complexity: "O(n) time · O(1) space",
     swiftNote: "min and max keep the area update compact and readable.",
     estimatedMinutes: 7,
@@ -384,7 +409,8 @@ export const PROBLEMS: Problem[] = [
     pattern: "Sliding Window",
     summary: "Find the best profit from one buy followed by one sale.",
     cue: "Every selling day only needs the cheapest earlier buying day.",
-    invariant: "minimumPrice is the lowest price strictly before or at the current day.",
+    invariant:
+      "minimumPrice is the lowest price strictly before or at the current day.",
     complexity: "O(n) time · O(1) space",
     swiftNote: "Initialize from the first element after guarding empty input.",
     estimatedMinutes: 4,
@@ -414,7 +440,8 @@ export const PROBLEMS: Problem[] = [
     cue: "A duplicate only matters if its previous position is inside the current window.",
     invariant: "The active window contains no duplicate characters.",
     complexity: "O(n) time · O(n) space",
-    swiftNote: "Array(s) avoids expensive String.Index movement in interview code.",
+    swiftNote:
+      "Array(s) avoids expensive String.Index movement in interview code.",
     estimatedMinutes: 8,
     code: `class Solution {
     func lengthOfLongestSubstring(_ s: String) -> Int {
@@ -441,11 +468,14 @@ export const PROBLEMS: Problem[] = [
     slug: "longest-repeating-character-replacement",
     difficulty: "Medium",
     pattern: "Sliding Window",
-    summary: "Find the longest window that can become one repeated character using at most k replacements.",
+    summary:
+      "Find the longest window that can become one repeated character using at most k replacements.",
     cue: "Window size minus its most frequent character is the replacement cost.",
-    invariant: "After shrinking, the active window needs at most k replacements under the tracked maximum frequency.",
+    invariant:
+      "After shrinking, the active window needs at most k replacements under the tracked maximum frequency.",
     complexity: "O(n) time · O(k) space",
-    swiftNote: "Track a historical maxFrequency; it never needs to decrease for this objective.",
+    swiftNote:
+      "Track a historical maxFrequency; it never needs to decrease for this objective.",
     estimatedMinutes: 10,
     code: `class Solution {
     func characterReplacement(_ s: String, _ k: Int) -> Int {
@@ -478,11 +508,14 @@ export const PROBLEMS: Problem[] = [
     slug: "valid-parentheses",
     difficulty: "Easy",
     pattern: "Stack",
-    summary: "Check that every closing delimiter matches the most recent unclosed opener.",
+    summary:
+      "Check that every closing delimiter matches the most recent unclosed opener.",
     cue: "Nested structure requires last-in, first-out matching.",
-    invariant: "The stack contains exactly the unmatched opening delimiters in order.",
+    invariant:
+      "The stack contains exactly the unmatched opening delimiters in order.",
     complexity: "O(n) time · O(n) space",
-    swiftNote: "popLast safely returns an optional and avoids removeLast crashes.",
+    swiftNote:
+      "popLast safely returns an optional and avoids removeLast crashes.",
     estimatedMinutes: 5,
     code: `class Solution {
     func isValid(_ s: String) -> Bool {
@@ -513,9 +546,11 @@ export const PROBLEMS: Problem[] = [
     pattern: "Stack",
     summary: "For each day, count how long until a warmer temperature appears.",
     cue: "Unresolved days should be ordered so a warmer value can resolve several at once.",
-    invariant: "Indices in the stack have temperatures in non-increasing order.",
+    invariant:
+      "Indices in the stack have temperatures in non-increasing order.",
     complexity: "O(n) time · O(n) space",
-    swiftNote: "Store indices in the stack so you can compute distances and access values.",
+    swiftNote:
+      "Store indices in the stack so you can compute distances and access values.",
     estimatedMinutes: 8,
     code: `class Solution {
     func dailyTemperatures(_ temperatures: [Int]) -> [Int] {
@@ -543,9 +578,11 @@ export const PROBLEMS: Problem[] = [
     pattern: "Binary Search",
     summary: "Find a target in a sorted array or return -1.",
     cue: "A comparison can eliminate half of the remaining candidates.",
-    invariant: "If the target exists, it remains inside the inclusive [left, right] range.",
+    invariant:
+      "If the target exists, it remains inside the inclusive [left, right] range.",
     complexity: "O(log n) time · O(1) space",
-    swiftNote: "An empty array naturally produces right = -1 and skips the loop.",
+    swiftNote:
+      "An empty array naturally produces right = -1 and skips the loop.",
     estimatedMinutes: 5,
     code: `class Solution {
     func search(_ nums: [Int], _ target: Int) -> Int {
@@ -575,9 +612,11 @@ export const PROBLEMS: Problem[] = [
     pattern: "Binary Search",
     summary: "Locate a target in a sorted array rotated at an unknown pivot.",
     cue: "At least one half around the midpoint is still normally sorted.",
-    invariant: "Each comparison preserves the only half that can still contain the target.",
+    invariant:
+      "Each comparison preserves the only half that can still contain the target.",
     complexity: "O(log n) time · O(1) space",
-    swiftNote: "Use closed-range comparisons rather than constructing Range values.",
+    swiftNote:
+      "Use closed-range comparisons rather than constructing Range values.",
     estimatedMinutes: 10,
     code: `class Solution {
     func search(_ nums: [Int], _ target: Int) -> Int {
@@ -645,9 +684,11 @@ export const PROBLEMS: Problem[] = [
     pattern: "Linked List",
     summary: "Reverse a singly linked list in place.",
     cue: "Save the forward link before redirecting it.",
-    invariant: "previous is the fully reversed prefix and current starts the untouched suffix.",
+    invariant:
+      "previous is the fully reversed prefix and current starts the untouched suffix.",
     complexity: "O(n) time · O(1) space",
-    swiftNote: "ListNode is supplied by LeetCode; its next property is mutable.",
+    swiftNote:
+      "ListNode is supplied by LeetCode; its next property is mutable.",
     estimatedMinutes: 5,
     code: `class Solution {
     func reverseList(_ head: ListNode?) -> ListNode? {
@@ -673,9 +714,11 @@ export const PROBLEMS: Problem[] = [
     pattern: "Linked List",
     summary: "Merge two ordered linked lists into one ordered chain.",
     cue: "The smaller current node must be the next output node.",
-    invariant: "Everything before tail is the complete sorted merge of consumed nodes.",
+    invariant:
+      "Everything before tail is the complete sorted merge of consumed nodes.",
     complexity: "O(n + m) time · O(1) space",
-    swiftNote: "A dummy node removes special handling for the first appended node.",
+    swiftNote:
+      "A dummy node removes special handling for the first appended node.",
     estimatedMinutes: 7,
     code: `class Solution {
     func mergeTwoLists(_ list1: ListNode?, _ list2: ListNode?) -> ListNode? {
@@ -706,9 +749,11 @@ export const PROBLEMS: Problem[] = [
     slug: "linked-list-cycle",
     difficulty: "Easy",
     pattern: "Linked List",
-    summary: "Determine whether following next pointers eventually repeats a node.",
+    summary:
+      "Determine whether following next pointers eventually repeats a node.",
     cue: "Two walkers with different speeds meet exactly when a cycle exists.",
-    invariant: "If a cycle exists, the faster pointer gains one node per step inside it.",
+    invariant:
+      "If a cycle exists, the faster pointer gains one node per step inside it.",
     complexity: "O(n) time · O(1) space",
     swiftNote: "Use identity comparison (===) for ListNode references.",
     estimatedMinutes: 6,
@@ -737,7 +782,8 @@ export const PROBLEMS: Problem[] = [
     pattern: "Trees",
     summary: "Return the number of nodes along the longest root-to-leaf path.",
     cue: "A tree answer can be composed from answers for its children.",
-    invariant: "Each call returns the correct maximum depth of exactly its subtree.",
+    invariant:
+      "Each call returns the correct maximum depth of exactly its subtree.",
     complexity: "O(n) time · O(h) space",
     swiftNote: "Optional chaining keeps the base case explicit and safe.",
     estimatedMinutes: 4,
@@ -787,9 +833,11 @@ export const PROBLEMS: Problem[] = [
     pattern: "Trees",
     summary: "Return the tree values grouped by depth.",
     cue: "A queue boundary can separate one level from the next.",
-    invariant: "At the start of each outer loop, levelEnd marks exactly the nodes in the current level.",
+    invariant:
+      "At the start of each outer loop, levelEnd marks exactly the nodes in the current level.",
     complexity: "O(n) time · O(n) space",
-    swiftNote: "Use a head index instead of Array.removeFirst(), which is linear.",
+    swiftNote:
+      "Use a head index instead of Array.removeFirst(), which is linear.",
     estimatedMinutes: 8,
     code: `class Solution {
     func levelOrder(_ root: TreeNode?) -> [[Int]] {
@@ -828,9 +876,11 @@ export const PROBLEMS: Problem[] = [
     pattern: "Trees",
     summary: "Check that every tree node obeys the global BST ordering rule.",
     cue: "A node inherits bounds from every ancestor, not only its parent.",
-    invariant: "Each recursive call validates that all values in its subtree stay strictly within its bounds.",
+    invariant:
+      "Each recursive call validates that all values in its subtree stay strictly within its bounds.",
     complexity: "O(n) time · O(h) space",
-    swiftNote: "Optional Int bounds avoid artificial sentinel values and overflow concerns.",
+    swiftNote:
+      "Optional Int bounds avoid artificial sentinel values and overflow concerns.",
     estimatedMinutes: 8,
     code: `class Solution {
     func isValidBST(_ root: TreeNode?) -> Bool {
@@ -857,9 +907,11 @@ export const PROBLEMS: Problem[] = [
     pattern: "Intervals",
     summary: "Combine every overlapping range.",
     cue: "Sorting by start makes only the most recent merged interval relevant.",
-    invariant: "merged is sorted, non-overlapping, and covers every processed interval.",
+    invariant:
+      "merged is sorted, non-overlapping, and covers every processed interval.",
     complexity: "O(n log n) time · O(n) space",
-    swiftNote: "Mutate the nested end value through an integer index, not result.last.",
+    swiftNote:
+      "Mutate the nested end value through an integer index, not result.last.",
     estimatedMinutes: 8,
     code: `class Solution {
     func merge(_ intervals: [[Int]]) -> [[Int]] {
@@ -891,9 +943,11 @@ export const PROBLEMS: Problem[] = [
     pattern: "Graphs",
     summary: "Count connected components of land in a rectangular grid.",
     cue: "Each unseen land cell begins exactly one new component traversal.",
-    invariant: "Every land cell marked water has already been assigned to one counted island.",
+    invariant:
+      "Every land cell marked water has already been assigned to one counted island.",
     complexity: "O(rows · columns) time · O(rows · columns) space",
-    swiftNote: "Copy the immutable input into var cells before marking visited positions.",
+    swiftNote:
+      "Copy the immutable input into var cells before marking visited positions.",
     estimatedMinutes: 10,
     code: `class Solution {
     func numIslands(_ grid: [[Character]]) -> Int {
@@ -936,11 +990,14 @@ export const PROBLEMS: Problem[] = [
     slug: "course-schedule",
     difficulty: "Medium",
     pattern: "Graphs",
-    summary: "Decide whether all courses can be completed under prerequisite constraints.",
+    summary:
+      "Decide whether all courses can be completed under prerequisite constraints.",
     cue: "A valid ordering exists exactly when the directed graph has no cycle.",
-    invariant: "The queue contains courses whose remaining prerequisite count is zero.",
+    invariant:
+      "The queue contains courses whose remaining prerequisite count is zero.",
     complexity: "O(V + E) time · O(V + E) space",
-    swiftNote: "A head index turns an Array into an efficient FIFO queue for interview use.",
+    swiftNote:
+      "A head index turns an Array into an efficient FIFO queue for interview use.",
     estimatedMinutes: 12,
     code: `class Solution {
     func canFinish(_ numCourses: Int, _ prerequisites: [[Int]]) -> Bool {
@@ -979,9 +1036,11 @@ export const PROBLEMS: Problem[] = [
     pattern: "Backtracking",
     summary: "Generate every subset of a list of unique values.",
     cue: "For each value, every existing subset has one version without it and one with it.",
-    invariant: "After processing i values, result contains every subset of exactly those i values.",
+    invariant:
+      "After processing i values, result contains every subset of exactly those i values.",
     complexity: "O(n · 2ⁿ) time · O(n · 2ⁿ) space",
-    swiftNote: "Iterating over a fixed count avoids reading subsets appended in the same pass.",
+    swiftNote:
+      "Iterating over a fixed count avoids reading subsets appended in the same pass.",
     estimatedMinutes: 7,
     code: `class Solution {
     func subsets(_ nums: [Int]) -> [[Int]] {
@@ -1006,9 +1065,11 @@ export const PROBLEMS: Problem[] = [
     pattern: "Greedy",
     summary: "Find the contiguous subarray with the largest sum.",
     cue: "A negative running prefix can only hurt any future subarray.",
-    invariant: "current is the best sum of a subarray ending exactly at the current value.",
+    invariant:
+      "current is the best sum of a subarray ending exactly at the current value.",
     complexity: "O(n) time · O(1) space",
-    swiftNote: "Start from nums[0] because the answer must include at least one value.",
+    swiftNote:
+      "Start from nums[0] because the answer must include at least one value.",
     estimatedMinutes: 6,
     code: `class Solution {
     func maxSubArray(_ nums: [Int]) -> Int {
@@ -1032,7 +1093,8 @@ export const PROBLEMS: Problem[] = [
     pattern: "Greedy",
     summary: "Determine whether forward jumps can reach the final index.",
     cue: "Only the farthest reachable boundary matters.",
-    invariant: "Every index at or before farthestReach is reachable from the start.",
+    invariant:
+      "Every index at or before farthestReach is reachable from the start.",
     complexity: "O(n) time · O(1) space",
     swiftNote: "Break immediately when the scan reaches an unreachable index.",
     estimatedMinutes: 6,
@@ -1059,7 +1121,8 @@ export const PROBLEMS: Problem[] = [
     pattern: "Dynamic Programming",
     summary: "Count the ways to reach step n using jumps of one or two.",
     cue: "The final move came from exactly one of the previous two steps.",
-    invariant: "previousTwo and previousOne hold the answers for the two most recent step counts.",
+    invariant:
+      "previousTwo and previousOne hold the answers for the two most recent step counts.",
     complexity: "O(n) time · O(1) space",
     swiftNote: "Use a closed range only after handling n <= 2.",
     estimatedMinutes: 5,
@@ -1117,9 +1180,11 @@ export const PROBLEMS: Problem[] = [
     pattern: "Dynamic Programming",
     summary: "Find the fewest coins needed to form an amount.",
     cue: "Every reachable amount extends a smaller reachable amount by one coin.",
-    invariant: "After computing value, dp[value] is the fewest coins for that exact amount.",
+    invariant:
+      "After computing value, dp[value] is the fewest coins for that exact amount.",
     complexity: "O(amount · coins) time · O(amount) space",
-    swiftNote: "amount + 1 is a safe unreachable sentinel because no valid answer needs that many coins.",
+    swiftNote:
+      "amount + 1 is a safe unreachable sentinel because no valid answer needs that many coins.",
     estimatedMinutes: 10,
     code: `class Solution {
     func coinChange(_ coins: [Int], _ amount: Int) -> Int {
@@ -1144,11 +1209,13 @@ export const PROBLEMS: Problem[] = [
     slug: "longest-consecutive-sequence",
     difficulty: "Medium",
     pattern: "Arrays & Hashing",
-    summary: "Find the longest run of consecutive values regardless of input order.",
+    summary:
+      "Find the longest run of consecutive values regardless of input order.",
     cue: "Only values with no predecessor can begin a new sequence.",
     invariant: "Every counted run begins at its unique smallest value.",
     complexity: "O(n) expected time · O(n) space",
-    swiftNote: "Build Set(nums), then extend only from values whose predecessor is absent.",
+    swiftNote:
+      "Build Set(nums), then extend only from values whose predecessor is absent.",
     estimatedMinutes: 7,
     code: `class Solution {
     func longestConsecutive(_ nums: [Int]) -> Int {
@@ -1179,9 +1246,11 @@ export const PROBLEMS: Problem[] = [
     pattern: "Arrays & Hashing",
     summary: "Count contiguous subarrays whose values sum to a target.",
     cue: "A subarray sums to k when two prefix sums differ by k.",
-    invariant: "The dictionary counts prefix sums ending before the current position.",
+    invariant:
+      "The dictionary counts prefix sums ending before the current position.",
     complexity: "O(n) time · O(n) space",
-    swiftNote: "Seed prefixCounts with [0: 1] so subarrays starting at index zero are counted.",
+    swiftNote:
+      "Seed prefixCounts with [0: 1] so subarrays starting at index zero are counted.",
     estimatedMinutes: 8,
     code: `class Solution {
     func subarraySum(_ nums: [Int], _ k: Int) -> Int {
@@ -1205,11 +1274,14 @@ export const PROBLEMS: Problem[] = [
     slug: "permutation-in-string",
     difficulty: "Medium",
     pattern: "Sliding Window",
-    summary: "Determine whether any fixed-length window is a permutation of another string.",
+    summary:
+      "Determine whether any fixed-length window is a permutation of another string.",
     cue: "A permutation preserves frequencies, and its window length is known.",
-    invariant: "missing is the number of pattern characters not satisfied by the active window.",
+    invariant:
+      "missing is the number of pattern characters not satisfied by the active window.",
     complexity: "O(n + m) time · O(1) space",
-    swiftNote: "The lowercase-English constraint makes UTF-8 byte indexing with 26 counters safe.",
+    swiftNote:
+      "The lowercase-English constraint makes UTF-8 byte indexing with 26 counters safe.",
     estimatedMinutes: 8,
     code: `class Solution {
     func checkInclusion(_ s1: String, _ s2: String) -> Bool {
@@ -1262,9 +1334,11 @@ export const PROBLEMS: Problem[] = [
     pattern: "Stack",
     summary: "Evaluate an arithmetic expression written in postfix order.",
     cue: "Each operator consumes the two most recent completed operands.",
-    invariant: "The stack contains values of completed subexpressions in encounter order.",
+    invariant:
+      "The stack contains values of completed subexpressions in encounter order.",
     complexity: "O(n) time · O(n) space",
-    swiftNote: "Pop the right operand before the left; Swift integer division truncates toward zero.",
+    swiftNote:
+      "Pop the right operand before the left; Swift integer division truncates toward zero.",
     estimatedMinutes: 6,
     code: `class Solution {
     func evalRPN(_ tokens: [String]) -> Int {
@@ -1301,11 +1375,13 @@ export const PROBLEMS: Problem[] = [
     slug: "min-stack",
     difficulty: "Medium",
     pattern: "Stack",
-    summary: "Implement a stack that also returns its current minimum in constant time.",
+    summary:
+      "Implement a stack that also returns its current minimum in constant time.",
     cue: "Each depth can remember the minimum that existed when it was created.",
     invariant: "minimums[i] is the minimum of values[0...i].",
     complexity: "O(1) per operation · O(n) space",
-    swiftNote: "LeetCode expects a top-level MinStack class rather than class Solution.",
+    swiftNote:
+      "LeetCode expects a top-level MinStack class rather than class Solution.",
     estimatedMinutes: 6,
     code: `class MinStack {
     private var values: [Int] = []
@@ -1338,9 +1414,11 @@ export const PROBLEMS: Problem[] = [
     slug: "koko-eating-bananas",
     difficulty: "Medium",
     pattern: "Binary Search",
-    summary: "Find the smallest integer eating speed that finishes every pile on time.",
+    summary:
+      "Find the smallest integer eating speed that finishes every pile on time.",
     cue: "If one speed is feasible, every faster speed is also feasible.",
-    invariant: "The minimum feasible speed always remains inside [left, right].",
+    invariant:
+      "The minimum feasible speed always remains inside [left, right].",
     complexity: "O(n log maximumPile) time · O(1) space",
     swiftNote: "Compute ceiling division as (pile + speed - 1) / speed.",
     estimatedMinutes: 8,
@@ -1378,7 +1456,8 @@ export const PROBLEMS: Problem[] = [
     cue: "A fixed gap lets one pointer locate the predecessor when the other reaches the end.",
     invariant: "The fast pointer remains n nodes ahead of the slow pointer.",
     complexity: "O(n) time · O(1) space",
-    swiftNote: "A dummy ListNode handles removing the original head without a separate branch.",
+    swiftNote:
+      "A dummy ListNode handles removing the original head without a separate branch.",
     estimatedMinutes: 8,
     code: `class Solution {
     func removeNthFromEnd(_ head: ListNode?, _ n: Int) -> ListNode? {
@@ -1407,11 +1486,14 @@ export const PROBLEMS: Problem[] = [
     slug: "kth-smallest-element-in-a-bst",
     difficulty: "Medium",
     pattern: "Trees",
-    summary: "Return the kth value encountered in a binary search tree's sorted order.",
+    summary:
+      "Return the kth value encountered in a binary search tree's sorted order.",
     cue: "An in-order traversal of a BST visits values from smallest to largest.",
-    invariant: "The stack holds ancestors whose value and right subtree remain unvisited.",
+    invariant:
+      "The stack holds ancestors whose value and right subtree remain unvisited.",
     complexity: "O(h + k) time · O(h) space",
-    swiftNote: "Use an explicit [TreeNode] stack; TreeNode is supplied by LeetCode.",
+    swiftNote:
+      "Use an explicit [TreeNode] stack; TreeNode is supplied by LeetCode.",
     estimatedMinutes: 7,
     code: `class Solution {
     func kthSmallest(_ root: TreeNode?, _ k: Int) -> Int {
@@ -1443,9 +1525,11 @@ export const PROBLEMS: Problem[] = [
     slug: "insert-interval",
     difficulty: "Medium",
     pattern: "Intervals",
-    summary: "Insert one range into sorted disjoint ranges and merge any overlaps.",
+    summary:
+      "Insert one range into sorted disjoint ranges and merge any overlaps.",
     cue: "Intervals separate into those before, overlapping, and after the new range.",
-    invariant: "result is sorted and disjoint, while merged covers every overlap seen so far.",
+    invariant:
+      "result is sorted and disjoint, while merged covers every overlap seen so far.",
     complexity: "O(n) time · O(n) space",
     swiftNote: "Copy newInterval into a var before widening its endpoints.",
     estimatedMinutes: 8,
@@ -1478,11 +1562,14 @@ export const PROBLEMS: Problem[] = [
     slug: "non-overlapping-intervals",
     difficulty: "Medium",
     pattern: "Intervals",
-    summary: "Find the fewest ranges to remove so the remainder do not overlap.",
+    summary:
+      "Find the fewest ranges to remove so the remainder do not overlap.",
     cue: "Keeping the interval that ends earliest leaves the most room for later choices.",
-    invariant: "lastEnd is the smallest possible end among equally large valid kept sets.",
+    invariant:
+      "lastEnd is the smallest possible end among equally large valid kept sets.",
     complexity: "O(n log n) time · O(n) space",
-    swiftNote: "Swift sorted() returns a new array; touching endpoints are not overlapping.",
+    swiftNote:
+      "Swift sorted() returns a new array; touching endpoints are not overlapping.",
     estimatedMinutes: 7,
     code: `class Solution {
     func eraseOverlapIntervals(_ intervals: [[Int]]) -> Int {
@@ -1512,11 +1599,13 @@ export const PROBLEMS: Problem[] = [
     slug: "clone-graph",
     difficulty: "Medium",
     pattern: "Graphs",
-    summary: "Create a deep copy of every node and edge reachable from a starting node.",
+    summary:
+      "Create a deep copy of every node and edge reachable from a starting node.",
     cue: "Cycles require recording a copy before recursively cloning neighbors.",
     invariant: "Each original object identity maps to exactly one cloned node.",
     complexity: "O(V + E) time · O(V) space",
-    swiftNote: "Node is not Hashable; key the clone dictionary by ObjectIdentifier.",
+    swiftNote:
+      "Node is not Hashable; key the clone dictionary by ObjectIdentifier.",
     estimatedMinutes: 10,
     code: `class Solution {
     func cloneGraph(_ node: Node?) -> Node? {
@@ -1552,11 +1641,14 @@ export const PROBLEMS: Problem[] = [
     slug: "rotting-oranges",
     difficulty: "Medium",
     pattern: "Graphs",
-    summary: "Find how many simultaneous spreading steps are needed to reach every fresh cell.",
+    summary:
+      "Find how many simultaneous spreading steps are needed to reach every fresh cell.",
     cue: "All initially active sources must enter the same first BFS layer.",
-    invariant: "Each completed queue layer represents exactly one elapsed minute.",
+    invariant:
+      "Each completed queue layer represents exactly one elapsed minute.",
     complexity: "O(rows · columns) time · O(rows · columns) space",
-    swiftNote: "Copy the grid into var state and use a queue head index instead of removeFirst().",
+    swiftNote:
+      "Copy the grid into var state and use a queue head index instead of removeFirst().",
     estimatedMinutes: 10,
     code: `class Solution {
     func orangesRotting(_ grid: [[Int]]) -> Int {
@@ -1620,9 +1712,12 @@ export const PROBLEMS: Problem[] = [
     pattern: "Backtracking",
     summary: "Generate combinations of reusable values that total a target.",
     cue: "Reuse keeps the recursive start index unchanged after choosing a value.",
-    invariant: "path sums to target minus remaining and never decreases in candidate order.",
-    complexity: "Output-sensitive time · O(target / minimumCandidate) stack space",
-    swiftNote: "Sort candidates so a value greater than remaining can stop the loop.",
+    invariant:
+      "path sums to target minus remaining and never decreases in candidate order.",
+    complexity:
+      "Output-sensitive time · O(target / minimumCandidate) stack space",
+    swiftNote:
+      "Sort candidates so a value greater than remaining can stop the loop.",
     estimatedMinutes: 10,
     code: `class Solution {
     func combinationSum(_ candidates: [Int], _ target: Int) -> [[Int]] {
@@ -1661,9 +1756,11 @@ export const PROBLEMS: Problem[] = [
     pattern: "Backtracking",
     summary: "Generate every ordering of a list of unique values.",
     cue: "At each position, choose one remaining value and restore the choice afterward.",
-    invariant: "Indices before the recursion position form a fixed permutation prefix.",
+    invariant:
+      "Indices before the recursion position form a fixed permutation prefix.",
     complexity: "O(n · n!) time · O(n) stack space excluding output",
-    swiftNote: "In-place swapAt avoids a separate used set and must be undone after recursion.",
+    swiftNote:
+      "In-place swapAt avoids a separate used set and must be undone after recursion.",
     estimatedMinutes: 8,
     code: `class Solution {
     func permute(_ nums: [Int]) -> [[Int]] {
@@ -1694,11 +1791,14 @@ export const PROBLEMS: Problem[] = [
     slug: "partition-labels",
     difficulty: "Medium",
     pattern: "Greedy",
-    summary: "Split a string into the most segments that keep each character in one segment.",
+    summary:
+      "Split a string into the most segments that keep each character in one segment.",
     cue: "A segment cannot close before the last occurrence of every character it contains.",
-    invariant: "end is the farthest final occurrence required by the active segment.",
+    invariant:
+      "end is the farthest final occurrence required by the active segment.",
     complexity: "O(n) time · O(k) space",
-    swiftNote: "Convert to [Character] once so stored integer positions remain cheap to revisit.",
+    swiftNote:
+      "Convert to [Character] once so stored integer positions remain cheap to revisit.",
     estimatedMinutes: 7,
     code: `class Solution {
     func partitionLabels(_ s: String) -> [Int] {
@@ -1732,11 +1832,14 @@ export const PROBLEMS: Problem[] = [
     slug: "word-break",
     difficulty: "Medium",
     pattern: "Dynamic Programming",
-    summary: "Determine whether a string can be divided entirely into dictionary words.",
+    summary:
+      "Determine whether a string can be divided entirely into dictionary words.",
     cue: "A prefix is reachable when a shorter reachable prefix can append one word.",
-    invariant: "dp[i] is true exactly when characters before i form a valid segmentation.",
+    invariant:
+      "dp[i] is true exactly when characters before i form a valid segmentation.",
     complexity: "O(n · words · maxWordLength) time · O(n + dictionary) space",
-    swiftNote: "Convert both the source and words to Character arrays to avoid invalid integer String indexing.",
+    swiftNote:
+      "Convert both the source and words to Character arrays to avoid invalid integer String indexing.",
     estimatedMinutes: 10,
     code: `class Solution {
     func wordBreak(_ s: String, _ wordDict: [String]) -> Bool {
@@ -1768,9 +1871,11 @@ export const PROBLEMS: Problem[] = [
     pattern: "Dynamic Programming",
     summary: "Find the maximum length of a strictly increasing subsequence.",
     cue: "For each possible length, retain the smallest tail value seen so far.",
-    invariant: "tails[i] is the smallest ending value for an increasing subsequence of length i + 1.",
+    invariant:
+      "tails[i] is the smallest ending value for an increasing subsequence of length i + 1.",
     complexity: "O(n log n) time · O(n) space",
-    swiftNote: "Implement lower-bound manually; replacing a tail changes possibilities, not the current length.",
+    swiftNote:
+      "Implement lower-bound manually; replacing a tail changes possibilities, not the current length.",
     estimatedMinutes: 10,
     code: `class Solution {
     func lengthOfLIS(_ nums: [Int]) -> Int {
@@ -1802,7 +1907,13 @@ export const PROBLEMS: Problem[] = [
   },
 ];
 
-export const problemUrl = (problem: Pick<Problem, "id" | "sourceUrl" | "isCustom" | "slug">) =>
-  problem.sourceUrl ?? (problem.isCustom || problem.id >= 10000 ? null : `https://leetcode.com/problems/${problem.slug}/`);
+export const problemUrl = (
+  problem: Pick<Problem, "id" | "sourceUrl" | "isCustom" | "slug">,
+) =>
+  problem.sourceUrl ??
+  (problem.isCustom || problem.id >= 10000
+    ? null
+    : `https://leetcode.com/problems/${problem.slug}/`);
 
-export const problemLineCount = (problem: Pick<Problem, "code">) => problem.code.split("\n").length;
+export const problemLineCount = (problem: Pick<Problem, "code">) =>
+  problem.code.split("\n").length;

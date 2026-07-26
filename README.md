@@ -12,13 +12,15 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 
 ## Current feature set
 
-- 36 Python exercises: 8 language-fluency drills and 28 interview problems across 14 patterns
+- 48 Python exercises: 8 language-fluency drills and 40 interview problems, including advanced Trie, Union-Find, graph, bit-manipulation, and 2D dynamic-programming work
 - 50 original Swift implementations across 12 interview patterns
 - 16 iOS and Swift fundamentals covering language semantics, concurrency, UIKit, SwiftUI, networking, testing, and accessibility
 - A Today dashboard with a deterministic Daily Type, Python and iOS reactivation exercises, due recall, and resumable drafts
 - Searchable, filterable, sortable problem library
 - Strict and free-correction typing modes with selection-aware character feedback
 - WPM, raw keystrokes, accuracy, corrections, peeks, timing, and consistency records
+- Per-attempt pace timelines, line-level error forensics, and three-pass weak-line repair drills
+- Real browser-side Python checks for every built-in Python solution, isolated in a Web Worker with a pinned, self-hosted runtime
 - Five-stage per-problem recall ladder with honest mastery and qualified personal bests
 - Local attempt history, streaks, daily goals, pattern coverage, and progress charts
 - Spaced review at 1, 3, 7, 14, and 30 days, with lapses returning tomorrow
@@ -38,7 +40,7 @@ Interview content and code-typing products usually exist separately. Swift Ghost
 
 ## Privacy
 
-The GitHub Pages edition is entirely local: it has no account requirement, telemetry, cookies, or network-backed progress. Practice history and settings stay in the browser's local storage, and a portable JSON export is available in Settings.
+The GitHub Pages edition is entirely local: it has no account requirement, telemetry, cookies, or network-backed progress. Practice history and settings stay in the browser's local storage, and a portable JSON export is available in Settings. Python checks execute only inside an isolated browser worker and never send source code to a server.
 
 The hosted community edition uses ChatGPT identity. Community uploads are off by default and must be explicitly enabled. Only completed built-in attempt summaries can upload; custom snippets, drafts, source code, email addresses, and key-level telemetry are never public. Public profiles, activity sharing, and leaderboard participation each require a separate opt-in.
 
@@ -65,7 +67,7 @@ Interview problem names link to their public LeetCode pages; iOS fundamentals li
 
 ## Roadmap
 
-The local-first training core remains the priority. Planned work includes authored semantic masks, runnable verification, attempt timelines, weak-line drills, teach-back debriefs, and a larger advanced catalog.
+The local-first training core remains the priority. Planned work includes a true free-form solve mode, authored semantic masks, teach-back debriefs, richer public performance profiles, and cross-device learning-state sync.
 
 ## License
 

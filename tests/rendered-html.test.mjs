@@ -41,12 +41,30 @@ test("server-renders the Swift Ghost practice shell", async () => {
 });
 
 test("ships the full five-stage practice model and original problem links", async () => {
-  const page = await readFile(new URL("../app/components/SwiftGhostApp.tsx", import.meta.url), "utf8");
-  const product = await readFile(new URL("../app/lib/product.ts", import.meta.url), "utf8");
-  const catalog = await readFile(new URL("../app/data/problems.ts", import.meta.url), "utf8");
-  const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
-  const community = await readFile(new URL("../app/components/CommunityPanel.tsx", import.meta.url), "utf8");
-  const worker = await readFile(new URL("../worker/index.ts", import.meta.url), "utf8");
+  const page = await readFile(
+    new URL("../app/components/SwiftGhostApp.tsx", import.meta.url),
+    "utf8",
+  );
+  const product = await readFile(
+    new URL("../app/lib/product.ts", import.meta.url),
+    "utf8",
+  );
+  const catalog = await readFile(
+    new URL("../app/data/problems.ts", import.meta.url),
+    "utf8",
+  );
+  const layout = await readFile(
+    new URL("../app/layout.tsx", import.meta.url),
+    "utf8",
+  );
+  const community = await readFile(
+    new URL("../app/components/CommunityPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  const worker = await readFile(
+    new URL("../worker/index.ts", import.meta.url),
+    "utf8",
+  );
 
   for (const stage of [
     "Full ghost",
@@ -58,25 +76,48 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
+  assert.match(product, /swift-ghost-state-v8/);
   assert.match(product, /swift-ghost-state-v7/);
   assert.match(product, /swift-ghost-state-v6/);
   assert.match(product, /swift-ghost-state-v5/);
   assert.match(product, /swift-ghost-state-v4/);
   assert.match(product, /swift-ghost-state-v3/);
   assert.match(product, /swift-ghost-state-v2/);
+  assert.match(product, /if \(!hasSupportedStateVersion\(parsed\)\) continue;/);
   assert.match(product, /localDayKey\(date\)}-catalog-v2/);
   assert.match(product, /replace\(\/\\r\\n\?\/g, "\\n"\)/);
   assert.match(product, /correctKeystrokes/);
   assert.match(product, /keyErrors: Record<string, number>/);
   assert.match(product, /keyErrors: normalizeKeyErrors\(rawDraft\.keyErrors\)/);
+  assert.match(worker, /isCurrentDailyChallenge\(existing, CHALLENGE_ITEMS\)/);
+  assert.match(worker, /UPDATE daily_challenges/);
   assert.match(product, /outcome: "completed" \| "abandoned"/);
-  assert.match(catalog, /`https:\/\/leetcode\.com\/problems\/\$\{problem\.slug\}\/`/);
+  assert.match(
+    catalog,
+    /`https:\/\/leetcode\.com\/problems\/\$\{problem\.slug\}\/`/,
+  );
   assert.equal((catalog.match(/^    id:/gm) ?? []).length, 50);
-  const fundamentals = await readFile(new URL("../app/data/fundamentals.ts", import.meta.url), "utf8");
-  const python = await readFile(new URL("../app/data/python-problems.ts", import.meta.url), "utf8");
+  const fundamentals = await readFile(
+    new URL("../app/data/fundamentals.ts", import.meta.url),
+    "utf8",
+  );
+  const python = await readFile(
+    new URL("../app/data/python-problems.ts", import.meta.url),
+    "utf8",
+  );
   assert.equal((fundamentals.match(/^    id: "ios:/gm) ?? []).length, 16);
-  assert.equal((fundamentals.match(/^    sourceUrl: "https:\/\/(?:developer\.apple\.com|docs\.swift\.org)/gm) ?? []).length, 16);
-  assert.equal((fundamentals.match(/^    recallChecks: \[/gm) ?? []).length, 16);
+  assert.equal(
+    (
+      fundamentals.match(
+        /^    sourceUrl: "https:\/\/(?:developer\.apple\.com|docs\.swift\.org)/gm,
+      ) ?? []
+    ).length,
+    16,
+  );
+  assert.equal(
+    (fundamentals.match(/^    recallChecks: \[/gm) ?? []).length,
+    16,
+  );
   assert.equal((python.match(/^    id:/gm) ?? []).length, 36);
   assert.equal((python.match(/^    languageNote:/gm) ?? []).length, 36);
   assert.equal((python.match(/^    recallChecks: \[/gm) ?? []).length, 36);
@@ -94,7 +135,20 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(page, /Fixed stage 1/);
   assert.match(page, /cloudClient\.dailyLeaderboard/);
   assert.match(page, /dailyAvailable/);
-  assert.match(worker, /filter\(\(item\) => item\.track === "interview"\)/);
+  assert.match(
+    worker,
+    /item\.track === "interview" && item\.difficulty !== "Hard"/,
+  );
+  assert.match(
+    page,
+    /item\.track === "interview" && item\.difficulty !== "Hard"/,
+  );
+  assert.match(
+    product,
+    /Try the next older backup when a newer write was interrupted/,
+  );
+  assert.match(page, /Run the solution against real checks/);
+  assert.match(page, /LearningAnalytics/);
   assert.match(page, /onToggleUploads/);
   assert.match(page, /CustomSnippetDialog/);
   assert.match(page, /SessionsView/);

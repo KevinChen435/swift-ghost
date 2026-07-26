@@ -11,7 +11,8 @@ function cleanText(value, maxLength, { required = false } = {}) {
   if (typeof value !== "string") throw new Error("must be a string");
   const normalized = value.trim().replace(/\s+/g, " ");
   if (required && !normalized) throw new Error("must not be empty");
-  if (normalized.length > maxLength) throw new Error(`must be at most ${maxLength} characters`);
+  if (normalized.length > maxLength)
+    throw new Error(`must be at most ${maxLength} characters`);
   return normalized || null;
 }
 
@@ -29,23 +30,44 @@ function patchableText(value, current, maxLength) {
 
 export function normalizeProfilePatch(input, current) {
   if (!plainObject(input)) throw new Error("profile must be an object");
-  const allowed = new Set(["handle", "displayName", "bio", "timezone", "shareCommunity", "isPublic", "shareActivity", "showOnLeaderboards"]);
+  const allowed = new Set([
+    "handle",
+    "displayName",
+    "bio",
+    "timezone",
+    "shareCommunity",
+    "isPublic",
+    "shareActivity",
+    "showOnLeaderboards",
+  ]);
   for (const key of Object.keys(input)) {
     if (!allowed.has(key)) throw new Error(`unknown profile field: ${key}`);
   }
 
   const shareCommunity = booleanField(input.shareCommunity, "shareCommunity");
   const timezone = patchableText(input.timezone, current.timezone, 64);
-  if (timezone && !/^[A-Za-z_+-]+(?:\/[A-Za-z0-9_+.-]+)*$/.test(timezone)) throw new Error("timezone is invalid");
+  if (timezone && !/^[A-Za-z_+-]+(?:\/[A-Za-z0-9_+.-]+)*$/.test(timezone))
+    throw new Error("timezone is invalid");
   const next = {
-    handle: input.handle === undefined ? current.handle : validateHandle(input.handle),
+    handle:
+      input.handle === undefined
+        ? current.handle
+        : validateHandle(input.handle),
     displayName: patchableText(input.displayName, current.displayName, 48),
     bio: patchableText(input.bio, current.bio, 160),
     timezone,
-    isPublic: shareCommunity ?? booleanField(input.isPublic, "isPublic") ?? Boolean(current.isPublic),
-    shareActivity: shareCommunity ?? booleanField(input.shareActivity, "shareActivity") ?? Boolean(current.shareActivity),
+    isPublic:
+      shareCommunity ??
+      booleanField(input.isPublic, "isPublic") ??
+      Boolean(current.isPublic),
+    shareActivity:
+      shareCommunity ??
+      booleanField(input.shareActivity, "shareActivity") ??
+      Boolean(current.shareActivity),
     showOnLeaderboards:
-      shareCommunity ?? booleanField(input.showOnLeaderboards, "showOnLeaderboards") ?? Boolean(current.showOnLeaderboards),
+      shareCommunity ??
+      booleanField(input.showOnLeaderboards, "showOnLeaderboards") ??
+      Boolean(current.showOnLeaderboards),
   };
 
   // This is the core privacy invariant: a private profile can never leak through
@@ -60,66 +82,136 @@ export function normalizeProfilePatch(input, current) {
 export function validateHandle(value) {
   if (typeof value !== "string") throw new Error("handle must be a string");
   const handle = value.trim().toLowerCase();
-  if (!/^[a-z0-9](?:[a-z0-9-]{1,22}[a-z0-9])$/.test(handle) || handle.includes("--")) {
-    throw new Error("handle must be 3-24 lowercase letters, numbers, or single hyphens");
+  if (
+    !/^[a-z0-9](?:[a-z0-9-]{1,22}[a-z0-9])$/.test(handle) ||
+    handle.includes("--")
+  ) {
+    throw new Error(
+      "handle must be 3-24 lowercase letters, numbers, or single hyphens",
+    );
   }
   return handle;
 }
 
 export function validateAttemptUpload(raw, now = Date.now()) {
-  if (!plainObject(raw)) return { ok: false, error: "attempt must be an object" };
+  if (!plainObject(raw))
+    return { ok: false, error: "attempt must be an object" };
   try {
     const allowed = new Set([
-      "id", "clientAttemptId", "itemId", "itemRevision", "itemTitle", "title", "titleSnapshot", "track", "stage", "mode",
-      "startedAt", "completedAt", "durationMs", "totalKeystrokes", "correctKeystrokes", "rejectedKeystrokes",
-      "corrections", "peeks", "rawWpm", "wpm", "accuracy", "consistency", "outcome", "qualification",
-      "challengeDate", "sessionId", "typedChars", "completed",
+      "id",
+      "clientAttemptId",
+      "itemId",
+      "itemRevision",
+      "itemTitle",
+      "title",
+      "titleSnapshot",
+      "track",
+      "stage",
+      "mode",
+      "startedAt",
+      "completedAt",
+      "durationMs",
+      "totalKeystrokes",
+      "correctKeystrokes",
+      "rejectedKeystrokes",
+      "corrections",
+      "peeks",
+      "rawWpm",
+      "wpm",
+      "accuracy",
+      "consistency",
+      "outcome",
+      "qualification",
+      "challengeDate",
+      "sessionId",
+      "typedChars",
+      "completed",
     ]);
     for (const key of Object.keys(raw)) {
       if (!allowed.has(key)) throw new Error(`unknown attempt field: ${key}`);
     }
-    if (raw.completed !== true && raw.outcome !== "completed") throw new Error("only completed attempts can be uploaded");
+    if (raw.completed !== true && raw.outcome !== "completed")
+      throw new Error("only completed attempts can be uploaded");
 
-    const clientAttemptId = cleanText(raw.clientAttemptId ?? raw.id, 96, { required: true });
+    const clientAttemptId = cleanText(raw.clientAttemptId ?? raw.id, 96, {
+      required: true,
+    });
     const itemId = cleanText(raw.itemId, 96, { required: true });
-    const itemTitle = cleanText(raw.itemTitle ?? raw.title ?? raw.titleSnapshot ?? raw.itemId, 120, { required: true });
-    if (!/^(?:builtin:\d+|python:\d+|ios:[a-z0-9][a-z0-9-]*)$/i.test(itemId)) throw new Error("only built-in items can be uploaded");
-    if (!Number.isInteger(raw.itemRevision) || raw.itemRevision < 1 || raw.itemRevision > 1_000_000) {
+    const itemTitle = cleanText(
+      raw.itemTitle ?? raw.title ?? raw.titleSnapshot ?? raw.itemId,
+      120,
+      { required: true },
+    );
+    if (!/^(?:builtin:\d+|python:\d+|ios:[a-z0-9][a-z0-9-]*)$/i.test(itemId))
+      throw new Error("only built-in items can be uploaded");
+    if (
+      !Number.isInteger(raw.itemRevision) ||
+      raw.itemRevision < 1 ||
+      raw.itemRevision > 1_000_000
+    ) {
       throw new Error("itemRevision is invalid");
     }
-    const track = raw.track ?? (itemId.startsWith("ios:") ? "ios" : "interview");
-    if (track !== "interview" && track !== "ios") throw new Error("track must be interview or ios");
-    if (!Number.isInteger(raw.stage) || raw.stage < 1 || raw.stage > 5) throw new Error("stage must be an integer from 1 to 5");
-    if (raw.mode !== "strict" && raw.mode !== "free") throw new Error("mode must be strict or free");
-    if (typeof raw.accuracy !== "number" || !Number.isFinite(raw.accuracy) || raw.accuracy < 0 || raw.accuracy > 100) {
+    const track =
+      raw.track ?? (itemId.startsWith("ios:") ? "ios" : "interview");
+    if (track !== "interview" && track !== "ios")
+      throw new Error("track must be interview or ios");
+    if (!Number.isInteger(raw.stage) || raw.stage < 1 || raw.stage > 5)
+      throw new Error("stage must be an integer from 1 to 5");
+    if (raw.mode !== "strict" && raw.mode !== "free")
+      throw new Error("mode must be strict or free");
+    if (
+      typeof raw.accuracy !== "number" ||
+      !Number.isFinite(raw.accuracy) ||
+      raw.accuracy < 0 ||
+      raw.accuracy > 100
+    ) {
       throw new Error("accuracy must be from 0 to 100");
     }
-    if (!Number.isInteger(raw.durationMs) || raw.durationMs < 250 || raw.durationMs > MAX_DURATION_MS) {
+    if (
+      !Number.isInteger(raw.durationMs) ||
+      raw.durationMs < 250 ||
+      raw.durationMs > MAX_DURATION_MS
+    ) {
       throw new Error("durationMs is outside the accepted range");
     }
     const typedChars = raw.typedChars ?? raw.totalKeystrokes;
-    if (!Number.isInteger(typedChars) || typedChars < 1 || typedChars > 100_000) {
+    if (
+      !Number.isInteger(typedChars) ||
+      typedChars < 1 ||
+      typedChars > 100_000
+    ) {
       throw new Error("typedChars is outside the accepted range");
     }
     const completedAt = Date.parse(raw.completedAt);
-    if (!Number.isFinite(completedAt)) throw new Error("completedAt must be an ISO date");
-    if (completedAt > now + MAX_FUTURE_SKEW_MS || completedAt < now - MAX_UPLOAD_AGE_MS) {
+    if (!Number.isFinite(completedAt))
+      throw new Error("completedAt must be an ISO date");
+    if (
+      completedAt > now + MAX_FUTURE_SKEW_MS ||
+      completedAt < now - MAX_UPLOAD_AGE_MS
+    ) {
       throw new Error("completedAt is outside the accepted upload window");
     }
 
     const accuracyBps = Math.round(raw.accuracy * 100);
-    const wpmBps = Math.round((typedChars / 5 / (raw.durationMs / 60_000)) * 100);
+    const wpmBps = Math.round(
+      (typedChars / 5 / (raw.durationMs / 60_000)) * 100,
+    );
     const peeks = Number.isInteger(raw.peeks) ? raw.peeks : 0;
     if (peeks < 0 || peeks > 100_000) throw new Error("peeks is invalid");
-    const plausible = typedChars >= 20 && raw.durationMs >= 1_000 && wpmBps <= 30_000;
+    const plausible =
+      typedChars >= 20 && raw.durationMs >= 1_000 && wpmBps <= 30_000;
     const cleanPass = plausible && peeks === 0 && accuracyBps >= 9_500;
     const completedDay = new Date(completedAt).toISOString().slice(0, 10);
     let challengeDate = null;
     if (raw.challengeDate !== undefined) {
-      if (typeof raw.challengeDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(raw.challengeDate)) {
+      if (
+        typeof raw.challengeDate !== "string" ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(raw.challengeDate)
+      ) {
         throw new Error("challengeDate must be a YYYY-MM-DD date");
       }
-      if (raw.challengeDate !== completedDay) throw new Error("challengeDate must match the completedAt UTC day");
+      if (raw.challengeDate !== completedDay)
+        throw new Error("challengeDate must match the completedAt UTC day");
       challengeDate = raw.challengeDate;
     }
     return {
@@ -147,18 +239,22 @@ export function validateAttemptUpload(raw, now = Date.now()) {
       },
     };
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : "invalid attempt" };
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "invalid attempt",
+    };
   }
 }
 
 export function rankItemRows(rows) {
   return [...rows]
-    .sort((a, b) =>
-      b.stage - a.stage ||
-      b.wpmBps - a.wpmBps ||
-      b.accuracyBps - a.accuracyBps ||
-      a.durationMs - b.durationMs ||
-      a.completedAt - b.completedAt,
+    .sort(
+      (a, b) =>
+        b.stage - a.stage ||
+        b.wpmBps - a.wpmBps ||
+        b.accuracyBps - a.accuracyBps ||
+        a.durationMs - b.durationMs ||
+        a.completedAt - b.completedAt,
     )
     .map((row, index) => ({
       rank: index + 1,
@@ -174,10 +270,11 @@ export function rankItemRows(rows) {
 
 export function rankDailyRows(rows) {
   return [...rows]
-    .sort((a, b) =>
-      b.wpmBps - a.wpmBps ||
-      b.averageAccuracyBps - a.averageAccuracyBps ||
-      a.totalDurationMs - b.totalDurationMs,
+    .sort(
+      (a, b) =>
+        b.wpmBps - a.wpmBps ||
+        b.averageAccuracyBps - a.averageAccuracyBps ||
+        a.totalDurationMs - b.totalDurationMs,
     )
     .map((row, index) => ({
       rank: index + 1,
@@ -219,7 +316,11 @@ export function isSameOrigin(requestUrl, origin) {
 }
 
 export function deterministicChallenge(date, items) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Array.isArray(items) || items.length === 0) {
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+    !Array.isArray(items) ||
+    items.length === 0
+  ) {
     throw new Error("cannot create daily challenge");
   }
   let hash = 2166136261;
@@ -237,4 +338,17 @@ export function deterministicChallenge(date, items) {
     stage: 1,
     mode: "strict",
   };
+}
+
+export function isCurrentDailyChallenge(challenge, items) {
+  if (!challenge || typeof challenge !== "object" || !Array.isArray(items))
+    return false;
+  if (challenge.stage !== 1 || challenge.mode !== "strict") return false;
+  return items.some(
+    (item) =>
+      item.itemId === challenge.itemId &&
+      item.itemRevision === challenge.itemRevision &&
+      item.itemTitle === challenge.itemTitle &&
+      item.track === challenge.track,
+  );
 }

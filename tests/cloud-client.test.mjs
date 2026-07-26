@@ -42,6 +42,9 @@ function attempt(index, overrides = {}) {
     outcome: "completed",
     qualification: "independent",
     challengeDate: "2026-07-25",
+    keyErrors: { x: 2 },
+    lineErrors: { 4: 3 },
+    timeline: [{ atMs: 1_000, wpm: 42, progress: 20 }],
     ...overrides,
   };
 }
@@ -50,23 +53,36 @@ test("GitHub Pages mode is deliberately quiet and unavailable", async () => {
   let calls = 0;
   const client = createCloudClient({
     location: { hostname: "kevinchen435.github.io" },
-    fetchImpl: async () => { calls += 1; throw new Error("must not fetch"); },
+    fetchImpl: async () => {
+      calls += 1;
+      throw new Error("must not fetch");
+    },
   });
-  assert.deepEqual(await client.capabilities(), { available: false, reason: "disabled" });
+  assert.deepEqual(await client.capabilities(), {
+    available: false,
+    reason: "disabled",
+  });
   assert.equal(calls, 0);
 });
 
 test("capabilities uses a same-origin, abortable request and bounds its response", async () => {
   const controller = new AbortController();
-  const mock = recorder(() => json({ data: {
-    apiVersion: "v1-with-an-unreasonably-long-suffix",
-    cloudSync: true,
-    community: true,
-    leaderboards: true,
-    auth: "session",
-    maxAttemptBatch: 5_000,
-  } }));
-  const result = await createCloudClient({ fetchImpl: mock.fetchImpl, location: { hostname: "swift.test" } }).capabilities({ signal: controller.signal });
+  const mock = recorder(() =>
+    json({
+      data: {
+        apiVersion: "v1-with-an-unreasonably-long-suffix",
+        cloudSync: true,
+        community: true,
+        leaderboards: true,
+        auth: "session",
+        maxAttemptBatch: 5_000,
+      },
+    }),
+  );
+  const result = await createCloudClient({
+    fetchImpl: mock.fetchImpl,
+    location: { hostname: "swift.test" },
+  }).capabilities({ signal: controller.signal });
   assert.equal(result.available, true);
   assert.deepEqual(result.data, {
     apiVersion: "v1-with-an-unrea",
@@ -75,7 +91,11 @@ test("capabilities uses a same-origin, abortable request and bounds its response
     leaderboards: true,
     auth: "session",
     maxAttemptBatch: CLOUD_LIMITS.maxAttemptBatch,
-    privacy: { profileDefault: "private", activityDefault: "off", leaderboardsDefault: "off" },
+    privacy: {
+      profileDefault: "private",
+      activityDefault: "off",
+      leaderboardsDefault: "off",
+    },
   });
   assert.equal(mock.calls[0].url, "/api/v1/capabilities");
   assert.equal(mock.calls[0].init.credentials, "same-origin");
@@ -84,47 +104,89 @@ test("capabilities uses a same-origin, abortable request and bounds its response
 });
 
 test("missing local endpoints and transport errors resolve without throwing", async () => {
-  const missing = createCloudClient({ fetchImpl: async () => json({ error: "missing" }, 404), location: { hostname: "localhost" } });
-  assert.deepEqual(await missing.session(), { available: false, reason: "unsupported", status: 404 });
+  const missing = createCloudClient({
+    fetchImpl: async () => json({ error: "missing" }, 404),
+    location: { hostname: "localhost" },
+  });
+  assert.deepEqual(await missing.session(), {
+    available: false,
+    reason: "unsupported",
+    status: 404,
+  });
 
-  const offline = createCloudClient({ fetchImpl: async () => { throw new TypeError("fetch failed"); }, location: { hostname: "localhost" } });
-  assert.deepEqual(await offline.capabilities(), { available: false, reason: "offline" });
+  const offline = createCloudClient({
+    fetchImpl: async () => {
+      throw new TypeError("fetch failed");
+    },
+    location: { hostname: "localhost" },
+  });
+  assert.deepEqual(await offline.capabilities(), {
+    available: false,
+    reason: "offline",
+  });
 
   const controller = new AbortController();
   controller.abort();
-  assert.deepEqual(await offline.capabilities({ signal: controller.signal }), { available: false, reason: "aborted" });
+  assert.deepEqual(await offline.capabilities({ signal: controller.signal }), {
+    available: false,
+    reason: "aborted",
+  });
 });
 
 test("session preserves private identity fields without mixing them into public users", async () => {
   const client = createCloudClient({
     location: { hostname: "swift.test" },
-    fetchImpl: async () => json({
-      authenticated: true,
-      user: { id: "internal-id", displayName: "Kevin", email: "KEVIN@EXAMPLE.COM" },
-      profile: { handle: "kevin-swift", displayName: "Kevin", bio: null, timezone: null, isPublic: false, shareActivity: false, showOnLeaderboards: false },
-    }),
+    fetchImpl: async () =>
+      json({
+        authenticated: true,
+        user: {
+          id: "internal-id",
+          displayName: "Kevin",
+          email: "KEVIN@EXAMPLE.COM",
+        },
+        profile: {
+          handle: "kevin-swift",
+          displayName: "Kevin",
+          bio: null,
+          timezone: null,
+          isPublic: false,
+          shareActivity: false,
+          showOnLeaderboards: false,
+        },
+      }),
   });
   const result = await client.session();
   assert.equal(result.available, true);
-  assert.deepEqual(result.data.user, { id: "internal-id", displayName: "Kevin", email: "kevin@example.com" });
+  assert.deepEqual(result.data.user, {
+    id: "internal-id",
+    displayName: "Kevin",
+    email: "kevin@example.com",
+  });
   assert.equal(result.data.profile.handle, "kevin-swift");
 });
 
 test("profile patches are trimmed, bounded, and invalid patches never fetch", async () => {
-  const mock = recorder((_url, init) => json({ profile: {
-    handle: "kevin-swift",
-    displayName: null,
-    bio: null,
-    timezone: "America/Los_Angeles",
-    isPublic: false,
-    shareActivity: false,
-    showOnLeaderboards: false,
-    shareCommunity: false,
-    persisted: true,
-    updatedAt: "2026-07-25T20:00:00.000Z",
-    ...JSON.parse(init.body),
-  } }));
-  const client = createCloudClient({ fetchImpl: mock.fetchImpl, location: { hostname: "swift.test" } });
+  const mock = recorder((_url, init) =>
+    json({
+      profile: {
+        handle: "kevin-swift",
+        displayName: null,
+        bio: null,
+        timezone: "America/Los_Angeles",
+        isPublic: false,
+        shareActivity: false,
+        showOnLeaderboards: false,
+        shareCommunity: false,
+        persisted: true,
+        updatedAt: "2026-07-25T20:00:00.000Z",
+        ...JSON.parse(init.body),
+      },
+    }),
+  );
+  const client = createCloudClient({
+    fetchImpl: mock.fetchImpl,
+    location: { hostname: "swift.test" },
+  });
   const invalid = await client.patchProfile({ handle: "not--valid" });
   assert.deepEqual(invalid, { available: false, reason: "invalid-request" });
   assert.equal(mock.calls.length, 0);
@@ -155,27 +217,61 @@ test("profile patches are trimmed, bounded, and invalid patches never fetch", as
 });
 
 test("public profiles use validated handles and map private or missing rows to not-public", async () => {
-  const mock = recorder((url, _init, call) => call === 1
-    ? json({ profile: { handle: "kevin-swift", displayName: "Kevin", bio: "iOS learner", email: "must-not-leak@example.com", isPublic: true, stats: { completedAttempts: 12, highestStage: 5 } } })
-    : json({ error: { code: "not_public" } }, 404));
-  const client = createCloudClient({ fetchImpl: mock.fetchImpl, location: { hostname: "swift.test" } });
+  const mock = recorder((url, _init, call) =>
+    call === 1
+      ? json({
+          profile: {
+            handle: "kevin-swift",
+            displayName: "Kevin",
+            bio: "iOS learner",
+            email: "must-not-leak@example.com",
+            isPublic: true,
+            stats: { completedAttempts: 12, highestStage: 5 },
+          },
+        })
+      : json({ error: { code: "not_public" } }, 404),
+  );
+  const client = createCloudClient({
+    fetchImpl: mock.fetchImpl,
+    location: { hostname: "swift.test" },
+  });
   assert.deepEqual(await client.publicProfile(" Kevin-Swift "), {
     available: true,
     status: 200,
-    data: { handle: "kevin-swift", displayName: "Kevin", bio: "iOS learner", stats: { completedAttempts: 12, highestStage: 5 } },
+    data: {
+      handle: "kevin-swift",
+      displayName: "Kevin",
+      bio: "iOS learner",
+      stats: { completedAttempts: 12, highestStage: 5 },
+    },
   });
   assert.equal(mock.calls[0].url, "/api/v1/profiles/kevin-swift");
-  assert.deepEqual(await client.publicProfile("private-user"), { available: false, reason: "not-public", status: 404 });
-  assert.deepEqual(await client.publicProfile("not--valid"), { available: false, reason: "invalid-request" });
+  assert.deepEqual(await client.publicProfile("private-user"), {
+    available: false,
+    reason: "not-public",
+    status: 404,
+  });
+  assert.deepEqual(await client.publicProfile("not--valid"), {
+    available: false,
+    reason: "invalid-request",
+  });
 });
 
 test("profile handle conflicts surface status without copying server details", async () => {
   const client = createCloudClient({
     location: { hostname: "swift.test" },
-    fetchImpl: async () => json({ error: { code: "HANDLE_TAKEN", message: "private diagnostic" } }, 409),
+    fetchImpl: async () =>
+      json(
+        { error: { code: "HANDLE_TAKEN", message: "private diagnostic" } },
+        409,
+      ),
   });
   const result = await client.patchProfile({ handle: "taken-handle" });
-  assert.deepEqual(result, { available: false, reason: "request-failed", status: 409 });
+  assert.deepEqual(result, {
+    available: false,
+    reason: "request-failed",
+    status: 409,
+  });
   assert.equal(JSON.stringify(result).includes("private diagnostic"), false);
 });
 
@@ -190,7 +286,10 @@ test("attempt batches are deduplicated, capped, normalized, and omit client WPM"
       serverTime: "2026-07-25T20:02:00.000Z",
     });
   });
-  const client = createCloudClient({ fetchImpl: mock.fetchImpl, location: { hostname: "swift.test" } });
+  const client = createCloudClient({
+    fetchImpl: mock.fetchImpl,
+    location: { hostname: "swift.test" },
+  });
   const oversized = [
     { nope: true },
     attempt(0, { stage: 99, accuracy: 300, durationMs: -2, wpm: 999 }),
@@ -202,33 +301,73 @@ test("attempt batches are deduplicated, capped, normalized, and omit client WPM"
   assert.equal(mock.calls[0].url, "/api/v1/attempts/batch");
   assert.equal(mock.calls[0].init.method, "POST");
   assert.equal(sent.attempts.length, 3);
-  assert.deepEqual(sent.attempts.map((entry) => entry.id), ["attempt-0", "attempt-1", "attempt-2"]);
+  assert.deepEqual(
+    sent.attempts.map((entry) => entry.id),
+    ["attempt-0", "attempt-1", "attempt-2"],
+  );
   assert.equal(sent.attempts[0].stage, 5);
   assert.equal(sent.attempts[0].accuracy, 96.77);
   assert.equal(sent.attempts[0].durationMs, 60_000);
   assert.equal(sent.attempts[0].itemTitle, "Attempt 0");
   assert.equal(sent.attempts[0].typedChars, 300);
   assert.equal(Object.hasOwn(sent.attempts[0], "wpm"), false);
+  assert.equal(Object.hasOwn(sent.attempts[0], "keyErrors"), false);
+  assert.equal(Object.hasOwn(sent.attempts[0], "lineErrors"), false);
+  assert.equal(Object.hasOwn(sent.attempts[0], "timeline"), false);
 });
 
 test("Python built-ins are eligible for the same defensive upload path", async () => {
   let sent;
   const client = createCloudClient({
     location: { hostname: "swift.test" },
-    fetchImpl: async (_url, init) => { sent = JSON.parse(init.body); return json({ accepted: ["attempt-python"], duplicates: [], rejected: [], serverTime: "2026-07-25T20:02:00.000Z" }); },
+    fetchImpl: async (_url, init) => {
+      sent = JSON.parse(init.body);
+      return json({
+        accepted: ["attempt-python"],
+        duplicates: [],
+        rejected: [],
+        serverTime: "2026-07-25T20:02:00.000Z",
+      });
+    },
   });
-  const result = await client.postAttemptBatch([attempt(1, { id: "attempt-python", itemId: "python:1", track: "interview", titleSnapshot: "Two Sum in Python" })]);
+  const result = await client.postAttemptBatch([
+    attempt(1, {
+      id: "attempt-python",
+      itemId: "python:1",
+      track: "interview",
+      titleSnapshot: "Two Sum in Python",
+    }),
+  ]);
   assert.equal(result.available, true);
   assert.equal(sent.attempts[0].itemId, "python:1");
   assert.equal(sent.attempts[0].track, "interview");
 });
 
 test("community results drop malformed rows and bound fields and limits", async () => {
-  const mock = recorder(() => json({ entries: [
-    { user: { id: "must-not-survive", displayName: `  ${"K".repeat(80)} ` }, itemId: "ios:actor-cache", itemRevision: 3, itemTitle: "Actor cache", track: "ios", stage: 9, wpm: 5_000, accuracy: 105, durationMs: 5000, completedAt: "2026-07-25T20:01:00Z" },
-    { malformed: true },
-  ], nextCursor: " cursor-2 " }));
-  const result = await createCloudClient({ fetchImpl: mock.fetchImpl, location: { hostname: "swift.test" } }).communityRecent({ limit: 999 });
+  const mock = recorder(() =>
+    json({
+      entries: [
+        {
+          user: { id: "must-not-survive", displayName: `  ${"K".repeat(80)} ` },
+          itemId: "ios:actor-cache",
+          itemRevision: 3,
+          itemTitle: "Actor cache",
+          track: "ios",
+          stage: 9,
+          wpm: 5_000,
+          accuracy: 105,
+          durationMs: 5000,
+          completedAt: "2026-07-25T20:01:00Z",
+        },
+        { malformed: true },
+      ],
+      nextCursor: " cursor-2 ",
+    }),
+  );
+  const result = await createCloudClient({
+    fetchImpl: mock.fetchImpl,
+    location: { hostname: "swift.test" },
+  }).communityRecent({ limit: 999 });
   assert.equal(result.available, true);
   assert.equal(mock.calls[0].url, "/api/v1/community/recent?limit=50");
   assert.equal(result.data.entries.length, 1);
@@ -242,26 +381,80 @@ test("community results drop malformed rows and bound fields and limits", async 
 
 test("item and daily leaderboard helpers encode identifiers and keep server ranks", async () => {
   const mock = recorder((url) => {
-    if (url.startsWith("/api/v1/leaderboards/items/")) return json({ itemId: "ios:actor-cache", entries: [
-      { rank: 7, user: { displayName: "Ada" }, wpm: 82, accuracy: 99, itemRevision: 4, completedAt: "2026-07-25T20:01:00Z" },
-    ] });
+    if (url.startsWith("/api/v1/leaderboards/items/"))
+      return json({
+        itemId: "ios:actor-cache",
+        entries: [
+          {
+            rank: 7,
+            user: { displayName: "Ada" },
+            wpm: 82,
+            accuracy: 99,
+            itemRevision: 4,
+            completedAt: "2026-07-25T20:01:00Z",
+          },
+        ],
+      });
     return json({
       date: "2026-07-25",
-      challenge: { date: "2026-07-25", itemId: "builtin:1", itemRevision: 2, itemTitle: "Two Sum", track: "interview", stage: 1, mode: "strict" },
-      entries: [{ rank: 3, user: { displayName: "Grace" }, score: 82, completions: 4, completed: 4, wpm: 82, accuracy: 98, averageAccuracy: 98, totalDurationMs: 240_000, minutes: 4, highestStage: 5 }],
+      challenge: {
+        date: "2026-07-25",
+        itemId: "builtin:1",
+        itemRevision: 2,
+        itemTitle: "Two Sum",
+        track: "interview",
+        stage: 1,
+        mode: "strict",
+      },
+      entries: [
+        {
+          rank: 3,
+          user: { displayName: "Grace" },
+          score: 82,
+          completions: 4,
+          completed: 4,
+          wpm: 82,
+          accuracy: 98,
+          averageAccuracy: 98,
+          totalDurationMs: 240_000,
+          minutes: 4,
+          highestStage: 5,
+        },
+      ],
     });
   });
-  const client = createCloudClient({ fetchImpl: mock.fetchImpl, location: { hostname: "swift.test" } });
-  const itemResult = await client.itemLeaderboard("ios:actor-cache", { limit: 2 });
+  const client = createCloudClient({
+    fetchImpl: mock.fetchImpl,
+    location: { hostname: "swift.test" },
+  });
+  const itemResult = await client.itemLeaderboard("ios:actor-cache", {
+    limit: 2,
+  });
   assert.equal(itemResult.available, true);
-  assert.equal(mock.calls[0].url, "/api/v1/leaderboards/items/ios%3Aactor-cache?limit=2");
+  assert.equal(
+    mock.calls[0].url,
+    "/api/v1/leaderboards/items/ios%3Aactor-cache?limit=2",
+  );
   assert.equal(itemResult.data.entries[0].rank, 7);
   assert.equal(itemResult.data.entries[0].itemRevision, 4);
 
-  const dailyResult = await client.dailyLeaderboard("2026-07-25", { limit: 10 });
+  const dailyResult = await client.dailyLeaderboard("2026-07-25", {
+    limit: 10,
+  });
   assert.equal(dailyResult.available, true);
-  assert.equal(mock.calls[1].url, "/api/v1/leaderboards/daily?date=2026-07-25&limit=10");
-  assert.deepEqual(dailyResult.data.challenge, { date: "2026-07-25", itemId: "builtin:1", itemRevision: 2, itemTitle: "Two Sum", track: "interview", stage: 1, mode: "strict" });
+  assert.equal(
+    mock.calls[1].url,
+    "/api/v1/leaderboards/daily?date=2026-07-25&limit=10",
+  );
+  assert.deepEqual(dailyResult.data.challenge, {
+    date: "2026-07-25",
+    itemId: "builtin:1",
+    itemRevision: 2,
+    itemTitle: "Two Sum",
+    track: "interview",
+    stage: 1,
+    mode: "strict",
+  });
   assert.equal(dailyResult.data.entries[0].rank, 3);
   assert.equal(dailyResult.data.entries[0].averageAccuracy, 98);
   assert.equal(dailyResult.data.entries[0].accuracy, 98);
@@ -271,10 +464,25 @@ test("invalid leaderboard identifiers and oversized or non-JSON responses fail c
   let calls = 0;
   const client = createCloudClient({
     location: { hostname: "swift.test" },
-    fetchImpl: async () => { calls += 1; return new Response("<html>nope</html>", { headers: { "content-type": "text/html" } }); },
+    fetchImpl: async () => {
+      calls += 1;
+      return new Response("<html>nope</html>", {
+        headers: { "content-type": "text/html" },
+      });
+    },
   });
-  assert.deepEqual(await client.itemLeaderboard("../../admin"), { available: false, reason: "invalid-request" });
-  assert.deepEqual(await client.dailyLeaderboard("2026-02-31"), { available: false, reason: "invalid-request" });
+  assert.deepEqual(await client.itemLeaderboard("../../admin"), {
+    available: false,
+    reason: "invalid-request",
+  });
+  assert.deepEqual(await client.dailyLeaderboard("2026-02-31"), {
+    available: false,
+    reason: "invalid-request",
+  });
   assert.equal(calls, 0);
-  assert.deepEqual(await client.capabilities(), { available: false, reason: "invalid-response", status: 200 });
+  assert.deepEqual(await client.capabilities(), {
+    available: false,
+    reason: "invalid-response",
+    status: 200,
+  });
 });

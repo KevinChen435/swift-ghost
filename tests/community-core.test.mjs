@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   deterministicChallenge,
+  isCurrentDailyChallenge,
   isSameOrigin,
   normalizeProfilePatch,
   rankDailyRows,
@@ -43,28 +44,50 @@ const validAttempt = {
 };
 
 test("private profiles force every public sharing flag off", () => {
-  const next = normalizeProfilePatch({ shareActivity: true, showOnLeaderboards: true }, PRIVATE_PROFILE);
+  const next = normalizeProfilePatch(
+    { shareActivity: true, showOnLeaderboards: true },
+    PRIVATE_PROFILE,
+  );
   assert.equal(next.isPublic, false);
   assert.equal(next.shareActivity, false);
   assert.equal(next.showOnLeaderboards, false);
 });
 
 test("shareCommunity is an explicit all-surfaces opt-in and opt-out", () => {
-  const enabled = normalizeProfilePatch({ shareCommunity: true }, PRIVATE_PROFILE);
+  const enabled = normalizeProfilePatch(
+    { shareCommunity: true },
+    PRIVATE_PROFILE,
+  );
   assert.deepEqual(
-    { public: enabled.isPublic, feed: enabled.shareActivity, ranks: enabled.showOnLeaderboards },
+    {
+      public: enabled.isPublic,
+      feed: enabled.shareActivity,
+      ranks: enabled.showOnLeaderboards,
+    },
     { public: true, feed: true, ranks: true },
   );
   const disabled = normalizeProfilePatch({ shareCommunity: false }, enabled);
   assert.deepEqual(
-    { public: disabled.isPublic, feed: disabled.shareActivity, ranks: disabled.showOnLeaderboards },
+    {
+      public: disabled.isPublic,
+      feed: disabled.shareActivity,
+      ranks: disabled.showOnLeaderboards,
+    },
     { public: false, feed: false, ranks: false },
   );
 });
 
 test("profile text can be cleared without changing omitted fields", () => {
-  const current = { ...PRIVATE_PROFILE, displayName: "Old name", bio: "Old bio", timezone: "America/Los_Angeles" };
-  const next = normalizeProfilePatch({ displayName: "", bio: null, timezone: null }, current);
+  const current = {
+    ...PRIVATE_PROFILE,
+    displayName: "Old name",
+    bio: "Old bio",
+    timezone: "America/Los_Angeles",
+  };
+  const next = normalizeProfilePatch(
+    { displayName: "", bio: null, timezone: null },
+    current,
+  );
   assert.equal(next.displayName, null);
   assert.equal(next.bio, null);
   assert.equal(next.timezone, null);
@@ -86,7 +109,10 @@ test("attempt validation computes trusted WPM and eligibility", () => {
 });
 
 test("Python catalog identities validate as built-in interview attempts", () => {
-  const result = validateAttemptUpload({ ...validAttempt, itemId: "python:1", title: "Two Sum in Python" }, NOW);
+  const result = validateAttemptUpload(
+    { ...validAttempt, itemId: "python:1", title: "Two Sum in Python" },
+    NOW,
+  );
   assert.equal(result.ok, true);
   assert.equal(result.value.itemId, "python:1");
   assert.equal(result.value.track, "interview");
@@ -114,13 +140,30 @@ test("uploads reject abandoned, custom, stale-shaped, and future attempts", () =
     { ...validAttempt, challengeDate: "not-a-date" },
     { ...validAttempt, challengeDate: "2026-07-24" },
   ];
-  for (const attempt of rejected) assert.equal(validateAttemptUpload(attempt, NOW).ok, false);
+  for (const attempt of rejected)
+    assert.equal(validateAttemptUpload(attempt, NOW).ok, false);
 });
 
 test("item ranking is exact-order and returns no account identifiers", () => {
   const ranked = rankItemRows([
-    { displayName: "B", itemRevision: 1, stage: 1, wpmBps: 4_000, accuracyBps: 10_000, durationMs: 50_000, completedAt: NOW },
-    { displayName: "A", itemRevision: 1, stage: 1, wpmBps: 5_000, accuracyBps: 9_500, durationMs: 60_000, completedAt: NOW },
+    {
+      displayName: "B",
+      itemRevision: 1,
+      stage: 1,
+      wpmBps: 4_000,
+      accuracyBps: 10_000,
+      durationMs: 50_000,
+      completedAt: NOW,
+    },
+    {
+      displayName: "A",
+      itemRevision: 1,
+      stage: 1,
+      wpmBps: 5_000,
+      accuracyBps: 9_500,
+      durationMs: 60_000,
+      completedAt: NOW,
+    },
   ]);
   assert.equal(ranked[0].user.displayName, "A");
   assert.equal(ranked[0].rank, 1);
@@ -130,8 +173,22 @@ test("item ranking is exact-order and returns no account identifiers", () => {
 
 test("daily ranking prioritizes trusted WPM and exposes client summary fields", () => {
   const ranked = rankDailyRows([
-    { displayName: "Slow", completions: 1, wpmBps: 4_000, averageAccuracyBps: 10_000, totalDurationMs: 90_000, highestStage: 1 },
-    { displayName: "Fast", completions: 1, wpmBps: 6_000, averageAccuracyBps: 9_500, totalDurationMs: 60_000, highestStage: 1 },
+    {
+      displayName: "Slow",
+      completions: 1,
+      wpmBps: 4_000,
+      averageAccuracyBps: 10_000,
+      totalDurationMs: 90_000,
+      highestStage: 1,
+    },
+    {
+      displayName: "Fast",
+      completions: 1,
+      wpmBps: 6_000,
+      averageAccuracyBps: 9_500,
+      totalDurationMs: 60_000,
+      highestStage: 1,
+    },
   ]);
   assert.equal(ranked[0].user.displayName, "Fast");
   assert.equal(ranked[0].wpm, 60);
@@ -140,29 +197,78 @@ test("daily ranking prioritizes trusted WPM and exposes client summary fields", 
 
 test("public activity projection is an allowlist", () => {
   const projected = redactCommunityRow({
-    userId: "secret", email: "secret@example.com", clientAttemptId: "private",
-    displayName: "Learner", itemId: "builtin:1", itemRevision: 1, itemTitle: "Two Sum",
-    track: "interview", stage: 1, accuracyBps: 9_800, wpmBps: 5_200,
-    durationMs: 60_000, completedAt: NOW,
+    userId: "secret",
+    email: "secret@example.com",
+    clientAttemptId: "private",
+    displayName: "Learner",
+    itemId: "builtin:1",
+    itemRevision: 1,
+    itemTitle: "Two Sum",
+    track: "interview",
+    stage: 1,
+    accuracyBps: 9_800,
+    wpmBps: 5_200,
+    durationMs: 60_000,
+    completedAt: NOW,
   });
   assert.deepEqual(Object.keys(projected).sort(), [
-    "accuracy", "completedAt", "durationMs", "itemId", "itemRevision", "itemTitle", "stage", "track", "user", "wpm",
+    "accuracy",
+    "completedAt",
+    "durationMs",
+    "itemId",
+    "itemRevision",
+    "itemTitle",
+    "stage",
+    "track",
+    "user",
+    "wpm",
   ]);
 });
 
-test("daily challenge selection is stable and always stage 1 strict", () => {
+test("daily challenge selection is stable, strict, and validates persisted rows", () => {
   const items = [
-    { itemId: "builtin:1", itemRevision: 1, itemTitle: "One", track: "interview" },
-    { itemId: "ios:actors", itemRevision: 2, itemTitle: "Actors", track: "ios" },
+    {
+      itemId: "builtin:1",
+      itemRevision: 1,
+      itemTitle: "One",
+      track: "interview",
+    },
+    {
+      itemId: "ios:actors",
+      itemRevision: 2,
+      itemTitle: "Actors",
+      track: "ios",
+    },
   ];
   const first = deterministicChallenge("2026-07-25", items);
   assert.deepEqual(first, deterministicChallenge("2026-07-25", items));
   assert.equal(first.stage, 1);
   assert.equal(first.mode, "strict");
+  assert.equal(isCurrentDailyChallenge(first, items), true);
+  assert.equal(isCurrentDailyChallenge({ ...first, stage: 5 }, items), false);
+  assert.equal(
+    isCurrentDailyChallenge({ ...first, itemId: "builtin:stale" }, items),
+    false,
+  );
 });
 
 test("CORS origin guard accepts absent or exact origins only", () => {
-  assert.equal(isSameOrigin("https://swift.example/api/v1/session", null), true);
-  assert.equal(isSameOrigin("https://swift.example/api/v1/session", "https://swift.example"), true);
-  assert.equal(isSameOrigin("https://swift.example/api/v1/session", "https://evil.example"), false);
+  assert.equal(
+    isSameOrigin("https://swift.example/api/v1/session", null),
+    true,
+  );
+  assert.equal(
+    isSameOrigin(
+      "https://swift.example/api/v1/session",
+      "https://swift.example",
+    ),
+    true,
+  );
+  assert.equal(
+    isSameOrigin(
+      "https://swift.example/api/v1/session",
+      "https://evil.example",
+    ),
+    false,
+  );
 });

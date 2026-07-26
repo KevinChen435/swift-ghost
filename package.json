@@ -6,8 +6,12 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "sync:python-runtime": "node scripts/sync-pyodide.mjs",
+    "predev": "npm run sync:python-runtime",
     "dev": "vinext dev",
+    "prebuild": "npm run sync:python-runtime",
     "build": "vinext build",
+    "prebuild:pages": "npm run sync:python-runtime",
     "build:pages": "next build",
     "start": "node scripts/start.mjs",
     "test": "npm run build && node --test tests/*.test.mjs",
@@ -31,6 +35,7 @@
     "drizzle-kit": "0.31.10",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
+    "pyodide": "314.0.3",
     "react-server-dom-webpack": "19.2.6",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
