@@ -76,6 +76,7 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
+  assert.match(product, /swift-ghost-state-v9/);
   assert.match(product, /swift-ghost-state-v8/);
   assert.match(product, /swift-ghost-state-v7/);
   assert.match(product, /swift-ghost-state-v6/);
@@ -92,6 +93,13 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(worker, /isCurrentDailyChallenge\(existing, CHALLENGE_ITEMS\)/);
   assert.match(worker, /UPDATE daily_challenges/);
   assert.match(product, /outcome: "completed" \| "abandoned"/);
+  assert.match(product, /PracticeKind = "typing" \| "solving"/);
+  assert.match(product, /attempt\.practiceKind === "typing"/);
+  assert.match(product, /attempt\.practiceKind === "solving"/);
+  assert.match(
+    product,
+    /attempt\.verification\.passed === attempt\.verification\.total/,
+  );
   assert.match(
     catalog,
     /`https:\/\/leetcode\.com\/problems\/\$\{problem\.slug\}\/`/,
@@ -131,6 +139,9 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(page, /Pattern mastery/);
   assert.match(page, /Personal bests/);
   assert.match(community, /Community beta/);
+  assert.match(community, /itemRevision:/);
+  assert.match(community, /stage: boardStage/);
+  assert.match(community, /Exact item · revision · stage/);
   assert.match(community, /new Date\(\)\.toISOString\(\)\.slice\(0, 10\)/);
   assert.match(page, /Fixed stage 1/);
   assert.match(page, /cloudClient\.dailyLeaderboard/);
@@ -148,13 +159,27 @@ test("ships the full five-stage practice model and original problem links", asyn
     /Try the next older backup when a newer write was interrupted/,
   );
   assert.match(page, /Run the solution against real checks/);
+  assert.match(page, /Write any passing Python solution/);
+  assert.match(page, /Record verified solve/);
+  assert.match(page, /attempt\.practiceKind === "typing"/);
+  assert.match(page, /Exact item/);
+  assert.match(page, /Retry same/);
+  assert.match(page, /Full analysis/);
+  assert.match(page, /Estimated time/);
+  assert.match(page, /mobile-practice-controls/);
+  assert.match(page, /coercePracticeKind/);
+  assert.match(page, /practiceEpoch/);
+  assert.match(page, /setPracticeKind\("typing"\)/);
   assert.match(page, /LearningAnalytics/);
   assert.match(page, /onToggleUploads/);
   assert.match(page, /CustomSnippetDialog/);
   assert.match(page, /SessionsView/);
   assert.match(page, /updateCustomItem/);
   assert.match(page, /sessionNext/);
-  assert.match(page, /setStage\(restored\.lastStage\)/);
+  assert.match(
+    page,
+    /restoredPracticeKind === "solving" \? 5 : restored\.lastStage/,
+  );
   assert.match(page, /edit\.insertedCount > 0/);
   assert.match(layout, /"og-v7\.png"/);
 });

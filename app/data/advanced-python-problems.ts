@@ -23,6 +23,30 @@ export const ADVANCED_PYTHON_PROBLEMS: PythonProblem[] = [
     languageNote:
       "A nested node class and dict[str, TrieNode] keep child lookup explicit without a fixed alphabet array.",
     estimatedMinutes: 12,
+    starterCode: `class TrieNode:
+    def __init__(self):
+        self.children: dict[str, TrieNode] = {}
+        self.is_word = False
+
+
+class Trie:
+    def __init__(self):
+        pass
+
+    def insert(self, word: str) -> None:
+        pass
+
+    def search(self, word: str) -> bool:
+        pass
+
+    def startsWith(self, prefix: str) -> bool:
+        pass
+
+
+def exercise_trie(
+    words: list[str], searches: list[str], prefixes: list[str]
+) -> tuple[list[bool], list[bool]]:
+    pass`,
     code: `class TrieNode:
     def __init__(self):
         self.children: dict[str, TrieNode] = {}
@@ -127,6 +151,15 @@ def exercise_trie(
     languageNote:
       "Removing a found terminal word prevents duplicates, and pruning empty child dictionaries shrinks later searches.",
     estimatedMinutes: 28,
+    starterCode: `class TrieNode:
+    def __init__(self):
+        self.children: dict[str, TrieNode] = {}
+        self.word: str | None = None
+
+
+class Solution:
+    def findWords(self, board: list[list[str]], words: list[str]) -> list[str]:
+        pass`,
     code: `class TrieNode:
     def __init__(self):
         self.children: dict[str, TrieNode] = {}
@@ -246,6 +279,9 @@ class Solution:
     languageNote:
       "An iterative find with path halving avoids recursion overhead while still flattening parent chains.",
     estimatedMinutes: 12,
+    starterCode: `class Solution:
+    def findRedundantConnection(self, edges: list[list[int]]) -> list[int]:
+        pass`,
     code: `class Solution:
     def findRedundantConnection(self, edges: list[list[int]]) -> list[int]:
         parent = list(range(len(edges) + 1))
@@ -342,6 +378,20 @@ class Solution:
     languageNote:
       "A compact DSU class can return a boolean from union, which makes counting necessary versus redundant edges direct.",
     estimatedMinutes: 25,
+    starterCode: `class DSU:
+    def __init__(self, size: int):
+        pass
+
+    def find(self, node: int) -> int:
+        pass
+
+    def union(self, first: int, second: int) -> bool:
+        pass
+
+
+class Solution:
+    def maxNumEdgesToRemove(self, n: int, edges: list[list[int]]) -> int:
+        pass`,
     code: `class DSU:
     def __init__(self, size: int):
         self.parent = list(range(size + 1))
@@ -466,6 +516,12 @@ class Solution:
     languageNote:
       "heapq stores (distance, node) tuples; skip stale entries instead of trying to decrease a key in place.",
     estimatedMinutes: 15,
+    starterCode: `import heapq
+
+
+class Solution:
+    def networkDelayTime(self, times: list[list[int]], n: int, k: int) -> int:
+        pass`,
     code: `import heapq
 
 
@@ -551,6 +607,9 @@ class Solution:
     languageNote:
       "Reverse-sort each adjacency list once, then pop its smallest destination from the end in O(1).",
     estimatedMinutes: 22,
+    starterCode: `class Solution:
+    def findItinerary(self, tickets: list[list[str]]) -> list[str]:
+        pass`,
     code: `class Solution:
     def findItinerary(self, tickets: list[list[str]]) -> list[str]:
         graph: dict[str, list[str]] = {}
@@ -639,6 +698,12 @@ class Solution:
     languageNote:
       "Store (time, row, column) tuples in heapq and mark a cell seen when enqueued because no later candidate can improve its minimax entry cost.",
     estimatedMinutes: 20,
+    starterCode: `import heapq
+
+
+class Solution:
+    def swimInWater(self, grid: list[list[int]]) -> int:
+        pass`,
     code: `import heapq
 
 
@@ -733,6 +798,9 @@ class Solution:
     languageNote:
       "Python integers do not overflow, so mask every round to emulate fixed-width two's-complement arithmetic.",
     estimatedMinutes: 14,
+    starterCode: `class Solution:
+    def getSum(self, a: int, b: int) -> int:
+        pass`,
     code: `class Solution:
     def getSum(self, a: int, b: int) -> int:
         mask = 0xFFFFFFFF
@@ -792,6 +860,9 @@ class Solution:
     languageNote:
       "Right shifting both nonnegative endpoints exposes their common binary prefix without constructing any intermediate range.",
     estimatedMinutes: 10,
+    starterCode: `class Solution:
+    def rangeBitwiseAnd(self, left: int, right: int) -> int:
+        pass`,
     code: `class Solution:
     def rangeBitwiseAnd(self, left: int, right: int) -> int:
         shifts = 0
@@ -851,6 +922,9 @@ class Solution:
     languageNote:
       "Two Python lists are enough because each DP row depends only on the row below and the cell to its right.",
     estimatedMinutes: 14,
+    starterCode: `class Solution:
+    def longestCommonSubsequence(self, text1: str, text2: str) -> int:
+        pass`,
     code: `class Solution:
     def longestCommonSubsequence(self, text1: str, text2: str) -> int:
         if len(text2) > len(text1):
@@ -920,6 +994,9 @@ class Solution:
     languageNote:
       "Initialize the suffix base row with range(len(word2) + 1, 0, -1) semantics explicitly; readable loops are safer than clever slicing here.",
     estimatedMinutes: 18,
+    starterCode: `class Solution:
+    def minDistance(self, word1: str, word2: str) -> int:
+        pass`,
     code: `class Solution:
     def minDistance(self, word1: str, word2: str) -> int:
         next_row = [len(word2) - index for index in range(len(word2) + 1)]
@@ -991,6 +1068,9 @@ class Solution:
     languageNote:
       "Update the one-dimensional DP array backward so the current source character cannot contribute more than once.",
     estimatedMinutes: 18,
+    starterCode: `class Solution:
+    def numDistinct(self, source: str, target: str) -> int:
+        pass`,
     code: `class Solution:
     def numDistinct(self, source: str, target: str) -> int:
         ways = [0] * (len(target) + 1)

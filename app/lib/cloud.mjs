@@ -8,14 +8,18 @@ function isRecord(value) {
 }
 
 function finiteNumber(value, fallback, min, max, integer = false) {
-  const number = typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  const number =
+    typeof value === "number" && Number.isFinite(value) ? value : fallback;
   const bounded = Math.min(max, Math.max(min, number));
   return integer ? Math.round(bounded) : bounded;
 }
 
 function cleanString(value, maxLength, fallback = "") {
   if (typeof value !== "string") return fallback;
-  return value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "").trim().slice(0, maxLength);
+  return value
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+    .trim()
+    .slice(0, maxLength);
 }
 
 function optionalString(value, maxLength) {
@@ -33,17 +37,27 @@ function dayKey(value) {
   const cleaned = cleanString(value, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(cleaned)) return undefined;
   const date = new Date(`${cleaned}T00:00:00.000Z`);
-  return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === cleaned ? cleaned : undefined;
+  return !Number.isNaN(date.valueOf()) &&
+    date.toISOString().slice(0, 10) === cleaned
+    ? cleaned
+    : undefined;
 }
 
 function itemId(value) {
   const cleaned = cleanString(value, 96);
-  return /^(?:builtin:\d{1,8}|python:\d{1,8}|ios:[a-z0-9][a-z0-9-]{0,79})$/i.test(cleaned) ? cleaned : undefined;
+  return /^(?:builtin:\d{1,8}|python:\d{1,8}|ios:[a-z0-9][a-z0-9-]{0,79})$/i.test(
+    cleaned,
+  )
+    ? cleaned
+    : undefined;
 }
 
 function handle(value) {
   const cleaned = cleanString(value, 24).toLowerCase();
-  return /^[a-z0-9](?:[a-z0-9-]{1,22}[a-z0-9])$/.test(cleaned) && !cleaned.includes("--") ? cleaned : undefined;
+  return /^[a-z0-9](?:[a-z0-9-]{1,22}[a-z0-9])$/.test(cleaned) &&
+    !cleaned.includes("--")
+    ? cleaned
+    : undefined;
 }
 
 function id(value, maxLength = 128) {
@@ -52,7 +66,9 @@ function id(value, maxLength = 128) {
 }
 
 function unwrapData(payload) {
-  return isRecord(payload) && Object.hasOwn(payload, "data") ? payload.data : payload;
+  return isRecord(payload) && Object.hasOwn(payload, "data")
+    ? payload.data
+    : payload;
 }
 
 function unavailable(reason, status, retryAfterSeconds) {
@@ -66,17 +82,38 @@ function unavailable(reason, status, retryAfterSeconds) {
 
 function responseFailure(response, notFoundReason) {
   const retryAfter = Number(response.headers?.get?.("retry-after"));
-  if (response.status === 401 || response.status === 403) return unavailable("unauthorized", response.status);
-  if (response.status === 404 && notFoundReason) return unavailable(notFoundReason, response.status);
-  if (response.status === 404 || response.status === 405 || response.status === 501) return unavailable("unsupported", response.status);
+  if (response.status === 401 || response.status === 403)
+    return unavailable("unauthorized", response.status);
+  if (response.status === 404 && notFoundReason)
+    return unavailable(notFoundReason, response.status);
+  if (
+    response.status === 404 ||
+    response.status === 405 ||
+    response.status === 501
+  )
+    return unavailable("unsupported", response.status);
   if (response.status === 408 || response.status === 429) {
-    return unavailable("rate-limited", response.status, Number.isFinite(retryAfter) ? Math.min(86_400, Math.max(0, retryAfter)) : undefined);
+    return unavailable(
+      "rate-limited",
+      response.status,
+      Number.isFinite(retryAfter)
+        ? Math.min(86_400, Math.max(0, retryAfter))
+        : undefined,
+    );
   }
-  return unavailable(response.status >= 500 ? "server-error" : "request-failed", response.status);
+  return unavailable(
+    response.status >= 500 ? "server-error" : "request-failed",
+    response.status,
+  );
 }
 
 function normalizeRoot(value) {
-  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) return API_ROOT;
+  if (
+    typeof value !== "string" ||
+    !value.startsWith("/") ||
+    value.startsWith("//")
+  )
+    return API_ROOT;
   const root = value.replace(/\/+$/, "");
   return root || API_ROOT;
 }
@@ -88,9 +125,17 @@ function isStaticGitHubPages(location) {
 
 async function readJson(response) {
   const declaredLength = Number(response.headers?.get?.("content-length"));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_CHARACTERS) return undefined;
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAX_RESPONSE_CHARACTERS
+  )
+    return undefined;
   const contentType = response.headers?.get?.("content-type") ?? "";
-  if (contentType && !/\b(?:application|text)\/[^;]*(?:json|problem\+json)\b/i.test(contentType)) return undefined;
+  if (
+    contentType &&
+    !/\b(?:application|text)\/[^;]*(?:json|problem\+json)\b/i.test(contentType)
+  )
+    return undefined;
   const text = await response.text();
   if (!text || text.length > MAX_RESPONSE_CHARACTERS) return undefined;
   try {
@@ -112,11 +157,16 @@ function normalizeSessionUser(value) {
   const email = cleanString(value.email, 254).toLowerCase();
   const userId = id(value.id, 96);
   if (!displayName && !email && !userId) return null;
-  return { ...(userId ? { id: userId } : {}), displayName: displayName || "Swift learner", ...(email ? { email } : {}) };
+  return {
+    ...(userId ? { id: userId } : {}),
+    displayName: displayName || "Swift learner",
+    ...(email ? { email } : {}),
+  };
 }
 
 function normalizeProfile(value) {
-  const raw = isRecord(value) && isRecord(value.profile) ? value.profile : value;
+  const raw =
+    isRecord(value) && isRecord(value.profile) ? value.profile : value;
   if (!isRecord(raw)) return null;
   const normalizedHandle = handle(raw.handle);
   if (!normalizedHandle) return null;
@@ -141,17 +191,26 @@ function normalizeProfile(value) {
 }
 
 function normalizePublicProfile(value) {
-  const raw = isRecord(value) && isRecord(value.profile) ? value.profile : value;
+  const raw =
+    isRecord(value) && isRecord(value.profile) ? value.profile : value;
   if (!isRecord(raw)) return undefined;
   const normalizedHandle = handle(raw.handle);
   if (!normalizedHandle) return undefined;
   const displayName = optionalString(raw.displayName, 48);
   const bio = optionalString(raw.bio, 160);
   const createdAt = isoDateTime(raw.createdAt);
-  const stats = isRecord(raw.stats) ? {
-    completedAttempts: finiteNumber(raw.stats.completedAttempts, 0, 0, 1_000_000, true),
-    highestStage: finiteNumber(raw.stats.highestStage, 0, 0, 5, true),
-  } : { completedAttempts: 0, highestStage: 0 };
+  const stats = isRecord(raw.stats)
+    ? {
+        completedAttempts: finiteNumber(
+          raw.stats.completedAttempts,
+          0,
+          0,
+          1_000_000,
+          true,
+        ),
+        highestStage: finiteNumber(raw.stats.highestStage, 0, 0, 5, true),
+      }
+    : { completedAttempts: 0, highestStage: 0 };
   return {
     handle: normalizedHandle,
     displayName: displayName ?? null,
@@ -166,18 +225,33 @@ function normalizeCapabilities(value) {
   const apiVersion = cleanString(value.apiVersion ?? value.version, 16, "v1");
   const authValues = new Set(["none", "anonymous", "session"]);
   const auth = authValues.has(value.auth) ? value.auth : "none";
-  const privacy = isRecord(value.privacy) ? {
-    profileDefault: value.privacy.profileDefault === "private" ? "private" : "private",
-    activityDefault: value.privacy.activityDefault === "off" ? "off" : "off",
-    leaderboardsDefault: value.privacy.leaderboardsDefault === "off" ? "off" : "off",
-  } : { profileDefault: "private", activityDefault: "off", leaderboardsDefault: "off" };
+  const privacy = isRecord(value.privacy)
+    ? {
+        profileDefault:
+          value.privacy.profileDefault === "private" ? "private" : "private",
+        activityDefault:
+          value.privacy.activityDefault === "off" ? "off" : "off",
+        leaderboardsDefault:
+          value.privacy.leaderboardsDefault === "off" ? "off" : "off",
+      }
+    : {
+        profileDefault: "private",
+        activityDefault: "off",
+        leaderboardsDefault: "off",
+      };
   return {
     apiVersion,
     cloudSync: value.cloudSync === true,
     community: value.community === true,
     leaderboards: value.leaderboards === true,
     auth,
-    maxAttemptBatch: finiteNumber(value.maxAttemptBatch, MAX_ATTEMPT_BATCH, 1, MAX_ATTEMPT_BATCH, true),
+    maxAttemptBatch: finiteNumber(
+      value.maxAttemptBatch,
+      MAX_ATTEMPT_BATCH,
+      1,
+      MAX_ATTEMPT_BATCH,
+      true,
+    ),
     privacy,
   };
 }
@@ -200,12 +274,17 @@ function sanitizeProfilePatch(value) {
     const normalizedHandle = handle(value.handle);
     if (normalizedHandle) patch.handle = normalizedHandle;
   }
-  if (typeof value.displayName === "string") patch.displayName = cleanString(value.displayName, 48) || null;
-  if (typeof value.bio === "string") patch.bio = cleanString(value.bio, 160) || null;
+  if (typeof value.displayName === "string")
+    patch.displayName = cleanString(value.displayName, 48) || null;
+  if (typeof value.bio === "string")
+    patch.bio = cleanString(value.bio, 160) || null;
   if (typeof value.isPublic === "boolean") patch.isPublic = value.isPublic;
-  if (typeof value.shareActivity === "boolean") patch.shareActivity = value.shareActivity;
-  if (typeof value.showOnLeaderboards === "boolean") patch.showOnLeaderboards = value.showOnLeaderboards;
-  if (typeof value.shareCommunity === "boolean") patch.shareCommunity = value.shareCommunity;
+  if (typeof value.shareActivity === "boolean")
+    patch.shareActivity = value.shareActivity;
+  if (typeof value.showOnLeaderboards === "boolean")
+    patch.showOnLeaderboards = value.showOnLeaderboards;
+  if (typeof value.shareCommunity === "boolean")
+    patch.shareCommunity = value.shareCommunity;
   if (typeof value.timezone === "string") {
     const timezone = cleanString(value.timezone, 64);
     if (timezone) patch.timezone = timezone;
@@ -219,19 +298,50 @@ function sanitizeAttempt(value) {
   const normalizedItemId = itemId(value.itemId);
   const startedAt = isoDateTime(value.startedAt);
   const completedAt = isoDateTime(value.completedAt);
-  if (!attemptId || !normalizedItemId || !startedAt || !completedAt) return undefined;
+  if (!attemptId || !normalizedItemId || !startedAt || !completedAt)
+    return undefined;
   if (value.mode !== "strict" && value.mode !== "free") return undefined;
-  if (value.outcome !== undefined && value.outcome !== "completed") return undefined;
-  if (!Number.isInteger(value.itemRevision) || value.itemRevision < 1 || value.itemRevision > 1_000_000) return undefined;
-  if (!Number.isInteger(value.stage) || value.stage < 1 || value.stage > 5) return undefined;
-  if (!Number.isInteger(value.durationMs) || value.durationMs < 250 || value.durationMs > 14_400_000) return undefined;
+  if (value.outcome !== undefined && value.outcome !== "completed")
+    return undefined;
+  if (
+    !Number.isInteger(value.itemRevision) ||
+    value.itemRevision < 1 ||
+    value.itemRevision > 1_000_000
+  )
+    return undefined;
+  if (!Number.isInteger(value.stage) || value.stage < 1 || value.stage > 5)
+    return undefined;
+  if (
+    !Number.isInteger(value.durationMs) ||
+    value.durationMs < 250 ||
+    value.durationMs > 14_400_000
+  )
+    return undefined;
   const typedChars = value.typedChars ?? value.totalKeystrokes;
-  if (!Number.isInteger(typedChars) || typedChars < 1 || typedChars > 100_000) return undefined;
-  if (typeof value.accuracy !== "number" || !Number.isFinite(value.accuracy) || value.accuracy < 0 || value.accuracy > 100) return undefined;
+  if (!Number.isInteger(typedChars) || typedChars < 1 || typedChars > 100_000)
+    return undefined;
+  if (
+    typeof value.accuracy !== "number" ||
+    !Number.isFinite(value.accuracy) ||
+    value.accuracy < 0 ||
+    value.accuracy > 100
+  )
+    return undefined;
   const peeks = value.peeks ?? 0;
-  if (!Number.isInteger(peeks) || peeks < 0 || peeks > 100_000) return undefined;
-  const track = value.track === "ios" || value.track === "interview" ? value.track : normalizedItemId.startsWith("ios:") ? "ios" : "interview";
-  const itemTitle = cleanString(value.itemTitle ?? value.title ?? value.titleSnapshot, 120, normalizedItemId) || normalizedItemId;
+  if (!Number.isInteger(peeks) || peeks < 0 || peeks > 100_000)
+    return undefined;
+  const track =
+    value.track === "ios" || value.track === "interview"
+      ? value.track
+      : normalizedItemId.startsWith("ios:")
+        ? "ios"
+        : "interview";
+  const itemTitle =
+    cleanString(
+      value.itemTitle ?? value.title ?? value.titleSnapshot,
+      120,
+      normalizedItemId,
+    ) || normalizedItemId;
   const normalized = {
     id: attemptId,
     itemId: normalizedItemId,
@@ -244,7 +354,13 @@ function sanitizeAttempt(value) {
     completedAt,
     durationMs: value.durationMs,
     typedChars,
-    correctKeystrokes: finiteNumber(value.correctKeystrokes, typedChars, 0, typedChars, true),
+    correctKeystrokes: finiteNumber(
+      value.correctKeystrokes,
+      typedChars,
+      0,
+      typedChars,
+      true,
+    ),
     peeks,
     accuracy: value.accuracy,
     outcome: "completed",
@@ -271,18 +387,37 @@ function sanitizeAttemptBatch(values, maximum = MAX_ATTEMPT_BATCH) {
 
 function normalizeBatchReceipt(value) {
   if (!isRecord(value)) return undefined;
-  const accepted = Array.isArray(value.accepted) ? value.accepted.map((entry) => id(entry)).filter(Boolean).slice(0, MAX_ATTEMPT_BATCH) : [];
-  const duplicates = Array.isArray(value.duplicates) ? value.duplicates.map((entry) => id(entry)).filter(Boolean).slice(0, MAX_ATTEMPT_BATCH) : [];
-  const rejected = Array.isArray(value.rejected) ? value.rejected.flatMap((entry) => {
-    if (!isRecord(entry)) return [];
-    const rejectedId = id(entry.id);
-    const code = cleanString(entry.code, 50);
-    if (!rejectedId || !code) return [];
-    const message = optionalString(entry.message, 200);
-    return [{ id: rejectedId, code, ...(message ? { message } : {}) }];
-  }).slice(0, MAX_ATTEMPT_BATCH) : [];
+  const accepted = Array.isArray(value.accepted)
+    ? value.accepted
+        .map((entry) => id(entry))
+        .filter(Boolean)
+        .slice(0, MAX_ATTEMPT_BATCH)
+    : [];
+  const duplicates = Array.isArray(value.duplicates)
+    ? value.duplicates
+        .map((entry) => id(entry))
+        .filter(Boolean)
+        .slice(0, MAX_ATTEMPT_BATCH)
+    : [];
+  const rejected = Array.isArray(value.rejected)
+    ? value.rejected
+        .flatMap((entry) => {
+          if (!isRecord(entry)) return [];
+          const rejectedId = id(entry.id);
+          const code = cleanString(entry.code, 50);
+          if (!rejectedId || !code) return [];
+          const message = optionalString(entry.message, 200);
+          return [{ id: rejectedId, code, ...(message ? { message } : {}) }];
+        })
+        .slice(0, MAX_ATTEMPT_BATCH)
+    : [];
   const serverTime = isoDateTime(value.serverTime);
-  return { accepted, duplicates, rejected, ...(serverTime ? { serverTime } : {}) };
+  return {
+    accepted,
+    duplicates,
+    rejected,
+    ...(serverTime ? { serverTime } : {}),
+  };
 }
 
 function normalizeCommunityEntry(value) {
@@ -312,7 +447,10 @@ function normalizeItemLeaderboardEntry(value, fallbackRank) {
   const user = normalizePublicUser(value.user ?? value);
   const completedAt = isoDateTime(value.completedAt);
   if (!user || !completedAt) return undefined;
-  const normalizedItemRevision = typeof value.itemRevision === "number" ? finiteNumber(value.itemRevision, 1, 1, 1_000_000, true) : undefined;
+  const normalizedItemRevision =
+    typeof value.itemRevision === "number"
+      ? finiteNumber(value.itemRevision, 1, 1, 1_000_000, true)
+      : undefined;
   return {
     rank: finiteNumber(value.rank, fallbackRank, 1, 1_000_000, true),
     user,
@@ -321,7 +459,9 @@ function normalizeItemLeaderboardEntry(value, fallbackRank) {
     stage: finiteNumber(value.stage, 1, 1, 5, true),
     durationMs: finiteNumber(value.durationMs, 0, 0, 14_400_000, true),
     completedAt,
-    ...(normalizedItemRevision !== undefined ? { itemRevision: normalizedItemRevision } : {}),
+    ...(normalizedItemRevision !== undefined
+      ? { itemRevision: normalizedItemRevision }
+      : {}),
   };
 }
 
@@ -333,10 +473,27 @@ function normalizeDailyLeaderboardEntry(value, fallbackRank) {
     rank: finiteNumber(value.rank, fallbackRank, 1, 1_000_000, true),
     user,
     score: finiteNumber(value.score, 0, 0, 1_000_000),
-    completions: finiteNumber(value.completions ?? value.completed ?? value.attempts, 0, 0, 10_000, true),
-    averageAccuracy: finiteNumber(value.averageAccuracy ?? value.accuracy, 0, 0, 100),
+    completions: finiteNumber(
+      value.completions ?? value.completed ?? value.attempts,
+      0,
+      0,
+      10_000,
+      true,
+    ),
+    averageAccuracy: finiteNumber(
+      value.averageAccuracy ?? value.accuracy,
+      0,
+      0,
+      100,
+    ),
     accuracy: finiteNumber(value.accuracy ?? value.averageAccuracy, 0, 0, 100),
-    totalDurationMs: finiteNumber(value.totalDurationMs, 0, 0, 86_400_000, true),
+    totalDurationMs: finiteNumber(
+      value.totalDurationMs,
+      0,
+      0,
+      86_400_000,
+      true,
+    ),
     highestStage: finiteNumber(value.highestStage, 1, 1, 5, true),
     wpm: finiteNumber(value.wpm, 0, 0, 1_000),
     completed: finiteNumber(value.completed, 0, 0, 10_000, true),
@@ -349,7 +506,14 @@ function normalizeDailyChallenge(value, fallbackDate) {
   const date = dayKey(value.date) ?? fallbackDate;
   const normalizedItemId = itemId(value.itemId);
   const itemTitle = cleanString(value.itemTitle ?? value.title, 120);
-  if (!date || !normalizedItemId || !itemTitle || value.stage !== 1 || value.mode !== "strict") return undefined;
+  if (
+    !date ||
+    !normalizedItemId ||
+    !itemTitle ||
+    value.stage !== 1 ||
+    value.mode !== "strict"
+  )
+    return undefined;
   return {
     date,
     itemId: normalizedItemId,
@@ -363,10 +527,12 @@ function normalizeDailyChallenge(value, fallbackDate) {
 
 function normalizeList(value, entryNormalizer, limit) {
   if (!isRecord(value) || !Array.isArray(value.entries)) return undefined;
-  const entries = value.entries.flatMap((entry, index) => {
-    const normalized = entryNormalizer(entry, index + 1);
-    return normalized ? [normalized] : [];
-  }).slice(0, Math.min(limit, MAX_LIST_ENTRIES));
+  const entries = value.entries
+    .flatMap((entry, index) => {
+      const normalized = entryNormalizer(entry, index + 1);
+      return normalized ? [normalized] : [];
+    })
+    .slice(0, Math.min(limit, MAX_LIST_ENTRIES));
   const nextCursor = optionalString(value.nextCursor, 200);
   return { entries, ...(nextCursor ? { nextCursor } : {}) };
 }
@@ -384,7 +550,8 @@ export function createCloudClient(options = {}) {
   const root = normalizeRoot(options.apiRoot);
   const runtimeLocation = options.location ?? globalThis.location;
   const fetchImpl = options.fetchImpl ?? globalThis.fetch?.bind(globalThis);
-  const disabled = options.disabled === true || isStaticGitHubPages(runtimeLocation);
+  const disabled =
+    options.disabled === true || isStaticGitHubPages(runtimeLocation);
 
   async function request(path, init, normalize) {
     if (disabled) return unavailable("disabled");
@@ -396,18 +563,27 @@ export function createCloudClient(options = {}) {
         cache: "no-store",
         headers: {
           accept: "application/json",
-          ...(init.body === undefined ? {} : { "content-type": "application/json" }),
+          ...(init.body === undefined
+            ? {}
+            : { "content-type": "application/json" }),
         },
         ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
         ...(init.signal ? { signal: init.signal } : {}),
       });
       if (!response.ok) return responseFailure(response, init.notFoundReason);
       const payload = await readJson(response);
-      if (payload === undefined) return unavailable("invalid-response", response.status);
+      if (payload === undefined)
+        return unavailable("invalid-response", response.status);
       const data = normalize(unwrapData(payload));
-      return data === undefined ? unavailable("invalid-response", response.status) : { available: true, data, status: response.status };
+      return data === undefined
+        ? unavailable("invalid-response", response.status)
+        : { available: true, data, status: response.status };
     } catch (error) {
-      if (init.signal?.aborted || (error && typeof error === "object" && error.name === "AbortError")) return unavailable("aborted");
+      if (
+        init.signal?.aborted ||
+        (error && typeof error === "object" && error.name === "AbortError")
+      )
+        return unavailable("aborted");
       return unavailable("offline");
     }
   }
@@ -421,43 +597,123 @@ export function createCloudClient(options = {}) {
     },
     patchProfile(patch, { signal } = {}) {
       const body = sanitizeProfilePatch(patch);
-      return body ? request("/profile", { method: "PATCH", body, signal }, (value) => normalizeProfile(value) ?? undefined) : Promise.resolve(unavailable("invalid-request"));
+      return body
+        ? request(
+            "/profile",
+            { method: "PATCH", body, signal },
+            (value) => normalizeProfile(value) ?? undefined,
+          )
+        : Promise.resolve(unavailable("invalid-request"));
     },
     publicProfile(requestedHandle, { signal } = {}) {
       const normalizedHandle = handle(requestedHandle);
-      if (!normalizedHandle) return Promise.resolve(unavailable("invalid-request"));
-      return request(`/profiles/${encodeURIComponent(normalizedHandle)}`, { signal, notFoundReason: "not-public" }, normalizePublicProfile);
+      if (!normalizedHandle)
+        return Promise.resolve(unavailable("invalid-request"));
+      return request(
+        `/profiles/${encodeURIComponent(normalizedHandle)}`,
+        { signal, notFoundReason: "not-public" },
+        normalizePublicProfile,
+      );
     },
     postAttemptBatch(attempts, { signal, maximum } = {}) {
-      const body = sanitizeAttemptBatch(attempts, finiteNumber(maximum, MAX_ATTEMPT_BATCH, 1, MAX_ATTEMPT_BATCH, true));
-      return body.length ? request("/attempts/batch", { method: "POST", body: { attempts: body }, signal }, normalizeBatchReceipt) : Promise.resolve(unavailable("invalid-request"));
+      const body = sanitizeAttemptBatch(
+        attempts,
+        finiteNumber(maximum, MAX_ATTEMPT_BATCH, 1, MAX_ATTEMPT_BATCH, true),
+      );
+      return body.length
+        ? request(
+            "/attempts/batch",
+            { method: "POST", body: { attempts: body }, signal },
+            normalizeBatchReceipt,
+          )
+        : Promise.resolve(unavailable("invalid-request"));
     },
     communityRecent({ limit = 20, cursor, signal } = {}) {
       const boundedLimit = listLimit(limit, 20, 50);
       const search = new URLSearchParams({ limit: String(boundedLimit) });
       const boundedCursor = optionalString(cursor, 200);
       if (boundedCursor) search.set("cursor", boundedCursor);
-      return request(`/community/recent?${search}`, { signal }, (value) => normalizeList(value, normalizeCommunityEntry, boundedLimit));
+      return request(`/community/recent?${search}`, { signal }, (value) =>
+        normalizeList(value, normalizeCommunityEntry, boundedLimit),
+      );
     },
-    itemLeaderboard(requestedItemId, { limit = 25, cursor, signal } = {}) {
+    itemLeaderboard(
+      requestedItemId,
+      { limit = 25, cursor, itemRevision, stage, signal } = {},
+    ) {
       const normalizedItemId = itemId(requestedItemId);
-      if (!normalizedItemId) return Promise.resolve(unavailable("invalid-request"));
+      if (!normalizedItemId)
+        return Promise.resolve(unavailable("invalid-request"));
+      const requestedRevision =
+        itemRevision === undefined
+          ? undefined
+          : finiteNumber(itemRevision, 0, 1, 1_000_000, true);
+      const requestedStage =
+        stage === undefined ? undefined : finiteNumber(stage, 0, 1, 5, true);
+      if (
+        (itemRevision !== undefined && requestedRevision !== itemRevision) ||
+        (stage !== undefined && requestedStage !== stage)
+      )
+        return Promise.resolve(unavailable("invalid-request"));
       const boundedLimit = listLimit(limit, 25);
       const search = new URLSearchParams({ limit: String(boundedLimit) });
+      if (requestedRevision !== undefined)
+        search.set("itemRevision", String(requestedRevision));
+      if (requestedStage !== undefined)
+        search.set("stage", String(requestedStage));
+      search.set("mode", "strict");
       const boundedCursor = optionalString(cursor, 200);
       if (boundedCursor) search.set("cursor", boundedCursor);
-      return request(`/leaderboards/items/${encodeURIComponent(normalizedItemId)}?${search}`, { signal }, (value) => {
-        const list = normalizeList(value, normalizeItemLeaderboardEntry, boundedLimit);
-        if (!list) return undefined;
-        const responseItemId = itemId(value.itemId) ?? normalizedItemId;
-        return {
-          itemId: responseItemId,
-          itemRevision: finiteNumber(value.itemRevision, 1, 1, 1_000_000, true),
-          stage: finiteNumber(value.stage, 1, 1, 5, true),
-          mode: "strict",
-          ...list,
-        };
-      });
+      return request(
+        `/leaderboards/items/${encodeURIComponent(normalizedItemId)}?${search}`,
+        { signal },
+        (value) => {
+          if (
+            (requestedRevision !== undefined || requestedStage !== undefined) &&
+            (itemId(value.itemId) !== normalizedItemId ||
+              (requestedRevision !== undefined &&
+                value.itemRevision !== requestedRevision) ||
+              (requestedStage !== undefined && value.stage !== requestedStage))
+          )
+            return undefined;
+          const list = normalizeList(
+            value,
+            normalizeItemLeaderboardEntry,
+            boundedLimit,
+          );
+          if (!list) return undefined;
+          const responseItemId = itemId(value.itemId) ?? normalizedItemId;
+          const responseRevision = finiteNumber(
+            value.itemRevision,
+            1,
+            1,
+            1_000_000,
+            true,
+          );
+          const responseStage = finiteNumber(value.stage, 1, 1, 5, true);
+          if (
+            responseItemId !== normalizedItemId ||
+            (requestedRevision !== undefined &&
+              responseRevision !== requestedRevision) ||
+            (requestedStage !== undefined && responseStage !== requestedStage)
+          )
+            return undefined;
+          const entries = list.entries.filter(
+            (entry) =>
+              (requestedRevision === undefined ||
+                entry.itemRevision === requestedRevision) &&
+              (requestedStage === undefined || entry.stage === requestedStage),
+          );
+          return {
+            itemId: responseItemId,
+            itemRevision: responseRevision,
+            stage: responseStage,
+            mode: "strict",
+            ...list,
+            entries,
+          };
+        },
+      );
     },
     dailyLeaderboard(requestedDate, { limit = 25, cursor, signal } = {}) {
       const date = dayKey(requestedDate);
@@ -467,11 +723,20 @@ export function createCloudClient(options = {}) {
       const boundedCursor = optionalString(cursor, 200);
       if (boundedCursor) search.set("cursor", boundedCursor);
       return request(`/leaderboards/daily?${search}`, { signal }, (value) => {
-        const list = normalizeList(value, normalizeDailyLeaderboardEntry, boundedLimit);
+        const list = normalizeList(
+          value,
+          normalizeDailyLeaderboardEntry,
+          boundedLimit,
+        );
         if (!list) return undefined;
         const responseDate = dayKey(value.date) ?? date;
-        const challenge = normalizeDailyChallenge(value.challenge, responseDate);
-        return challenge ? { date: responseDate, challenge, ...list } : undefined;
+        const challenge = normalizeDailyChallenge(
+          value.challenge,
+          responseDate,
+        );
+        return challenge
+          ? { date: responseDate, challenge, ...list }
+          : undefined;
       });
     },
   };

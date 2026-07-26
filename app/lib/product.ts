@@ -58,7 +58,14 @@ export type View =
 export type Theme =
   "midnight" | "paper" | "forest" | "synthwave" | "ember" | "ocean";
 export type AttemptQualification =
-  "syntax" | "guided" | "independent" | "assisted" | "incomplete";
+  "syntax" | "guided" | "independent" | "solved" | "assisted" | "incomplete";
+export type PracticeKind = "typing" | "solving";
+export type VerificationSummary = {
+  revision: number;
+  passed: number;
+  total: number;
+  runs: number;
+};
 
 export type Settings = {
   theme: Theme;
@@ -80,6 +87,7 @@ export type AttemptRecord = {
   titleSnapshot: string;
   language: CodeLanguage;
   stage: number;
+  practiceKind: PracticeKind;
   mode: "strict" | "free";
   startedAt: string;
   completedAt: string;
@@ -98,6 +106,7 @@ export type AttemptRecord = {
   consistency: number;
   outcome: "completed" | "abandoned";
   qualification: AttemptQualification;
+  verification?: VerificationSummary;
   challengeDate?: string;
   sessionId?: string;
 };
@@ -106,6 +115,7 @@ export type Draft = {
   itemId: ItemId;
   itemRevision: number;
   stage: number;
+  practiceKind: PracticeKind;
   value: string;
   startedAt: number | null;
   totalKeystrokes: number;
@@ -116,6 +126,7 @@ export type Draft = {
   keyErrors: Record<string, number>;
   lineErrors: Record<string, number>;
   timeline: TimelineSample[];
+  testRuns: number;
   challengeDate?: string;
   sessionId?: string;
 };
@@ -148,7 +159,7 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 8;
+  version: 9;
   attempts: AttemptRecord[];
   favorites: ItemId[];
   customItems: PracticeItem[];
@@ -161,13 +172,14 @@ export type AppState = {
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v8";
-export const PREVIOUS_STORAGE_KEY = "swift-ghost-state-v7";
-export const LEGACY_STORAGE_KEY = "swift-ghost-state-v6";
-export const OLDER_STORAGE_KEY = "swift-ghost-state-v5";
-export const OLDEST_STORAGE_KEY = "swift-ghost-state-v4";
-export const ORIGINAL_STORAGE_KEY = "swift-ghost-state-v3";
-export const FIRST_STORAGE_KEY = "swift-ghost-state-v2";
+export const STORAGE_KEY = "swift-ghost-state-v9";
+export const PREVIOUS_STORAGE_KEY = "swift-ghost-state-v8";
+export const LEGACY_STORAGE_KEY = "swift-ghost-state-v7";
+export const OLDER_STORAGE_KEY = "swift-ghost-state-v6";
+export const OLDEST_STORAGE_KEY = "swift-ghost-state-v5";
+export const ORIGINAL_STORAGE_KEY = "swift-ghost-state-v4";
+export const FIRST_STORAGE_KEY = "swift-ghost-state-v3";
+export const EARLIEST_STORAGE_KEY = "swift-ghost-state-v2";
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: "midnight",
@@ -183,7 +195,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 8,
+  version: 9,
   attempts: [],
   favorites: [],
   customItems: [],
@@ -224,6 +236,19 @@ function normalizeKeyErrors(value: unknown) {
       })
       .slice(0, 100),
   );
+}
+
+function normalizeVerificationSummary(value: unknown) {
+  if (!isRecord(value)) return undefined;
+  const total = Math.round(finiteNumber(value.total, 0, 0, 100));
+  const passed = Math.round(finiteNumber(value.passed, 0, 0, total));
+  if (total < 1) return undefined;
+  return {
+    revision: Math.round(finiteNumber(value.revision, 1, 1, 1000000)),
+    passed,
+    total,
+    runs: Math.round(finiteNumber(value.runs, 1, 1, 100000)),
+  };
 }
 
 function normalizeSettings(value: unknown): Settings {
@@ -557,9 +582,22 @@ function normalizeCloudPreferences(value: unknown): CloudPreferences {
 }
 
 export function qualificationFor(
-  input: Pick<AttemptRecord, "outcome" | "stage" | "peeks" | "accuracy">,
+  input: Pick<
+    AttemptRecord,
+    "outcome" | "stage" | "peeks" | "accuracy" | "practiceKind" | "verification"
+  >,
 ): AttemptQualification {
   if (input.outcome !== "completed") return "incomplete";
+  if (input.practiceKind === "solving") {
+    const verification = input.verification;
+    if (
+      !verification ||
+      verification.total < 1 ||
+      verification.passed !== verification.total
+    )
+      return "incomplete";
+    return input.peeks > 0 ? "assisted" : "solved";
+  }
   if (input.peeks > 0 || input.accuracy < 95) return "assisted";
   if (input.stage === 5) return "independent";
   if (input.stage === 4) return "guided";
@@ -611,7 +649,14 @@ export function normalizeState(value: unknown): AppState {
       const item = [...BUILTIN_ITEMS, ...customItems].find(
         (candidate) => candidate.itemId === itemId,
       );
+      if (
+        raw.practiceKind === "solving" &&
+        !(item?.language === "python" && item.verification)
+      )
+        return [];
       const keyErrors = normalizeKeyErrors(raw.keyErrors);
+      const practiceKind: PracticeKind =
+        raw.practiceKind === "solving" ? "solving" : "typing";
       const attempt: AttemptRecord = {
         id: raw.id,
         itemId,
@@ -625,6 +670,7 @@ export function normalizeState(value: unknown): AppState {
             ? raw.language
             : (item?.language ?? "swift"),
         stage,
+        practiceKind,
         mode: raw.mode === "free" ? "free" : "strict",
         startedAt:
           typeof raw.startedAt === "string" &&
@@ -654,6 +700,7 @@ export function normalizeState(value: unknown): AppState {
         consistency: Math.round(finiteNumber(raw.consistency, 0, 0, 100)),
         outcome,
         qualification: "assisted",
+        verification: normalizeVerificationSummary(raw.verification),
         keyErrors,
         lineErrors: normalizeLineErrors(raw.lineErrors),
         timeline: normalizeTimelineSamples(raw.timeline),
@@ -675,12 +722,21 @@ export function normalizeState(value: unknown): AppState {
     ? (customItems.find((item) => item.itemId === draftItemId)
         ?.contentRevision ?? 1)
     : 1;
+  const draftItem = draftItemId
+    ? [...BUILTIN_ITEMS, ...customItems].find(
+        (candidate) => candidate.itemId === draftItemId,
+      )
+    : undefined;
+  const draftSupportsSolve = Boolean(
+    draftItem?.language === "python" && draftItem.verification,
+  );
   const draft: Draft | null =
     rawDraft &&
     draftItemId &&
     activeIds.has(draftItemId) &&
     Math.round(finiteNumber(rawDraft.itemRevision, 1, 1, 1000000)) ===
       draftCurrentRevision &&
+    !(rawDraft.practiceKind === "solving" && !draftSupportsSolve) &&
     typeof rawDraft.value === "string" &&
     rawDraft.value.length <= 50000
       ? {
@@ -689,6 +745,8 @@ export function normalizeState(value: unknown): AppState {
             finiteNumber(rawDraft.itemRevision, 1, 1, 1000000),
           ),
           stage: Math.round(finiteNumber(rawDraft.stage, 1, 1, 5)),
+          practiceKind:
+            rawDraft.practiceKind === "solving" ? "solving" : "typing",
           value: rawDraft.value,
           startedAt:
             typeof rawDraft.startedAt === "number" &&
@@ -711,6 +769,7 @@ export function normalizeState(value: unknown): AppState {
           keyErrors: normalizeKeyErrors(rawDraft.keyErrors),
           lineErrors: normalizeLineErrors(rawDraft.lineErrors),
           timeline: normalizeTimelineSamples(rawDraft.timeline),
+          testRuns: Math.round(finiteNumber(rawDraft.testRuns, 0, 0, 100000)),
           challengeDate:
             typeof rawDraft.challengeDate === "string"
               ? rawDraft.challengeDate
@@ -753,7 +812,7 @@ export function normalizeState(value: unknown): AppState {
     ? { ...draft, sessionId: draftMatchesSession ? draft.sessionId : undefined }
     : null;
   return {
-    version: 8,
+    version: 9,
     attempts,
     favorites,
     customItems,
@@ -783,6 +842,7 @@ export function loadState(): AppState {
       OLDEST_STORAGE_KEY,
       ORIGINAL_STORAGE_KEY,
       FIRST_STORAGE_KEY,
+      EARLIEST_STORAGE_KEY,
     ]) {
       const stored = localStorage.getItem(key);
       if (!stored) continue;
@@ -804,7 +864,7 @@ function hasSupportedStateVersion(
   value: unknown,
 ): value is Record<string, unknown> {
   return (
-    isRecord(value) && [2, 3, 4, 5, 6, 7, 8].includes(Number(value.version))
+    isRecord(value) && [2, 3, 4, 5, 6, 7, 8, 9].includes(Number(value.version))
   );
 }
 
@@ -863,6 +923,17 @@ export function currentMetrics(draft: Draft, target: string, now = Date.now()) {
     : 0;
   const minutes = durationMs / 60000;
   const rawWpm = minutes ? Math.round(draft.totalKeystrokes / 5 / minutes) : 0;
+  if (draft.practiceKind === "solving") {
+    return {
+      durationMs,
+      rawWpm,
+      wpm: rawWpm,
+      accuracy: 100,
+      progress: target.length
+        ? Math.min(99, Math.round((draft.value.length / target.length) * 100))
+        : 0,
+    };
+  }
   const positionCorrect = correctPositionCount(draft.value, target);
   const wpm = minutes ? Math.round(positionCorrect / 5 / minutes) : 0;
   const accuracy = draft.totalKeystrokes
@@ -900,9 +971,22 @@ export function completedAttempts(state: AppState) {
 }
 export function eligibleAttempt(attempt: AttemptRecord) {
   return (
+    attempt.practiceKind === "typing" &&
     attempt.outcome === "completed" &&
     attempt.peeks === 0 &&
     attempt.accuracy >= 95
+  );
+}
+
+export function successfulLearningAttempt(attempt: AttemptRecord) {
+  return (
+    eligibleAttempt(attempt) ||
+    (attempt.practiceKind === "solving" &&
+      attempt.outcome === "completed" &&
+      attempt.peeks === 0 &&
+      attempt.verification !== undefined &&
+      attempt.verification.total > 0 &&
+      attempt.verification.passed === attempt.verification.total)
   );
 }
 
@@ -919,21 +1003,29 @@ export function itemStats(state: AppState, itemId: ItemId) {
   const attempts = completedAttempts(state).filter(
     (attempt) => attempt.itemId === itemId && attempt.itemRevision === revision,
   );
-  const qualified = attempts.filter(eligibleAttempt);
+  const typingAttempts = attempts.filter(
+    (attempt) => attempt.practiceKind === "typing",
+  );
+  const qualified = typingAttempts.filter(eligibleAttempt);
   const independent = qualified.filter((attempt) => attempt.stage === 5);
+  const verifiedSolves = attempts.filter(
+    (attempt) =>
+      attempt.practiceKind === "solving" && successfulLearningAttempt(attempt),
+  );
   return {
     attempts,
     completions: attempts.length,
+    solveCompletions: verifiedSolves.length,
     qualifiedCompletions: qualified.length,
     highestStage: qualified.reduce(
       (highest, attempt) => Math.max(highest, attempt.stage),
       0,
     ),
-    highestPracticedStage: attempts.reduce(
+    highestPracticedStage: typingAttempts.reduce(
       (highest, attempt) => Math.max(highest, attempt.stage),
       0,
     ),
-    owned: independent.length > 0,
+    owned: independent.length > 0 || verifiedSolves.length > 0,
     bestWpm: qualified.reduce(
       (best, attempt) => Math.max(best, attempt.wpm),
       0,
@@ -959,7 +1051,7 @@ export function reviewStatus(state: AppState, itemId: ItemId) {
   let level = 0;
   let dueAt: Date | null = null;
   for (const attempt of attempts) {
-    if (eligibleAttempt(attempt)) {
+    if (successfulLearningAttempt(attempt)) {
       const days = REVIEW_DAYS[Math.min(level, REVIEW_DAYS.length - 1)];
       level = Math.min(REVIEW_DAYS.length, level + 1);
       dueAt = new Date(Date.parse(attempt.completedAt) + days * 86400000);

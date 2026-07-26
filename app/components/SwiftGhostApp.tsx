@@ -20,6 +20,7 @@ import {
   type Pattern,
 } from "../data/problems";
 import { CommunityPanel } from "./CommunityPanel";
+import { AttemptForensics } from "./AttemptForensics";
 import { LearningAnalytics } from "./LearningAnalytics";
 import {
   createPythonRunner,
@@ -54,10 +55,23 @@ import {
   createCloudClient,
   type CloudCapabilities,
   type CloudDailyChallenge,
+  type CloudItemLeaderboard,
   type CloudSession,
 } from "../lib/cloud.mjs";
 import {
+  assessCommunityComparability,
+  buildLeaderboardPreview,
+} from "../lib/competitive.mjs";
+import {
+  LINE_RANGE_OPTIONS,
+  TIME_RANGE_OPTIONS,
+  matchesCatalogRanges,
+  type LineRange,
+  type TimeRange,
+} from "../lib/catalog-filters.mjs";
+import {
   EMPTY_STATE,
+  EARLIEST_STORAGE_KEY,
   FIRST_STORAGE_KEY,
   LEGACY_STORAGE_KEY,
   OLDER_STORAGE_KEY,
@@ -91,6 +105,7 @@ import {
   type AppState,
   type AttemptRecord,
   type Draft,
+  type PracticeKind,
   type Settings,
   type Theme,
   type TrainingSession,
@@ -185,6 +200,17 @@ function laneLabel(item: Pick<PracticeItem, "track" | "language">) {
   return `${LANGUAGE_META[item.language].label} interview`;
 }
 
+function coercePracticeKind(
+  item: Pick<PracticeItem, "language" | "verification">,
+  requested: PracticeKind | undefined,
+): PracticeKind {
+  return requested === "solving" &&
+    item.language === "python" &&
+    item.verification
+    ? "solving"
+    : "typing";
+}
+
 function matchesLane(
   item: Pick<PracticeItem, "track" | "language">,
   value: "All" | "python" | "swift" | "ios",
@@ -200,12 +226,15 @@ function freshDraft(
   itemRevision = 1,
   challengeDate?: string,
   sessionId?: string,
+  practiceKind: PracticeKind = "typing",
+  initialValue = "",
 ): Draft {
   return {
     itemId,
     itemRevision,
     stage,
-    value: "",
+    practiceKind,
+    value: initialValue,
     startedAt: null,
     totalKeystrokes: 0,
     correctKeystrokes: 0,
@@ -215,6 +244,7 @@ function freshDraft(
     keyErrors: {},
     lineErrors: {},
     timeline: [],
+    testRuns: 0,
     challengeDate,
     sessionId,
   };
@@ -300,6 +330,8 @@ export default function SwiftGhostApp() {
   const [now, setNow] = useState(0);
   const [toast, setToast] = useState("");
   const [focusMode, setFocusMode] = useState(false);
+  const [practiceKind, setPracticeKind] = useState<PracticeKind>("typing");
+  const [practiceEpoch, setPracticeEpoch] = useState(0);
   const [customEditor, setCustomEditor] = useState<PracticeItem | "new" | null>(
     null,
   );
@@ -332,10 +364,24 @@ export default function SwiftGhostApp() {
       const restoredItem =
         items.find((candidate) => candidate.itemId === restored.lastItemId) ??
         BUILTIN_ITEMS[0];
+      const initialItem = routedItem ?? restoredItem;
+      const restoredPracticeKind =
+        restored.draft?.itemId === initialItem.itemId
+          ? restored.draft.practiceKind
+          : undefined;
+      const initialPracticeKind = coercePracticeKind(
+        initialItem,
+        route.practiceKind ?? restoredPracticeKind,
+      );
       setState(restored);
       setView(route.view);
-      setSelectedId((routedItem ?? restoredItem).itemId);
-      setStage(route.stage ?? (restored.lastStage || 1));
+      setSelectedId(initialItem.itemId);
+      setStage(
+        initialPracticeKind === "solving"
+          ? 5
+          : (route.stage ?? (restored.lastStage || 1)),
+      );
+      setPracticeKind(initialPracticeKind);
       setNow(Date.now());
       setReady(true);
     }, 0);
@@ -347,15 +393,26 @@ export default function SwiftGhostApp() {
     function onPopState() {
       const route = parseRoute(window.location.href);
       const routed = resolveRouteItem(allItems, route);
+      const activeItem =
+        routed ??
+        allItems.find((candidate) => candidate.itemId === selectedId) ??
+        BUILTIN_ITEMS[0];
+      const nextPracticeKind = coercePracticeKind(
+        activeItem,
+        route.practiceKind,
+      );
       setView(route.view);
       if (routed) setSelectedId(routed.itemId);
-      if (route.stage) setStage(route.stage);
+      if (nextPracticeKind === "solving") setStage(5);
+      else if (route.stage) setStage(route.stage);
+      setPracticeKind(nextPracticeKind);
+      setPracticeEpoch((current) => current + 1);
       setReveal(false);
       setResult(null);
     }
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, [ready, allItems]);
+  }, [ready, allItems, selectedId]);
 
   useEffect(() => {
     if (ready) saveState(state);
@@ -434,6 +491,7 @@ export default function SwiftGhostApp() {
       .filter(
         (attempt) =>
           attempt.outcome === "completed" &&
+          attempt.practiceKind === "typing" &&
           !attempt.itemId.startsWith("custom:") &&
           !known.has(attempt.id),
       )
@@ -495,12 +553,22 @@ export default function SwiftGhostApp() {
     allItems[0] ??
     BUILTIN_ITEMS[0];
   const draft =
-    state.draft?.itemId === selectedId && state.draft.stage === stage
+    state.draft?.itemId === selectedId &&
+    state.draft.stage === stage &&
+    state.draft.practiceKind === practiceKind
       ? state.draft
-      : freshDraft(selectedId, stage, item.contentRevision);
+      : freshDraft(
+          selectedId,
+          stage,
+          item.contentRevision,
+          undefined,
+          undefined,
+          practiceKind,
+          practiceKind === "solving" ? (item.starterCode ?? "") : "",
+        );
   const metrics = currentMetrics(draft, item.code, now);
   const ghostCode = maskCode(
-    item.code,
+    practiceKind === "solving" ? "" : item.code,
     stage,
     reveal,
     item.masks,
@@ -536,11 +604,19 @@ export default function SwiftGhostApp() {
     activeItem: PracticeItem,
     outcome: AttemptRecord["outcome"],
     current: AppState,
+    verification?: AttemptRecord["verification"],
   ) {
     const live = currentMetrics(active, activeItem.code);
     const finalTimeline = normalizeTimelineSamples([
       ...active.timeline,
-      { atMs: live.durationMs, wpm: live.wpm, progress: live.progress },
+      {
+        atMs: live.durationMs,
+        wpm: live.wpm,
+        progress:
+          active.practiceKind === "solving" && outcome === "completed"
+            ? 100
+            : live.progress,
+      },
     ]);
     const attempt: AttemptRecord = {
       id: makeId(),
@@ -549,6 +625,7 @@ export default function SwiftGhostApp() {
       titleSnapshot: activeItem.title,
       language: activeItem.language,
       stage: active.stage,
+      practiceKind: active.practiceKind,
       mode: active.challengeDate
         ? "strict"
         : current.settings.strictMode
@@ -571,6 +648,7 @@ export default function SwiftGhostApp() {
       ),
       outcome,
       qualification: "assisted",
+      verification,
       challengeDate: active.challengeDate,
       sessionId: active.sessionId,
       keyErrors: { ...active.keyErrors },
@@ -600,13 +678,19 @@ export default function SwiftGhostApp() {
     nextStage?: number,
     challengeDate?: string,
     sessionId?: string,
+    nextPracticeKind: PracticeKind = "typing",
   ) {
-    const chosenStage = nextStage ?? recommendedStage(state, next);
+    const chosenPracticeKind = coercePracticeKind(next, nextPracticeKind);
+    const chosenStage =
+      chosenPracticeKind === "solving"
+        ? 5
+        : (nextStage ?? recommendedStage(state, next));
     mutateState((current) => {
       const resuming =
         !challengeDate &&
         current.draft?.itemId === next.itemId &&
         current.draft.stage === chosenStage &&
+        current.draft.practiceKind === chosenPracticeKind &&
         current.draft.itemRevision === next.contentRevision &&
         current.draft.sessionId === sessionId;
       const base = resuming ? current : recordAbandon(current);
@@ -621,6 +705,10 @@ export default function SwiftGhostApp() {
                 next.contentRevision,
                 challengeDate,
                 sessionId,
+                chosenPracticeKind,
+                chosenPracticeKind === "solving"
+                  ? (next.starterCode ?? "")
+                  : "",
               )
             : null,
         lastItemId: next.itemId,
@@ -629,10 +717,12 @@ export default function SwiftGhostApp() {
     });
     setSelectedId(next.itemId);
     setStage(chosenStage);
+    setPracticeKind(chosenPracticeKind);
+    setPracticeEpoch((current) => current + 1);
     setReveal(false);
     setResult(null);
     setView("practice");
-    writeRoute(routeForItem(next, chosenStage));
+    writeRoute(routeForItem(next, chosenStage, chosenPracticeKind));
     window.setTimeout(
       () =>
         document
@@ -673,9 +763,55 @@ export default function SwiftGhostApp() {
       };
     });
     setStage(nextStage);
+    setPracticeKind("typing");
     setReveal(false);
     setResult(null);
-    writeRoute(routeForItem(item, nextStage));
+    writeRoute(routeForItem(item, nextStage, "typing"));
+    window.setTimeout(
+      () =>
+        document
+          .querySelector<HTMLTextAreaElement>(".editor-wrap textarea")
+          ?.focus(),
+      0,
+    );
+  }
+
+  function choosePracticeKind(nextKind: PracticeKind) {
+    if (nextKind === practiceKind) return;
+    if (
+      nextKind === "solving" &&
+      (!item.verification || draft.challengeDate || draft.sessionId)
+    ) {
+      setToast(
+        item.verification
+          ? "Solve mode is unavailable during Daily Type or an active session"
+          : "Solve mode currently supports verified Python exercises",
+      );
+      return;
+    }
+    const nextStage =
+      nextKind === "solving" ? 5 : recommendedStage(state, item);
+    mutateState((current) => {
+      const base = recordAbandon(current);
+      return {
+        ...base,
+        draft: freshDraft(
+          selectedId,
+          nextStage,
+          item.contentRevision,
+          undefined,
+          undefined,
+          nextKind,
+          nextKind === "solving" ? (item.starterCode ?? "") : "",
+        ),
+        lastStage: nextStage,
+      };
+    });
+    setPracticeKind(nextKind);
+    setStage(nextStage);
+    setReveal(false);
+    setResult(null);
+    writeRoute(routeForItem(item, nextStage, nextKind));
     window.setTimeout(
       () =>
         document
@@ -711,8 +847,8 @@ export default function SwiftGhostApp() {
     }));
   }
 
-  function finish(next: Draft) {
-    const attempt = createAttempt(next, item, "completed", state);
+  function finish(next: Draft, verification?: AttemptRecord["verification"]) {
+    const attempt = createAttempt(next, item, "completed", state, verification);
     const previousBest = personalBest(state, selectedId, stage, attempt.mode);
     let projected: AppState = {
       ...state,
@@ -774,6 +910,17 @@ export default function SwiftGhostApp() {
     const proposed = event.target.value;
     const edit = analyzeEdit(draft.value, proposed, item.code);
     const startedAt = draft.startedAt ?? Date.now();
+    if (draft.practiceKind === "solving") {
+      updateDraft({
+        ...draft,
+        value: proposed,
+        startedAt,
+        totalKeystrokes: draft.totalKeystrokes + edit.insertedCount,
+        correctKeystrokes: draft.correctKeystrokes + edit.insertedCount,
+        corrections: draft.corrections + edit.deletedCount,
+      });
+      return;
+    }
     const correctPrefix = item.code.startsWith(proposed);
     const keyErrors = edit.inserted.split("").reduce(
       (next, character, index) => {
@@ -830,6 +977,34 @@ export default function SwiftGhostApp() {
     if (proposed === item.code) finish(next);
   }
 
+  function finishSolve(
+    source: string,
+    verificationResult: PythonVerificationResult,
+    runs: number,
+  ) {
+    if (
+      practiceKind !== "solving" ||
+      !item.verification ||
+      !verificationResult.ok
+    )
+      return;
+    const next: Draft = {
+      ...draft,
+      practiceKind: "solving",
+      stage: 5,
+      value: source,
+      startedAt: draft.startedAt ?? Date.now(),
+      testRuns: Math.max(draft.testRuns, runs),
+    };
+    finish(next, {
+      revision: item.contentRevision,
+      passed: verificationResult.cases.filter((testCase) => testCase.passed)
+        .length,
+      total: verificationResult.cases.length,
+      runs: Math.max(1, runs),
+    });
+  }
+
   function insertAtCursor(input: HTMLTextAreaElement, text: string) {
     const start = input.selectionStart;
     const end = input.selectionEnd;
@@ -868,13 +1043,24 @@ export default function SwiftGhostApp() {
               item.contentRevision,
               undefined,
               sessionId,
+              practiceKind,
+              practiceKind === "solving" ? (item.starterCode ?? "") : "",
             )
-          : null,
+          : freshDraft(
+              selectedId,
+              stage,
+              item.contentRevision,
+              undefined,
+              undefined,
+              practiceKind,
+              practiceKind === "solving" ? (item.starterCode ?? "") : "",
+            ),
       };
     });
     setReveal(false);
     setResult(null);
     setToast("Attempt reset");
+    setPracticeEpoch((current) => current + 1);
     window.setTimeout(
       () =>
         document
@@ -1264,14 +1450,28 @@ export default function SwiftGhostApp() {
       if (
         !parsed ||
         typeof parsed !== "object" ||
-        ![2, 3, 4, 5, 6, 7, 8].includes(
+        ![2, 3, 4, 5, 6, 7, 8, 9].includes(
           Number((parsed as { version?: unknown }).version),
         )
       )
         throw new Error("invalid");
+      const restoredItem = [
+        ...BUILTIN_ITEMS,
+        ...restored.customItems.filter((candidate) => !candidate.archivedAt),
+      ].find((candidate) => candidate.itemId === restored.lastItemId);
+      const restoredPracticeKind = restoredItem
+        ? coercePracticeKind(
+            restoredItem,
+            restored.draft?.itemId === restoredItem.itemId
+              ? restored.draft.practiceKind
+              : "typing",
+          )
+        : "typing";
       setState(restored);
-      setSelectedId(restored.lastItemId);
-      setStage(restored.lastStage);
+      setSelectedId(restoredItem?.itemId ?? BUILTIN_ITEMS[0].itemId);
+      setStage(restoredPracticeKind === "solving" ? 5 : restored.lastStage);
+      setPracticeKind(restoredPracticeKind);
+      setPracticeEpoch((current) => current + 1);
       setReveal(false);
       setResult(null);
       setToast("Progress restored and migrated");
@@ -1295,9 +1495,12 @@ export default function SwiftGhostApp() {
     localStorage.removeItem(OLDEST_STORAGE_KEY);
     localStorage.removeItem(ORIGINAL_STORAGE_KEY);
     localStorage.removeItem(FIRST_STORAGE_KEY);
+    localStorage.removeItem(EARLIEST_STORAGE_KEY);
     setState(EMPTY_STATE);
     setSelectedId(BUILTIN_ITEMS[0].itemId);
     setStage(1);
+    setPracticeKind("typing");
+    setPracticeEpoch((current) => current + 1);
     setToast("Local data cleared");
   }
 
@@ -1324,6 +1527,17 @@ export default function SwiftGhostApp() {
       return;
     }
     chooseStage(Math.min(5, stage + 1));
+  }
+
+  function handleResultRetry() {
+    if (!result) return;
+    openItem(
+      result.item,
+      result.stage,
+      result.challengeDate,
+      undefined,
+      result.practiceKind,
+    );
   }
 
   return (
@@ -1403,10 +1617,12 @@ export default function SwiftGhostApp() {
       )}
       {view === "practice" && (
         <PracticeView
+          key={`${selectedId}:${stage}:${practiceKind}:${practiceEpoch}`}
           state={state}
           items={allItems}
           item={item}
           draft={draft}
+          practiceKind={practiceKind}
           stage={stage}
           metrics={metrics}
           ghostCode={ghostCode}
@@ -1418,9 +1634,11 @@ export default function SwiftGhostApp() {
           activeSession={state.activeSession}
           onOpenItem={openItem}
           onChooseStage={chooseStage}
+          onChoosePracticeKind={choosePracticeKind}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onPaste={(event) => {
+            if (practiceKind === "solving") return;
             event.preventDefault();
             const count = Math.max(
               1,
@@ -1435,11 +1653,21 @@ export default function SwiftGhostApp() {
             setToast("Pasting is disabled during a practice pass");
           }}
           onReset={resetAttempt}
+          onTestRun={() =>
+            updateDraft({
+              ...draft,
+              startedAt: draft.startedAt ?? Date.now(),
+              testRuns: draft.testRuns + 1,
+            })
+          }
+          onUseHint={() => updateDraft({ ...draft, peeks: draft.peeks + 1 })}
+          onSolveComplete={finishSolve}
           onReveal={toggleReveal}
           onFavorite={() => toggleFavorite(selectedId)}
           onFocusMode={() => setFocusMode((value) => !value)}
           onReview={() => randomItem("due")}
           onBrowse={() => navigateView("library")}
+          onRandom={() => randomItem()}
           onSession={() => navigateView("sessions")}
           onSkipSession={skipSessionEntry}
           onEndSession={endSession}
@@ -1502,10 +1730,14 @@ export default function SwiftGhostApp() {
       />
       {result && (
         <ResultDialog
+          key={result.id}
           result={result}
           onClose={() => setResult(null)}
           onNext={handleResultNext}
+          onRetry={handleResultRetry}
           onRandom={() => randomItem()}
+          onRecords={() => navigateView("records")}
+          cloud={cloud}
         />
       )}
       {customEditor && (
@@ -1771,6 +2003,7 @@ type PracticeProps = {
   items: PracticeItem[];
   item: PracticeItem;
   draft: Draft;
+  practiceKind: PracticeKind;
   stage: number;
   metrics: ReturnType<typeof currentMetrics>;
   ghostCode: string;
@@ -1780,17 +2013,32 @@ type PracticeProps = {
   focusMode: boolean;
   errorKeys: Record<string, number>;
   activeSession: TrainingSession | null;
-  onOpenItem: (item: PracticeItem, stage?: number) => void;
+  onOpenItem: (
+    item: PracticeItem,
+    stage?: number,
+    challengeDate?: string,
+    sessionId?: string,
+    practiceKind?: PracticeKind,
+  ) => void;
   onChooseStage: (stage: number) => void;
+  onChoosePracticeKind: (kind: PracticeKind) => void;
   onChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onPaste: (event: ReactClipboardEvent<HTMLTextAreaElement>) => void;
   onReset: () => void;
+  onTestRun: () => void;
+  onUseHint: () => void;
+  onSolveComplete: (
+    source: string,
+    result: PythonVerificationResult,
+    runs: number,
+  ) => void;
   onReveal: () => void;
   onFavorite: () => void;
   onFocusMode: () => void;
   onReview: () => void;
   onBrowse: () => void;
+  onRandom: () => void;
   onSession: () => void;
   onSkipSession: () => void;
   onEndSession: () => void;
@@ -1804,7 +2052,10 @@ function PracticeView(props: PracticeProps) {
     status: "idle" | "loading" | "running" | "passed" | "failed" | "error";
     result?: PythonVerificationResult;
     message?: string;
+    source?: string;
+    runs?: number;
   }>({ itemId: props.item.itemId, status: "idle" });
+  const [solveHintLevel, setSolveHintLevel] = useState(0);
   const pythonRunner = useRef<PythonRunner | null>(null);
   const verificationRunId = useRef(0);
   const [lastRunnableSource, setLastRunnableSource] = useState<{
@@ -1838,12 +2089,23 @@ function PracticeView(props: PracticeProps) {
     (total, count) => total + count,
     0,
   );
+  const editorLineCount = Math.max(
+    problemLineCount(props.item),
+    props.draft.value.split("\n").length,
+  );
+  const linesLeft = Math.max(
+    0,
+    problemLineCount(props.item) - props.draft.value.split("\n").length,
+  );
   const prompt = problemUrl(props.item);
-  const runnerSource = props.draft.value.trim()
-    ? props.draft.value
-    : lastRunnableSource?.itemId === props.item.itemId
-      ? lastRunnableSource.source
-      : "";
+  const runnerSource =
+    props.practiceKind === "solving"
+      ? props.draft.value
+      : props.draft.value.trim()
+        ? props.draft.value
+        : lastRunnableSource?.itemId === props.item.itemId
+          ? lastRunnableSource.source
+          : "";
   async function copyPracticeLink() {
     const url = window.location.href;
     let didCopy = false;
@@ -1870,7 +2132,9 @@ function PracticeView(props: PracticeProps) {
   async function runPythonChecks() {
     if (!props.item.verification || !runnerSource.trim()) return;
     const sourceToVerify = runnerSource;
+    const runs = props.draft.testRuns + 1;
     const runId = ++verificationRunId.current;
+    props.onTestRun();
     try {
       const runner = pythonRunner.current ?? createPythonRunner();
       pythonRunner.current = runner;
@@ -1888,6 +2152,8 @@ function PracticeView(props: PracticeProps) {
         itemId: props.item.itemId,
         status: result.ok ? "passed" : "failed",
         result,
+        source: sourceToVerify,
+        runs,
       });
     } catch (error) {
       if (runId !== verificationRunId.current) return;
@@ -1905,9 +2171,15 @@ function PracticeView(props: PracticeProps) {
   function handleEditorChange(event: ChangeEvent<HTMLTextAreaElement>) {
     const proposed = event.target.value;
     const accepted =
+      props.practiceKind === "solving" ||
       !(props.draft.challengeDate || props.state.settings.strictMode) ||
       props.item.code.startsWith(proposed);
-    if (props.item.verification && proposed === props.item.code && accepted) {
+    if (
+      props.practiceKind === "typing" &&
+      props.item.verification &&
+      proposed === props.item.code &&
+      accepted
+    ) {
       setLastRunnableSource({
         itemId: props.item.itemId,
         source: proposed,
@@ -1918,6 +2190,11 @@ function PracticeView(props: PracticeProps) {
       setVerificationState({ itemId: props.item.itemId, status: "idle" });
     }
     props.onChange(event);
+  }
+
+  function revealSolveHint() {
+    setSolveHintLevel((current) => Math.min(3, current + 1));
+    props.onUseHint();
   }
 
   function resetPractice() {
@@ -2037,6 +2314,80 @@ function PracticeView(props: PracticeProps) {
         )}
       </aside>
       <section className="practice-main">
+        <nav
+          className="mobile-practice-controls"
+          aria-label="Practice problem controls"
+        >
+          {props.activeSession ? (
+            <span>
+              Session item {props.activeSession.currentIndex + 1} of{" "}
+              {props.activeSession.entries.length}
+            </span>
+          ) : (
+            <label>
+              <span className="visually-hidden">Current practice problem</span>
+              <select
+                value={props.item.itemId}
+                onChange={(event) => {
+                  const next = props.items.find(
+                    (candidate) => candidate.itemId === event.target.value,
+                  );
+                  if (next)
+                    props.onOpenItem(
+                      next,
+                      props.practiceKind === "solving" ? 5 : undefined,
+                      undefined,
+                      undefined,
+                      props.practiceKind === "solving" && next.verification
+                        ? "solving"
+                        : "typing",
+                    );
+                }}
+                aria-label="Switch practice problem"
+              >
+                <optgroup label="Python interview">
+                  {props.items
+                    .filter(
+                      (candidate) =>
+                        candidate.language === "python" &&
+                        candidate.track === "interview",
+                    )
+                    .map((candidate) => (
+                      <option value={candidate.itemId} key={candidate.itemId}>
+                        {itemDisplayId(candidate)} {candidate.title}
+                      </option>
+                    ))}
+                </optgroup>
+                <optgroup label="Swift interview">
+                  {props.items
+                    .filter(
+                      (candidate) =>
+                        candidate.language === "swift" &&
+                        candidate.track === "interview",
+                    )
+                    .map((candidate) => (
+                      <option value={candidate.itemId} key={candidate.itemId}>
+                        {itemDisplayId(candidate)} {candidate.title}
+                      </option>
+                    ))}
+                </optgroup>
+                <optgroup label="iOS and Swift">
+                  {props.items
+                    .filter((candidate) => candidate.track === "ios")
+                    .map((candidate) => (
+                      <option value={candidate.itemId} key={candidate.itemId}>
+                        {itemDisplayId(candidate)} {candidate.title}
+                      </option>
+                    ))}
+                </optgroup>
+              </select>
+            </label>
+          )}
+          <button onClick={resetPractice}>Restart</button>
+          {!props.activeSession && (
+            <button onClick={props.onRandom}>Random</button>
+          )}
+        </nav>
         {props.activeSession &&
           props.draft.sessionId === props.activeSession.id && (
             <div className="session-strip">
@@ -2089,19 +2440,53 @@ function PracticeView(props: PracticeProps) {
             )}
           </div>
         </div>
+        <div className="practice-kind-switch" aria-label="Practice style">
+          <button
+            className={props.practiceKind === "typing" ? "active" : ""}
+            aria-pressed={props.practiceKind === "typing"}
+            onClick={() => props.onChoosePracticeKind("typing")}
+          >
+            <strong>Type</strong>
+            <small>Fade the known answer</small>
+          </button>
+          <button
+            className={props.practiceKind === "solving" ? "active" : ""}
+            aria-pressed={props.practiceKind === "solving"}
+            disabled={
+              !props.item.verification ||
+              Boolean(props.draft.challengeDate || props.draft.sessionId)
+            }
+            onClick={() => props.onChoosePracticeKind("solving")}
+          >
+            <strong>Solve</strong>
+            <small>
+              {props.item.verification
+                ? "Write any passing Python solution"
+                : "Verified Python exercises only"}
+            </small>
+          </button>
+        </div>
         <div className="insight-grid">
           <article>
             <span className="card-icon">⌁</span>
             <div>
               <small>Pattern cue</small>
-              <p>{props.item.cue}</p>
+              <p>
+                {props.practiceKind === "typing" || solveHintLevel >= 1
+                  ? props.item.cue
+                  : "Hidden for independent problem recognition."}
+              </p>
             </div>
           </article>
           <article>
             <span className="card-icon">∞</span>
             <div>
               <small>Invariant</small>
-              <p>{props.item.invariant}</p>
+              <p>
+                {props.practiceKind === "typing" || solveHintLevel >= 2
+                  ? props.item.invariant
+                  : "Explain the invariant before requesting this hint."}
+              </p>
             </div>
           </article>
           <article>
@@ -2110,32 +2495,76 @@ function PracticeView(props: PracticeProps) {
             </span>
             <div>
               <small>{LANGUAGE_META[props.item.language].note}</small>
-              <p>{props.item.languageNote}</p>
+              <p>
+                {props.practiceKind === "typing" || solveHintLevel >= 2
+                  ? props.item.languageNote
+                  : "Use executable feedback only after forming an approach."}
+              </p>
             </div>
           </article>
         </div>
-        <div className="stage-panel">
-          <div className="stage-title">
-            <span className="eyebrow">Recall ladder</span>
-            <span>{STAGES[props.stage - 1].note}</span>
-          </div>
-          <div className="stage-track">
-            {STAGES.map((step) => (
-              <button
-                key={step.id}
-                className={`${props.stage === step.id ? "active" : ""} ${step.id <= props.stats.highestStage ? "complete" : ""}`}
-                aria-pressed={props.stage === step.id}
-                onClick={() => props.onChooseStage(step.id)}
-                title={step.note}
-              >
-                <span>
-                  {step.id <= props.stats.highestStage ? "✓" : step.id}
-                </span>
-                <small>{step.short}</small>
+        {props.practiceKind === "solving" && (
+          <div className="solve-hint-bar">
+            <span>
+              <small>Independent solve</small>
+              <strong>
+                {solveHintLevel === 0
+                  ? "No hints used"
+                  : `${solveHintLevel} hint${solveHintLevel === 1 ? "" : "s"} used`}
+              </strong>
+            </span>
+            {solveHintLevel < 3 ? (
+              <button className="outline-button" onClick={revealSolveHint}>
+                {solveHintLevel === 0
+                  ? "Reveal cue"
+                  : solveHintLevel === 1
+                    ? "Reveal invariant"
+                    : "Reveal reference"}
               </button>
-            ))}
+            ) : (
+              <span className="assisted-label">Assisted solve</span>
+            )}
           </div>
-        </div>
+        )}
+        {props.practiceKind === "solving" && solveHintLevel >= 3 && (
+          <details className="solve-reference" open>
+            <summary>Reference solution</summary>
+            <pre>{props.item.code}</pre>
+          </details>
+        )}
+        {props.practiceKind === "typing" ? (
+          <div className="stage-panel">
+            <div className="stage-title">
+              <span className="eyebrow">Recall ladder</span>
+              <span>{STAGES[props.stage - 1].note}</span>
+            </div>
+            <div className="stage-track">
+              {STAGES.map((step) => (
+                <button
+                  key={step.id}
+                  className={`${props.stage === step.id ? "active" : ""} ${step.id <= props.stats.highestStage ? "complete" : ""}`}
+                  aria-pressed={props.stage === step.id}
+                  onClick={() => props.onChooseStage(step.id)}
+                  title={step.note}
+                >
+                  <span>
+                    {step.id <= props.stats.highestStage ? "✓" : step.id}
+                  </span>
+                  <small>{step.short}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="solve-brief">
+            <span className="eyebrow">Verified solve workspace</span>
+            <strong>Pass every local check, then record the solve.</strong>
+            <p>
+              Alternate correct implementations are welcome. Solve results stay
+              separate from typing speed and public leaderboards.
+            </p>
+          </div>
+        )}
         <div className="editor-card">
           <div className="editor-toolbar">
             <div className="window-dots" aria-hidden="true">
@@ -2151,46 +2580,75 @@ function PracticeView(props: PracticeProps) {
               <small>{problemLineCount(props.item)} lines</small>
             </div>
             <div className="editor-actions">
-              <button onClick={copyPracticeLink}>
+              <button className="copy-action" onClick={copyPracticeLink}>
                 {copied ? "Copied" : "Copy link"}
               </button>
-              <button onClick={props.onReveal}>
-                {props.reveal ? "Hide answer" : "Peek"}
+              {props.practiceKind === "typing" && (
+                <button className="peek-action" onClick={props.onReveal}>
+                  {props.reveal ? "Hide answer" : "Peek"}
+                </button>
+              )}
+              <button className="restart-action" onClick={resetPractice}>
+                Restart
               </button>
-              <button onClick={resetPractice}>Restart</button>
-              <button onClick={props.onFocusMode}>
+              <button className="focus-action" onClick={props.onFocusMode}>
                 {props.focusMode ? "Exit focus" : "Focus"}
               </button>
             </div>
           </div>
           <div className="metric-strip" aria-live="polite">
-            <span>
-              <small>Progress</small>
-              <strong>{props.metrics.progress}%</strong>
-            </span>
-            {props.state.settings.showLiveWpm && (
-              <span>
-                <small>WPM</small>
-                <strong>{props.metrics.wpm}</strong>
-              </span>
+            {props.practiceKind === "typing" ? (
+              <>
+                <span>
+                  <small>Progress</small>
+                  <strong>{props.metrics.progress}%</strong>
+                </span>
+                {props.state.settings.showLiveWpm && (
+                  <span>
+                    <small>WPM</small>
+                    <strong>{props.metrics.wpm}</strong>
+                  </span>
+                )}
+                <span>
+                  <small>Accuracy</small>
+                  <strong>{props.metrics.accuracy}%</strong>
+                </span>
+                <span>
+                  <small>Errors</small>
+                  <strong>{errorCount}</strong>
+                </span>
+                <span>
+                  <small>Lines left</small>
+                  <strong>{linesLeft}</strong>
+                </span>
+              </>
+            ) : (
+              <>
+                <span>
+                  <small>Workspace</small>
+                  <strong>{editorLineCount} lines</strong>
+                </span>
+                <span>
+                  <small>Test runs</small>
+                  <strong>{props.draft.testRuns}</strong>
+                </span>
+                <span>
+                  <small>Hints</small>
+                  <strong>{props.draft.peeks}</strong>
+                </span>
+              </>
             )}
-            <span>
-              <small>Accuracy</small>
-              <strong>{props.metrics.accuracy}%</strong>
-            </span>
-            <span>
-              <small>Errors</small>
-              <strong>{errorCount}</strong>
-            </span>
             <span>
               <small>Time</small>
               <strong>{formatDuration(props.metrics.durationMs)}</strong>
             </span>
             <span className="strict-indicator">
               <i />
-              {props.draft.challengeDate || props.state.settings.strictMode
-                ? "Strict correction"
-                : "Free correction"}
+              {props.practiceKind === "solving"
+                ? "Free-form solve"
+                : props.draft.challengeDate || props.state.settings.strictMode
+                  ? "Strict correction"
+                  : "Free correction"}
             </span>
           </div>
           <div
@@ -2199,13 +2657,13 @@ function PracticeView(props: PracticeProps) {
               {
                 "--font-size": `${props.state.settings.fontSize}px`,
                 "--editor-lines": props.state.settings.editorLines,
-                "--code-height": `${problemLineCount(props.item) * props.state.settings.fontSize * 1.65 + 56}px`,
+                "--code-height": `${editorLineCount * props.state.settings.fontSize * 1.65 + 56}px`,
               } as React.CSSProperties
             }
           >
             <pre className="line-numbers" aria-hidden="true">
               {Array.from(
-                { length: problemLineCount(props.item) },
+                { length: editorLineCount },
                 (_, index) => index + 1,
               ).join("\n")}
             </pre>
@@ -2216,7 +2674,10 @@ function PracticeView(props: PracticeProps) {
               {props.draft.value.split("").map((char, index) => (
                 <span
                   className={
-                    char === props.item.code[index] ? "right" : "wrong"
+                    props.practiceKind === "solving" ||
+                    char === props.item.code[index]
+                      ? "right"
+                      : "wrong"
                   }
                   key={`${index}-${char}`}
                 >
@@ -2232,7 +2693,7 @@ function PracticeView(props: PracticeProps) {
               spellCheck={false}
               autoCapitalize="off"
               autoComplete="off"
-              aria-label={`Type the ${LANGUAGE_META[props.item.language].label} solution for ${props.item.title}. Press Escape to leave the editor.`}
+              aria-label={`${props.practiceKind === "solving" ? "Solve" : "Type"} the ${LANGUAGE_META[props.item.language].label} solution for ${props.item.title}. Press Escape to leave the editor.`}
             />
           </div>
           <div className="editor-footer">
@@ -2240,33 +2701,45 @@ function PracticeView(props: PracticeProps) {
               <i className="key-swatch typed" />
               typed
             </span>
-            <span>
-              <i className="key-swatch ghost" />
-              ghost
-            </span>
-            <span>
-              <i className="key-swatch hidden" />
-              hidden
-            </span>
+            {props.practiceKind === "typing" && (
+              <>
+                <span>
+                  <i className="key-swatch ghost" />
+                  ghost
+                </span>
+                <span>
+                  <i className="key-swatch hidden" />
+                  hidden
+                </span>
+              </>
+            )}
             <span className="spacer" />
             <span>
               Tab inserts {props.state.settings.tabSize} spaces · Esc leaves
               editor
             </span>
           </div>
-          <div className="progress-line">
-            <i style={{ width: `${props.metrics.progress}%` }} />
-          </div>
+          {props.practiceKind === "typing" && (
+            <div className="progress-line">
+              <i style={{ width: `${props.metrics.progress}%` }} />
+            </div>
+          )}
         </div>
         {props.item.verification && (
           <section className="python-verification" aria-live="polite">
             <div>
               <span className="eyebrow">Browser Python</span>
-              <h2>Run the solution against real checks.</h2>
+              <h2>
+                {props.practiceKind === "solving"
+                  ? "Verify your implementation."
+                  : "Run the solution against real checks."}
+              </h2>
               <p>
                 Your code stays on this device. Every check starts in a fresh
                 Python worker; the first one loads the bundled runtime. Checks
-                never affect mastery or public rankings.
+                {props.practiceKind === "solving"
+                  ? " A passing solve can be recorded as independent problem-solving evidence, separate from typing speed and rankings."
+                  : " Checks never affect mastery or public rankings."}
               </p>
             </div>
             <div className="python-verification-actions">
@@ -2288,9 +2761,28 @@ function PracticeView(props: PracticeProps) {
               {!runnerSource.trim() && (
                 <small>Type some code before running checks.</small>
               )}
-              {!props.draft.value.trim() && runnerSource.trim() && (
-                <small>Using your most recent completed solution.</small>
-              )}
+              {props.practiceKind === "typing" &&
+                !props.draft.value.trim() &&
+                runnerSource.trim() && (
+                  <small>Using your most recent completed solution.</small>
+                )}
+              {props.practiceKind === "solving" &&
+                visibleVerificationState.status === "passed" &&
+                visibleVerificationState.result?.ok &&
+                visibleVerificationState.source === runnerSource && (
+                  <button
+                    className="primary-button record-solve"
+                    onClick={() =>
+                      props.onSolveComplete(
+                        runnerSource,
+                        visibleVerificationState.result as PythonVerificationResult,
+                        visibleVerificationState.runs ?? props.draft.testRuns,
+                      )
+                    }
+                  >
+                    Record verified solve →
+                  </button>
+                )}
             </div>
             {visibleVerificationState.result && (
               <div
@@ -2348,7 +2840,9 @@ function PracticeView(props: PracticeProps) {
                 ? (props.item.recallChecks?.[
                     Math.min(2, Math.max(0, props.stage - 2))
                   ] ?? "Explain the API boundary before typing.")
-                : "95%+ accuracy, no peeks. Stage 5 proves independent recall; other passes build syntax."}
+                : props.practiceKind === "solving"
+                  ? "A clean all-tests pass records solving evidence. Hints make the attempt assisted; typing records stay separate."
+                  : "95%+ accuracy, no peeks. Stage 5 proves independent recall; other passes build syntax."}
             </strong>
           </article>
           {Object.keys(props.errorKeys).length > 0 && (
@@ -2741,7 +3235,13 @@ function LibraryView({
 }: {
   state: AppState;
   items: PracticeItem[];
-  onOpen: (item: PracticeItem, stage?: number) => void;
+  onOpen: (
+    item: PracticeItem,
+    stage?: number,
+    challengeDate?: string,
+    sessionId?: string,
+    practiceKind?: PracticeKind,
+  ) => void;
   onFavorite: (id: ItemId) => void;
   onCreate: () => void;
   onEdit: (item: PracticeItem) => void;
@@ -2751,6 +3251,8 @@ function LibraryView({
   const [lane, setLane] = useState<"All" | "python" | "swift" | "ios">("All");
   const [pattern, setPattern] = useState<Pattern | "All">("All");
   const [difficulty, setDifficulty] = useState<Difficulty | "All">("All");
+  const [lineRange, setLineRange] = useState<LineRange>("all");
+  const [timeRange, setTimeRange] = useState<TimeRange>("all");
   const [status, setStatus] = useState<
     "All" | "New" | "Learning" | "Owned" | "Due" | "Favorites" | "My snippets"
   >("All");
@@ -2819,6 +3321,14 @@ function LibraryView({
             matchesLane(item, lane) &&
             (pattern === "All" || item.pattern === pattern) &&
             (difficulty === "All" || item.difficulty === difficulty) &&
+            matchesCatalogRanges(
+              {
+                lineCount: problemLineCount(item),
+                estimatedMinutes: item.estimatedMinutes,
+              },
+              lineRange,
+              timeRange,
+            ) &&
             statusMatch
           );
         })
@@ -2833,8 +3343,39 @@ function LibraryView({
                     itemStats(state, b.itemId).highestStage ||
                   a.title.localeCompare(b.title),
         ),
-    [items, state, query, lane, pattern, difficulty, status, sort],
+    [
+      items,
+      state,
+      query,
+      lane,
+      pattern,
+      difficulty,
+      lineRange,
+      timeRange,
+      status,
+      sort,
+    ],
   );
+  const activeFilterCount = [
+    query.trim() ? query : "",
+    lane !== "All" ? lane : "",
+    pattern !== "All" ? pattern : "",
+    difficulty !== "All" ? difficulty : "",
+    lineRange !== "all" ? lineRange : "",
+    timeRange !== "all" ? timeRange : "",
+    status !== "All" ? status : "",
+  ].filter(Boolean).length;
+
+  function clearFilters() {
+    setQuery("");
+    setLane("All");
+    setPattern("All");
+    setDifficulty("All");
+    setLineRange("all");
+    setTimeRange("all");
+    setStatus("All");
+    setSort("recommended");
+  }
   return (
     <main className="page-container">
       <div className="heading-actions">
@@ -2878,44 +3419,79 @@ function LibraryView({
             placeholder={`Search ${items.length} items, patterns, or cues`}
           />
         </label>
-        <select
-          value={pattern}
-          onChange={(event) =>
-            setPattern(event.target.value as Pattern | "All")
-          }
-        >
-          <option>All</option>
-          {(lane === "python"
-            ? PYTHON_PATTERN_ORDER
-            : lane === "swift"
-              ? INTERVIEW_PATTERN_ORDER
-              : lane === "ios"
-                ? IOS_PATTERN_ORDER
-                : PATTERN_ORDER
-          ).map((value) => (
-            <option key={value}>{value}</option>
-          ))}
-        </select>
-        <select
-          value={difficulty}
-          onChange={(event) =>
-            setDifficulty(event.target.value as Difficulty | "All")
-          }
-        >
-          <option>All</option>
-          <option>Easy</option>
-          <option>Medium</option>
-          <option>Hard</option>
-        </select>
-        <select
-          value={sort}
-          onChange={(event) => setSort(event.target.value as Sort)}
-        >
-          <option value="recommended">Recommended</option>
-          <option value="number">Catalog order</option>
-          <option value="title">Title</option>
-          <option value="difficulty">Difficulty</option>
-        </select>
+        <label className="filter-field">
+          <span>Pattern</span>
+          <select
+            value={pattern}
+            onChange={(event) =>
+              setPattern(event.target.value as Pattern | "All")
+            }
+          >
+            <option>All</option>
+            {(lane === "python"
+              ? PYTHON_PATTERN_ORDER
+              : lane === "swift"
+                ? INTERVIEW_PATTERN_ORDER
+                : lane === "ios"
+                  ? IOS_PATTERN_ORDER
+                  : PATTERN_ORDER
+            ).map((value) => (
+              <option key={value}>{value}</option>
+            ))}
+          </select>
+        </label>
+        <label className="filter-field">
+          <span>Difficulty</span>
+          <select
+            value={difficulty}
+            onChange={(event) =>
+              setDifficulty(event.target.value as Difficulty | "All")
+            }
+          >
+            <option>All</option>
+            <option>Easy</option>
+            <option>Medium</option>
+            <option>Hard</option>
+          </select>
+        </label>
+        <label className="filter-field">
+          <span>Length</span>
+          <select
+            value={lineRange}
+            onChange={(event) => setLineRange(event.target.value as LineRange)}
+          >
+            {LINE_RANGE_OPTIONS.map((option) => (
+              <option value={option.value} key={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="filter-field">
+          <span>Estimated time</span>
+          <select
+            value={timeRange}
+            onChange={(event) => setTimeRange(event.target.value as TimeRange)}
+          >
+            {TIME_RANGE_OPTIONS.map((option) => (
+              <option value={option.value} key={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="filter-field sort-filter">
+          <span>Sort</span>
+          <select
+            value={sort}
+            onChange={(event) => setSort(event.target.value as Sort)}
+          >
+            <option value="recommended">Recommended</option>
+            <option value="number">Catalog order</option>
+            <option value="title">Title</option>
+            <option value="difficulty">Difficulty</option>
+          </select>
+        </label>
       </div>
       <div className="filter-chips">
         {(
@@ -2943,7 +3519,13 @@ function LibraryView({
       </div>
       <div className="library-summary">
         <strong>{filtered.length}</strong> results <span />
-        <small>Ownership requires clean stage-5 recall</small>
+        <small>Ownership requires clean recall or a verified solve</small>
+        {activeFilterCount > 0 && (
+          <button className="clear-filters" onClick={clearFilters}>
+            Clear {activeFilterCount} filter
+            {activeFilterCount === 1 ? "" : "s"}
+          </button>
+        )}
       </div>
       <div className="problem-grid">
         {filtered.map((item) => {
@@ -3011,7 +3593,7 @@ function LibraryView({
               <div className="problem-card-meta">
                 <span>
                   {stats.completions
-                    ? `${stats.completions} passes · ${stats.bestWpm} eligible best WPM`
+                    ? `${stats.completions} attempts · ${stats.solveCompletions} verified solves · ${stats.bestWpm} best WPM`
                     : `${problemLineCount(item)} lines · ~${item.estimatedMinutes} min`}
                 </span>
                 {due && (
@@ -3024,14 +3606,26 @@ function LibraryView({
                   </span>
                 )}
               </div>
-              <button className="primary-button" onClick={() => onOpen(item)}>
-                {stats.owned
-                  ? "Practice independent recall"
-                  : stats.highestStage
-                    ? `Continue at stage ${Math.min(5, stats.highestStage + 1)}`
-                    : "Start with full ghost"}
-                <span>→</span>
-              </button>
+              <div className="problem-card-actions">
+                <button className="primary-button" onClick={() => onOpen(item)}>
+                  {stats.owned
+                    ? "Practice independent recall"
+                    : stats.highestStage
+                      ? `Continue at stage ${Math.min(5, stats.highestStage + 1)}`
+                      : "Start with full ghost"}
+                  <span>→</span>
+                </button>
+                {item.verification && (
+                  <button
+                    className="outline-button solve-card-action"
+                    onClick={() =>
+                      onOpen(item, 5, undefined, undefined, "solving")
+                    }
+                  >
+                    Solve from starter
+                  </button>
+                )}
+              </div>
             </article>
           );
         })}
@@ -3059,12 +3653,24 @@ function RecordsView({
   state: AppState;
   items: PracticeItem[];
   cloud: CloudRuntime;
-  onOpen: (item: PracticeItem, stage?: number) => void;
+  onOpen: (
+    item: PracticeItem,
+    stage?: number,
+    challengeDate?: string,
+    sessionId?: string,
+    practiceKind?: PracticeKind,
+  ) => void;
   onReview: () => void;
   onToggleUploads: (enabled: boolean) => void;
   onCloudRefresh: () => void;
 }) {
   const attempts = completedAttempts(state);
+  const typingAttempts = attempts.filter(
+    (attempt) => attempt.practiceKind === "typing",
+  );
+  const solveAttempts = attempts.filter(
+    (attempt) => attempt.practiceKind === "solving",
+  );
   const eligible = attempts.filter(eligibleAttempt);
   const currentEligible = eligible.filter((attempt) =>
     items.some(
@@ -3073,17 +3679,17 @@ function RecordsView({
         item.contentRevision === attempt.itemRevision,
     ),
   );
-  const recent = attempts.slice(-14);
+  const recent = typingAttempts.slice(-14);
   const avgWpm = currentEligible.length
     ? Math.round(
         currentEligible.reduce((sum, attempt) => sum + attempt.wpm, 0) /
           currentEligible.length,
       )
     : 0;
-  const avgAccuracy = attempts.length
+  const avgAccuracy = typingAttempts.length
     ? Math.round(
-        attempts.reduce((sum, attempt) => sum + attempt.accuracy, 0) /
-          attempts.length,
+        typingAttempts.reduce((sum, attempt) => sum + attempt.accuracy, 0) /
+          typingAttempts.length,
       )
     : 0;
   const owned = items.filter(
@@ -3178,7 +3784,7 @@ function RecordsView({
         <StatCard
           label="Completed passes"
           value={String(attempts.length)}
-          note={`${currentEligible.length} current-revision records`}
+          note={`${solveAttempts.length} solves · ${currentEligible.length} typing records`}
         />
         <StatCard
           label="Eligible speed"
@@ -3193,14 +3799,14 @@ function RecordsView({
         <StatCard
           label="Owned solutions"
           value={`${owned}/${items.length}`}
-          note="Clean blank-editor recall"
+          note="Clean recall or verified solve"
         />
       </div>
       <div className="dashboard-grid">
         <section className="dashboard-card chart-card">
           <div className="section-head">
             <div>
-              <small>Last 14 completed passes</small>
+              <small>Last 14 completed typing passes</small>
               <h2>Typing rhythm</h2>
             </div>
             <span>WPM</span>
@@ -3449,7 +4055,14 @@ function RecordsView({
                       : "This custom snippet is archived"
                   }
                   onClick={() =>
-                    found && onOpen(found, superseded ? 1 : attempt.stage)
+                    found &&
+                    onOpen(
+                      found,
+                      superseded ? 1 : attempt.stage,
+                      undefined,
+                      undefined,
+                      attempt.practiceKind,
+                    )
                   }
                 >
                   <span>
@@ -3460,10 +4073,22 @@ function RecordsView({
                         : `${attempt.qualification} · archived`}
                     </small>
                   </span>
-                  <span>{STAGES[attempt.stage - 1]?.short}</span>
+                  <span>
+                    {attempt.practiceKind === "solving"
+                      ? "Solve"
+                      : STAGES[attempt.stage - 1]?.short}
+                  </span>
                   <span className={attempt.outcome}>{attempt.outcome}</span>
-                  <span>{attempt.wpm} WPM</span>
-                  <span>{attempt.accuracy}%</span>
+                  <span>
+                    {attempt.practiceKind === "solving"
+                      ? `${attempt.verification?.runs ?? 0} runs`
+                      : `${attempt.wpm} WPM`}
+                  </span>
+                  <span>
+                    {attempt.practiceKind === "solving"
+                      ? `${attempt.verification?.passed ?? 0}/${attempt.verification?.total ?? 0} checks`
+                      : `${attempt.accuracy}%`}
+                  </span>
                   <span>{formatDate(attempt.completedAt)}</span>
                 </button>
               );
@@ -3664,9 +4289,9 @@ function SettingsView({
           <small>Your data</small>
           <h2>Local profile</h2>
           <p>
-            Export a portable v8 JSON backup with Python, Swift, iOS, sessions,
+            Export a portable v9 JSON backup with Python, Swift, iOS, sessions,
             revisioned snippets, local pacing and weak-line analytics, and
-            community preferences—or restore any v2–v7 backup.
+            community preferences—or restore any v2–v8 backup.
           </p>
         </div>
         <div className="data-actions">
@@ -3919,14 +4544,23 @@ function ResultDialog({
   result,
   onClose,
   onNext,
+  onRetry,
   onRandom,
+  onRecords,
+  cloud,
 }: {
   result: Result;
   onClose: () => void;
   onNext: () => void;
+  onRetry: () => void;
   onRandom: () => void;
+  onRecords: () => void;
+  cloud: CloudRuntime;
 }) {
   const eligible = eligibleAttempt(result);
+  const isSolve = result.practiceKind === "solving";
+  const isCleanSolve = result.qualification === "solved";
+  const successful = eligible || isCleanSolve;
   const isBest =
     eligible &&
     (!result.previousBest ||
@@ -3938,7 +4572,74 @@ function ResultDialog({
       ? result.wpm - result.previousBest.wpm
       : null;
   const dialogRef = useRef<HTMLElement>(null);
+  const [board, setBoard] = useState<CloudItemLeaderboard | null>(null);
+  const [boardStatus, setBoardStatus] = useState<
+    "idle" | "loading" | "ready" | "unavailable"
+  >("idle");
   useModalKeyboard(onClose, dialogRef);
+  const comparability = assessCommunityComparability(result, result.item);
+  const leaderboardPreview = buildLeaderboardPreview({
+    attempt: result,
+    item: result.item,
+    entries: board?.entries ?? [],
+  });
+
+  useEffect(() => {
+    if (
+      !cloud.capabilities?.leaderboards ||
+      cloud.status === "local" ||
+      cloud.status === "checking" ||
+      cloud.status === "error" ||
+      !comparability.eligible
+    ) {
+      return;
+    }
+    const controller = new AbortController();
+    void cloudClient
+      .itemLeaderboard(result.itemId, {
+        limit: 25,
+        itemRevision: result.itemRevision,
+        stage: result.stage,
+        signal: controller.signal,
+      })
+      .then((response) => {
+        if (controller.signal.aborted) return;
+        if (response.available) {
+          setBoard(response.data);
+          setBoardStatus("ready");
+        } else {
+          setBoard(null);
+          setBoardStatus("unavailable");
+        }
+      });
+    return () => controller.abort();
+  }, [
+    cloud.capabilities?.leaderboards,
+    cloud.status,
+    comparability.eligible,
+    result.itemId,
+    result.itemRevision,
+    result.stage,
+  ]);
+
+  function benchmarkCopy() {
+    if (!comparability.eligible)
+      return "Only current-revision, strict, clean typing passes can be compared publicly.";
+    if (!cloud.capabilities?.leaderboards || cloud.status === "local")
+      return "Community benchmarks are available in the hosted edition; this local result stays private.";
+    if (boardStatus === "idle" || boardStatus === "loading")
+      return "Loading the matching public top 25…";
+    if (boardStatus === "unavailable")
+      return "The matching community benchmark is temporarily unavailable.";
+    if (leaderboardPreview.kind === "empty")
+      return "No opted-in public records exist for this exact stage yet.";
+    if (leaderboardPreview.kind === "top-window")
+      return `Your metrics would enter near position ${leaderboardPreview.aheadOfVisible + 1} within the visible top ${leaderboardPreview.visibleCount}.`;
+    if (leaderboardPreview.kind === "cutoff")
+      return `Visible top-${leaderboardPreview.visibleCount} cutoff: ${leaderboardPreview.cutoff.wpm} WPM at ${leaderboardPreview.cutoff.accuracy}% accuracy.`;
+    return "Public comparison is unavailable for this pass.";
+  }
+
   return (
     <div
       className="dialog-backdrop"
@@ -3955,65 +4656,115 @@ function ResultDialog({
         <button className="dialog-close" onClick={onClose} aria-label="Close">
           ×
         </button>
-        <div className={`result-mark ${eligible ? "" : "assisted"}`}>
-          {eligible ? "✓" : "~"}
+        <div className={`result-mark ${successful ? "" : "assisted"}`}>
+          {successful ? "✓" : "~"}
         </div>
-        <span className="eyebrow">Pass complete · Stage {result.stage}</span>
+        <span className="eyebrow">
+          {isSolve
+            ? "Solution verified"
+            : `Pass complete · Stage ${result.stage}`}
+        </span>
         <h2 id="result-title">{result.item.title}</h2>
         <p>
           {result.sessionComplete
             ? "That was the final item in this session. Your set is saved in session history."
-            : eligible
-              ? result.qualification === "independent"
-                ? "Independent recall verified. This solution now counts as owned."
-                : "Clean pass recorded. Keep climbing toward blank-editor recall."
-              : result.peeks
-                ? "Assisted pass recorded. Because you peeked, it does not advance mastery or personal records."
-                : "Practice saved, but 95% accuracy is required for mastery and personal records."}
+            : isSolve
+              ? isCleanSolve
+                ? "All executable checks passed without hints. This records independent problem-solving evidence without changing typing records."
+                : "All executable checks passed. Because hints or the reference were used, this solve is saved as assisted."
+              : eligible
+                ? result.qualification === "independent"
+                  ? "Independent recall verified. This solution now counts as owned."
+                  : "Clean pass recorded. Keep climbing toward blank-editor recall."
+                : result.peeks
+                  ? "Assisted pass recorded. Because you peeked, it does not advance mastery or personal records."
+                  : "Practice saved, but 95% accuracy is required for mastery and personal records."}
         </p>
         <div className="result-stats">
-          <span>
-            <small>WPM</small>
-            <strong>{result.wpm}</strong>
-          </span>
-          <span>
-            <small>Accuracy</small>
-            <strong>{result.accuracy}%</strong>
-          </span>
+          {isSolve ? (
+            <>
+              <span>
+                <small>Checks</small>
+                <strong>
+                  {result.verification?.passed ?? 0}/
+                  {result.verification?.total ?? 0}
+                </strong>
+              </span>
+              <span>
+                <small>Runs</small>
+                <strong>{result.verification?.runs ?? 0}</strong>
+              </span>
+            </>
+          ) : (
+            <>
+              <span>
+                <small>WPM</small>
+                <strong>{result.wpm}</strong>
+              </span>
+              <span>
+                <small>Accuracy</small>
+                <strong>{result.accuracy}%</strong>
+              </span>
+            </>
+          )}
           <span>
             <small>Time</small>
             <strong>{formatDuration(result.durationMs)}</strong>
           </span>
           <span>
-            <small>Record</small>
+            <small>{isSolve ? "Evidence" : "Record"}</small>
             <strong>
-              {isBest
-                ? "New PB"
-                : delta === null
-                  ? "—"
-                  : `${delta >= 0 ? "+" : ""}${delta}`}
+              {isSolve
+                ? isCleanSolve
+                  ? "Independent"
+                  : "Assisted"
+                : isBest
+                  ? "New PB"
+                  : delta === null
+                    ? "—"
+                    : `${delta >= 0 ? "+" : ""}${delta}`}
             </strong>
           </span>
         </div>
+        <AttemptForensics attempt={result} item={result.item} />
+        {!isSolve && (
+          <section className="result-benchmark">
+            <span>
+              <small>Opt-in community benchmark</small>
+              <strong>Exact item · revision · stage · strict mode</strong>
+            </span>
+            <p>{benchmarkCopy()}</p>
+          </section>
+        )}
         {result.nextReview && (
           <div className="result-review">
             <span>Next review</span>
             <strong>{formatDay(result.nextReview)}</strong>
-            <small>{eligible ? "Interval advanced" : "Returns tomorrow"}</small>
+            <small>
+              {successful ? "Interval advanced" : "Returns tomorrow"}
+            </small>
           </div>
         )}
         <div className="result-actions">
+          <button className="outline-button" onClick={onRetry}>
+            Retry same {isSolve ? "solve" : "stage"}
+          </button>
           <button className="outline-button" onClick={onRandom}>
             Different problem
+          </button>
+          <button className="outline-button" onClick={onRecords}>
+            Full analysis
           </button>
           <button className="primary-button" onClick={onNext}>
             {result.sessionNext
               ? "Next in session →"
               : result.sessionComplete
                 ? "View session summary →"
-                : result.stage < 5
-                  ? "Climb to next stage →"
-                  : "Practice recall again →"}
+                : isSolve
+                  ? "Practice recall next →"
+                  : result.stage < 5
+                    ? "Climb to next stage →"
+                    : "Practice recall again →"}
           </button>
         </div>
       </section>

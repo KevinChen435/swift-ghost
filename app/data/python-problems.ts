@@ -37,6 +37,7 @@ export type PythonProblem = {
   complexity: string;
   languageNote: string;
   estimatedMinutes: number;
+  starterCode: string;
   code: string;
   sourceUrl?: string;
   tags: string[];
@@ -66,6 +67,8 @@ export const PYTHON_PROBLEMS: PythonProblem[] = [
     languageNote:
       "dict.get(key, 0) is the compact interview-safe way to increment a possibly missing key.",
     estimatedMinutes: 4,
+    starterCode: `def most_common_word(words: list[str]) -> tuple[str, int] | None:
+    raise NotImplementedError("Implement most_common_word")`,
     code: `def most_common_word(words: list[str]) -> tuple[str, int] | None:
     counts: dict[str, int] = {}
 
@@ -127,6 +130,8 @@ export const PYTHON_PROBLEMS: PythonProblem[] = [
     languageNote:
       "A set gives expected O(1) membership, while list order stays under your control.",
     estimatedMinutes: 3,
+    starterCode: `def unique_in_order(values: list[int]) -> list[int]:
+    raise NotImplementedError("Implement unique_in_order")`,
     code: `def unique_in_order(values: list[int]) -> list[int]:
     seen: set[int] = set()
     result: list[int] = []
@@ -186,6 +191,10 @@ export const PYTHON_PROBLEMS: PythonProblem[] = [
     languageNote:
       "enumerate(zip(left, right)) replaces manual index bookkeeping and unpacks cleanly in the loop target.",
     estimatedMinutes: 3,
+    starterCode: `def indexed_mismatches(
+    expected: list[str], actual: list[str]
+) -> list[tuple[int, str, str]]:
+    raise NotImplementedError("Implement indexed_mismatches")`,
     code: `def indexed_mismatches(
     expected: list[str], actual: list[str]
 ) -> list[tuple[int, str, str]]:
@@ -253,6 +262,8 @@ export const PYTHON_PROBLEMS: PythonProblem[] = [
     languageNote:
       "sorted returns a new list; negate numeric fields that must sort in descending order.",
     estimatedMinutes: 4,
+    starterCode: `def rank_players(players: list[tuple[str, int]]) -> list[tuple[str, int]]:
+    raise NotImplementedError("Implement rank_players")`,
     code: `def rank_players(players: list[tuple[str, int]]) -> list[tuple[str, int]]:
     return sorted(
         players,
@@ -325,6 +336,11 @@ export const PYTHON_PROBLEMS: PythonProblem[] = [
     languageNote:
       "collections.deque.popleft is O(1); list.pop(0) shifts the remaining list.",
     estimatedMinutes: 5,
+    starterCode: `from collections import deque
+
+
+def breadth_first_order(graph: dict[str, list[str]], start: str) -> list[str]:
+    raise NotImplementedError("Implement breadth_first_order")`,
     code: `from collections import deque
 
 
@@ -405,6 +421,11 @@ def breadth_first_order(graph: dict[str, list[str]], start: str) -> list[str]:
     languageNote:
       "heapq is a min-heap; a sequence field prevents Python from comparing arbitrary payloads when priorities tie.",
     estimatedMinutes: 5,
+    starterCode: `import heapq
+
+
+def next_tasks(tasks: list[tuple[int, int, str]], limit: int) -> list[str]:
+    raise NotImplementedError("Implement next_tasks")`,
     code: `import heapq
 
 
@@ -474,6 +495,8 @@ def next_tasks(tasks: list[tuple[int, int, str]], limit: int) -> list[str]:
     languageNote:
       "sum(expression for item in items) consumes a generator lazily; square brackets would allocate another list.",
     estimatedMinutes: 4,
+    starterCode: `def normalized_scores(raw_scores: list[str]) -> tuple[list[int], int]:
+    raise NotImplementedError("Implement normalized_scores")`,
     code: `def normalized_scores(raw_scores: list[str]) -> tuple[list[int], int]:
     normalized = [
         int(score)
@@ -531,6 +554,13 @@ def next_tasks(tasks: list[tuple[int, int, str]], limit: int) -> list[str]:
     languageNote:
       "defaultdict(list) creates a fresh list per missing key; Counter communicates frequency intent directly.",
     estimatedMinutes: 5,
+    starterCode: `from collections import Counter, defaultdict
+
+
+def summarize_events(
+    events: list[tuple[str, str]],
+) -> tuple[dict[str, list[str]], Counter[str]]:
+    raise NotImplementedError("Implement summarize_events")`,
     code: `from collections import Counter, defaultdict
 
 
@@ -621,6 +651,9 @@ def summarize_events(
     languageNote:
       "Use `if complement in dictionary` when index zero is a valid stored answer; truthiness would be incorrect.",
     estimatedMinutes: 5,
+    starterCode: `class Solution:
+    def twoSum(self, nums: list[int], target: int) -> list[int]:
+        raise NotImplementedError("Implement twoSum")`,
     code: `class Solution:
     def twoSum(self, nums: list[int], target: int) -> list[int]:
         index_by_value: dict[int, int] = {}
@@ -683,6 +716,12 @@ def summarize_events(
     languageNote:
       "A tuple is hashable and can serve as a dictionary key; a list cannot.",
     estimatedMinutes: 9,
+    starterCode: `from collections import defaultdict
+
+
+class Solution:
+    def groupAnagrams(self, strs: list[str]) -> list[list[str]]:
+        raise NotImplementedError("Implement groupAnagrams")`,
     code: `from collections import defaultdict
 
 
@@ -747,6 +786,9 @@ class Solution:
     languageNote:
       "range(len(nums) - 1, -1, -1) is the standard explicit reverse-index loop.",
     estimatedMinutes: 9,
+    starterCode: `class Solution:
+    def productExceptSelf(self, nums: list[int]) -> list[int]:
+        raise NotImplementedError("Implement productExceptSelf")`,
     code: `class Solution:
     def productExceptSelf(self, nums: list[int]) -> list[int]:
         answer = [1] * len(nums)
@@ -813,6 +855,9 @@ class Solution:
     languageNote:
       "str.isalnum and str.lower keep the pointer solution readable without allocating a normalized copy.",
     estimatedMinutes: 6,
+    starterCode: `class Solution:
+    def isPalindrome(self, s: str) -> bool:
+        raise NotImplementedError("Implement isPalindrome")`,
     code: `class Solution:
     def isPalindrome(self, s: str) -> bool:
         left = 0
@@ -881,6 +926,9 @@ class Solution:
     languageNote:
       "Python's in-place list.sort is concise here because the input need not be preserved by the judge.",
     estimatedMinutes: 13,
+    starterCode: `class Solution:
+    def threeSum(self, nums: list[int]) -> list[list[int]]:
+        raise NotImplementedError("Implement threeSum")`,
     code: `class Solution:
     def threeSum(self, nums: list[int]) -> list[list[int]]:
         nums.sort()
@@ -965,6 +1013,9 @@ class Solution:
     languageNote:
       "max(left, last_seen[character] + 1) prevents the left boundary from moving backward.",
     estimatedMinutes: 8,
+    starterCode: `class Solution:
+    def lengthOfLongestSubstring(self, s: str) -> int:
+        raise NotImplementedError("Implement lengthOfLongestSubstring")`,
     code: `class Solution:
     def lengthOfLongestSubstring(self, s: str) -> int:
         last_seen: dict[str, int] = {}
@@ -1030,6 +1081,12 @@ class Solution:
     languageNote:
       "Counter captures multiplicity; defaultdict-free window updates stay explicit during shrink and expand.",
     estimatedMinutes: 15,
+    starterCode: `from collections import Counter
+
+
+class Solution:
+    def minWindow(self, s: str, t: str) -> str:
+        raise NotImplementedError("Implement minWindow")`,
     code: `from collections import Counter
 
 
@@ -1117,6 +1174,9 @@ class Solution:
     languageNote:
       "list.append and list.pop provide an efficient stack at the right end of a Python list.",
     estimatedMinutes: 5,
+    starterCode: `class Solution:
+    def isValid(self, s: str) -> bool:
+        raise NotImplementedError("Implement isValid")`,
     code: `class Solution:
     def isValid(self, s: str) -> bool:
         opener_for = {")": "(", "]": "[", "}": "{"}
@@ -1180,6 +1240,9 @@ class Solution:
     languageNote:
       "Store indices rather than temperatures so one stack value supports both comparison and distance.",
     estimatedMinutes: 8,
+    starterCode: `class Solution:
+    def dailyTemperatures(self, temperatures: list[int]) -> list[int]:
+        raise NotImplementedError("Implement dailyTemperatures")`,
     code: `class Solution:
     def dailyTemperatures(self, temperatures: list[int]) -> list[int]:
         answer = [0] * len(temperatures)
@@ -1241,6 +1304,9 @@ class Solution:
     languageNote:
       "Use // for integer midpoint arithmetic; / produces a float in Python.",
     estimatedMinutes: 5,
+    starterCode: `class Solution:
+    def search(self, nums: list[int], target: int) -> int:
+        raise NotImplementedError("Implement search")`,
     code: `class Solution:
     def search(self, nums: list[int], target: int) -> int:
         left = 0
@@ -1307,6 +1373,9 @@ class Solution:
     languageNote:
       "(pile + speed - 1) // speed computes positive ceiling division without floating point.",
     estimatedMinutes: 10,
+    starterCode: `class Solution:
+    def minEatingSpeed(self, piles: list[int], h: int) -> int:
+        raise NotImplementedError("Implement minEatingSpeed")`,
     code: `class Solution:
     def minEatingSpeed(self, piles: list[int], h: int) -> int:
         left = 1
@@ -1372,6 +1441,9 @@ class Solution:
     languageNote:
       "Python tuple assignment can express the pointer rotation, but explicit steps make the mutation order easier to explain.",
     estimatedMinutes: 6,
+    starterCode: `class Solution:
+    def reverseList(self, head: "ListNode | None") -> "ListNode | None":
+        raise NotImplementedError("Implement reverseList")`,
     code: `class Solution:
     def reverseList(self, head: "ListNode | None") -> "ListNode | None":
         previous = None
@@ -1440,6 +1512,11 @@ class Solution:
     languageNote:
       "Reusing existing nodes avoids allocations; only the sentinel node is new.",
     estimatedMinutes: 6,
+    starterCode: `class Solution:
+    def mergeTwoLists(
+        self, list1: "ListNode | None", list2: "ListNode | None"
+    ) -> "ListNode | None":
+        raise NotImplementedError("Implement mergeTwoLists")`,
     code: `class Solution:
     def mergeTwoLists(
         self, list1: "ListNode | None", list2: "ListNode | None"
@@ -1517,6 +1594,9 @@ class Solution:
     languageNote:
       "Use `is` for node identity; equal values do not imply the same linked-list node.",
     estimatedMinutes: 6,
+    starterCode: `class Solution:
+    def hasCycle(self, head: "ListNode | None") -> bool:
+        raise NotImplementedError("Implement hasCycle")`,
     code: `class Solution:
     def hasCycle(self, head: "ListNode | None") -> bool:
         slow = head
@@ -1597,6 +1677,9 @@ class Solution:
     languageNote:
       "An explicit list stack keeps the DFS safe even when a valid skewed tree exceeds Python's recursion limit.",
     estimatedMinutes: 5,
+    starterCode: `class Solution:
+    def maxDepth(self, root: "TreeNode | None") -> int:
+        raise NotImplementedError("Implement maxDepth")`,
     code: `class Solution:
     def maxDepth(self, root: "TreeNode | None") -> int:
         if root is None:
@@ -1669,6 +1752,9 @@ class Solution:
     languageNote:
       "An explicit stack avoids recursion-depth failures; float infinities make the initial open bounds concise.",
     estimatedMinutes: 9,
+    starterCode: `class Solution:
+    def isValidBST(self, root: "TreeNode | None") -> bool:
+        raise NotImplementedError("Implement isValidBST")`,
     code: `class Solution:
     def isValidBST(self, root: "TreeNode | None") -> bool:
         stack = [(root, float("-inf"), float("inf"))]
@@ -1737,6 +1823,12 @@ class Solution:
     languageNote:
       "deque.popleft keeps breadth-first traversal linear; a list queue with pop(0) would not.",
     estimatedMinutes: 7,
+    starterCode: `from collections import deque
+
+
+class Solution:
+    def levelOrder(self, root: "TreeNode | None") -> list[list[int]]:
+        raise NotImplementedError("Implement levelOrder")`,
     code: `from collections import deque
 
 
@@ -1814,6 +1906,12 @@ class Solution:
     languageNote:
       "heapq.heapreplace removes the root and pushes the stronger candidate in one guarded operation.",
     estimatedMinutes: 8,
+    starterCode: `import heapq
+
+
+class Solution:
+    def findKthLargest(self, nums: list[int], k: int) -> int:
+        raise NotImplementedError("Implement findKthLargest")`,
     code: `import heapq
 
 
@@ -1878,6 +1976,13 @@ class Solution:
     languageNote:
       "Counter.items supplies (value, frequency), so construct heap tuples in comparison-first order.",
     estimatedMinutes: 8,
+    starterCode: `from collections import Counter
+import heapq
+
+
+class Solution:
+    def topKFrequent(self, nums: list[int], k: int) -> list[int]:
+        raise NotImplementedError("Implement topKFrequent")`,
     code: `from collections import Counter
 import heapq
 
@@ -1943,6 +2048,9 @@ class Solution:
     languageNote:
       "Sorting lists of two integers uses lexicographic order, which naturally sorts by start then end.",
     estimatedMinutes: 8,
+    starterCode: `class Solution:
+    def merge(self, intervals: list[list[int]]) -> list[list[int]]:
+        raise NotImplementedError("Implement merge")`,
     code: `class Solution:
     def merge(self, intervals: list[list[int]]) -> list[list[int]]:
         intervals.sort()
@@ -2022,6 +2130,11 @@ class Solution:
     languageNote:
       "Tuple unpacking keeps the mutable merged start/end separate from the input list.",
     estimatedMinutes: 9,
+    starterCode: `class Solution:
+    def insert(
+        self, intervals: list[list[int]], newInterval: list[int]
+    ) -> list[list[int]]:
+        raise NotImplementedError("Implement insert")`,
     code: `class Solution:
     def insert(
         self, intervals: list[list[int]], newInterval: list[int]
@@ -2115,6 +2228,9 @@ class Solution:
     languageNote:
       "Mutating the grid serves as the visited set, while an explicit list stack avoids Python recursion-depth failures.",
     estimatedMinutes: 9,
+    starterCode: `class Solution:
+    def numIslands(self, grid: list[list[str]]) -> int:
+        raise NotImplementedError("Implement numIslands")`,
     code: `class Solution:
     def numIslands(self, grid: list[list[str]]) -> int:
         if not grid or not grid[0]:
@@ -2212,6 +2328,12 @@ class Solution:
     languageNote:
       "deque implements Kahn's algorithm cleanly, and list-of-lists is enough for integer-labeled vertices.",
     estimatedMinutes: 11,
+    starterCode: `from collections import deque
+
+
+class Solution:
+    def canFinish(self, numCourses: int, prerequisites: list[list[int]]) -> bool:
+        raise NotImplementedError("Implement canFinish")`,
     code: `from collections import deque
 
 
@@ -2297,6 +2419,9 @@ class Solution:
     languageNote:
       "Append before recursion and pop afterward to reuse one mutable path safely.",
     estimatedMinutes: 10,
+    starterCode: `class Solution:
+    def combinationSum(self, candidates: list[int], target: int) -> list[list[int]]:
+        raise NotImplementedError("Implement combinationSum")`,
     code: `class Solution:
     def combinationSum(self, candidates: list[int], target: int) -> list[list[int]]:
         candidates.sort()
@@ -2374,6 +2499,9 @@ class Solution:
     languageNote:
       "In-place marking avoids allocating a visited set for every starting position, but restoration is mandatory.",
     estimatedMinutes: 12,
+    starterCode: `class Solution:
+    def exist(self, board: list[list[str]], word: str) -> bool:
+        raise NotImplementedError("Implement exist")`,
     code: `class Solution:
     def exist(self, board: list[list[str]], word: str) -> bool:
         rows = len(board)
@@ -2472,6 +2600,9 @@ class Solution:
     languageNote:
       "enumerate exposes both the position and jump capacity without manual indexing.",
     estimatedMinutes: 7,
+    starterCode: `class Solution:
+    def canJump(self, nums: list[int]) -> bool:
+        raise NotImplementedError("Implement canJump")`,
     code: `class Solution:
     def canJump(self, nums: list[int]) -> bool:
         farthest = 0
@@ -2534,6 +2665,9 @@ class Solution:
     languageNote:
       "Parallel assignment updates the rolling DP state without a temporary variable.",
     estimatedMinutes: 5,
+    starterCode: `class Solution:
+    def climbStairs(self, n: int) -> int:
+        raise NotImplementedError("Implement climbStairs")`,
     code: `class Solution:
     def climbStairs(self, n: int) -> int:
         previous_two = 1
@@ -2596,6 +2730,9 @@ class Solution:
     languageNote:
       "Tuple assignment makes the two-state recurrence compact while evaluating the right side from old values.",
     estimatedMinutes: 7,
+    starterCode: `class Solution:
+    def rob(self, nums: list[int]) -> int:
+        raise NotImplementedError("Implement rob")`,
     code: `class Solution:
     def rob(self, nums: list[int]) -> int:
         previous_two = 0

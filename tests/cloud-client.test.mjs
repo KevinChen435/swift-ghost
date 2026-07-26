@@ -384,6 +384,8 @@ test("item and daily leaderboard helpers encode identifiers and keep server rank
     if (url.startsWith("/api/v1/leaderboards/items/"))
       return json({
         itemId: "ios:actor-cache",
+        itemRevision: 4,
+        stage: 5,
         entries: [
           {
             rank: 7,
@@ -391,6 +393,7 @@ test("item and daily leaderboard helpers encode identifiers and keep server rank
             wpm: 82,
             accuracy: 99,
             itemRevision: 4,
+            stage: 5,
             completedAt: "2026-07-25T20:01:00Z",
           },
         ],
@@ -429,12 +432,17 @@ test("item and daily leaderboard helpers encode identifiers and keep server rank
   });
   const itemResult = await client.itemLeaderboard("ios:actor-cache", {
     limit: 2,
+    itemRevision: 4,
+    stage: 5,
   });
   assert.equal(itemResult.available, true);
   assert.equal(
     mock.calls[0].url,
-    "/api/v1/leaderboards/items/ios%3Aactor-cache?limit=2",
+    "/api/v1/leaderboards/items/ios%3Aactor-cache?limit=2&itemRevision=4&stage=5&mode=strict",
   );
+  assert.equal(itemResult.data.itemRevision, 4);
+  assert.equal(itemResult.data.stage, 5);
+  assert.equal(itemResult.data.mode, "strict");
   assert.equal(itemResult.data.entries[0].rank, 7);
   assert.equal(itemResult.data.entries[0].itemRevision, 4);
 
@@ -458,6 +466,95 @@ test("item and daily leaderboard helpers encode identifiers and keep server rank
   assert.equal(dailyResult.data.entries[0].rank, 3);
   assert.equal(dailyResult.data.entries[0].averageAccuracy, 98);
   assert.equal(dailyResult.data.entries[0].accuracy, 98);
+});
+
+test("item leaderboards fail closed when the response is for another revision or stage", async () => {
+  const client = createCloudClient({
+    location: { hostname: "swift.test" },
+    fetchImpl: async () =>
+      json({
+        itemId: "python:1",
+        itemRevision: 2,
+        stage: 4,
+        entries: [],
+      }),
+  });
+
+  assert.deepEqual(
+    await client.itemLeaderboard("python:1", {
+      itemRevision: 3,
+      stage: 5,
+    }),
+    {
+      available: false,
+      reason: "invalid-response",
+      status: 200,
+    },
+  );
+});
+
+test("exact item leaderboards require explicit response metadata and exclude mixed entries", async () => {
+  let call = 0;
+  const client = createCloudClient({
+    location: { hostname: "swift.test" },
+    fetchImpl: async () => {
+      call += 1;
+      if (call === 1) return json({ entries: [] });
+      return json({
+        itemId: "python:1",
+        itemRevision: 3,
+        stage: 5,
+        entries: [
+          {
+            user: { displayName: "Exact" },
+            itemRevision: 3,
+            stage: 5,
+            wpm: 70,
+            accuracy: 99,
+            durationMs: 60_000,
+            completedAt: "2026-07-25T20:01:00Z",
+          },
+          {
+            user: { displayName: "Missing revision" },
+            stage: 5,
+            wpm: 90,
+            accuracy: 99,
+            durationMs: 50_000,
+            completedAt: "2026-07-25T20:02:00Z",
+          },
+          {
+            user: { displayName: "Wrong stage" },
+            itemRevision: 3,
+            stage: 4,
+            wpm: 80,
+            accuracy: 99,
+            durationMs: 55_000,
+            completedAt: "2026-07-25T20:03:00Z",
+          },
+        ],
+      });
+    },
+  });
+
+  const missing = await client.itemLeaderboard("python:1", {
+    itemRevision: 3,
+    stage: 5,
+  });
+  assert.deepEqual(missing, {
+    available: false,
+    reason: "invalid-response",
+    status: 200,
+  });
+
+  const exact = await client.itemLeaderboard("python:1", {
+    itemRevision: 3,
+    stage: 5,
+  });
+  assert.equal(exact.available, true);
+  assert.deepEqual(
+    exact.data.entries.map((entry) => entry.user.displayName),
+    ["Exact"],
+  );
 });
 
 test("invalid leaderboard identifiers and oversized or non-JSON responses fail closed", async () => {

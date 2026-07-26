@@ -21,7 +21,9 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - WPM, raw keystrokes, accuracy, corrections, peeks, timing, and consistency records
 - Per-attempt pace timelines, line-level error forensics, and three-pass weak-line repair drills
 - Real browser-side Python checks for every built-in Python solution, isolated in a Web Worker with a pinned, self-hosted runtime
+- A first-class Python Solve lane with authored starter code, free-form editing, source-bound executable verification, hint tracking, and solve evidence kept separate from typing records
 - Five-stage per-problem recall ladder with honest mastery and qualified personal bests
+- Post-attempt pace charts, missed-line forensics, same-stage retries, and exact item/revision/stage community benchmark previews
 - Local attempt history, streaks, daily goals, pattern coverage, and progress charts
 - Spaced review at 1, 3, 7, 14, and 30 days, with lapses returning tomorrow
 - Device-local custom Python or Swift snippets with safe content revisions and learning milestones
@@ -32,7 +34,7 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - Server-validated rankings that accept only current, built-in, strict, no-peek passes with at least 95% accuracy
 - Favorites, random practice, focus mode, autosaved drafts, and JSON backup/restore
 - Six themes, three code fonts, editor sizing, indentation, and an optional key-friction heatmap
-- Responsive desktop and mobile layouts
+- Responsive desktop and mobile layouts with a compact practice picker, restart/random controls, and library length/time filters
 
 ## Why it exists
 
@@ -67,7 +69,7 @@ Interview problem names link to their public LeetCode pages; iOS fundamentals li
 
 ## Roadmap
 
-The local-first training core remains the priority. Planned work includes a true free-form solve mode, authored semantic masks, teach-back debriefs, richer public performance profiles, and cross-device learning-state sync.
+The local-first training core remains the priority. Planned work includes authored semantic masks, teach-back debriefs, timed mock-interview sessions, richer public performance profiles, and cross-device learning-state sync.
 
 ## License
 

@@ -20,7 +20,7 @@ import {
 
 interface Env {
   ASSETS: Fetcher;
-  DB: D1Database;
+  DB?: D1Database;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -36,6 +36,10 @@ interface Env {
 interface ExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
   passThroughOnException(): void;
+}
+
+function hasCommunityDatabase(env: Env) {
+  return Boolean(env.DB);
 }
 
 type AuthenticatedUser = {
@@ -328,15 +332,15 @@ async function getDailyChallenge(
     }>();
 }
 
-async function capabilities(request: Request) {
+async function capabilities(request: Request, env: Env) {
   const authenticated = Boolean(await authenticatedUser(request));
   return json(
     request,
     {
       apiVersion: "v1",
-      cloudSync: true,
-      community: true,
-      leaderboards: true,
+      cloudSync: hasCommunityDatabase(env),
+      community: hasCommunityDatabase(env),
+      leaderboards: hasCommunityDatabase(env),
       auth: authenticated ? "session" : "anonymous",
       maxAttemptBatch: MAX_BATCH,
       privacy: {
@@ -352,7 +356,7 @@ async function capabilities(request: Request) {
 
 async function session(request: Request, env: Env) {
   const user = await authenticatedUser(request);
-  if (!user)
+  if (!user || !env.DB)
     return json(request, { authenticated: false, user: null, profile: null });
   // Deliberately read-only: simply loading the app never creates an account row.
   const row = await getProfile(env.DB, user.userId);
@@ -365,6 +369,13 @@ async function session(request: Request, env: Env) {
 }
 
 async function updateProfile(request: Request, env: Env) {
+  if (!env.DB)
+    return errorResponse(
+      request,
+      503,
+      "COMMUNITY_UNAVAILABLE",
+      "The community service is temporarily unavailable.",
+    );
   const user = await authenticatedUser(request);
   if (!user)
     return errorResponse(
@@ -460,6 +471,13 @@ async function updateProfile(request: Request, env: Env) {
 }
 
 async function uploadAttempts(request: Request, env: Env) {
+  if (!env.DB)
+    return errorResponse(
+      request,
+      503,
+      "COMMUNITY_UNAVAILABLE",
+      "The community service is temporarily unavailable.",
+    );
   const user = await authenticatedUser(request);
   if (!user)
     return errorResponse(
@@ -614,6 +632,13 @@ async function uploadAttempts(request: Request, env: Env) {
 }
 
 async function recentCommunity(request: Request, env: Env, url: URL) {
+  if (!env.DB)
+    return errorResponse(
+      request,
+      503,
+      "COMMUNITY_UNAVAILABLE",
+      "The community service is temporarily unavailable.",
+    );
   const limit = limitFrom(url);
   const rows = await env.DB.prepare(
     `
@@ -643,6 +668,13 @@ async function itemLeaderboard(
   url: URL,
   encodedItemId: string,
 ) {
+  if (!env.DB)
+    return errorResponse(
+      request,
+      503,
+      "COMMUNITY_UNAVAILABLE",
+      "The community service is temporarily unavailable.",
+    );
   let itemId: string;
   try {
     itemId = decodeURIComponent(encodedItemId);
@@ -722,6 +754,13 @@ async function itemLeaderboard(
 }
 
 async function dailyLeaderboard(request: Request, env: Env, url: URL) {
+  if (!env.DB)
+    return errorResponse(
+      request,
+      503,
+      "COMMUNITY_UNAVAILABLE",
+      "The community service is temporarily unavailable.",
+    );
   const today = new Date().toISOString().slice(0, 10);
   const date = dateParameter(url.searchParams.get("date"), today);
   if (!date)
@@ -775,6 +814,13 @@ async function dailyLeaderboard(request: Request, env: Env, url: URL) {
 }
 
 async function publicProfile(request: Request, env: Env, rawHandle: string) {
+  if (!env.DB)
+    return errorResponse(
+      request,
+      503,
+      "COMMUNITY_UNAVAILABLE",
+      "The community service is temporarily unavailable.",
+    );
   let handle: string;
   try {
     handle = validateHandle(decodeURIComponent(rawHandle));
@@ -843,7 +889,7 @@ async function api(request: Request, env: Env, url: URL) {
 
   const path = url.pathname.slice(API_PREFIX.length);
   if (path === "/capabilities" && request.method === "GET")
-    return capabilities(request);
+    return capabilities(request, env);
   if (path === "/session" && request.method === "GET")
     return session(request, env);
   if (path === "/profile" && request.method === "PATCH")

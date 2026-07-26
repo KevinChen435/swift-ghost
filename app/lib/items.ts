@@ -26,6 +26,7 @@ export type PracticeItem = Omit<Problem, "swiftNote"> & {
   masks?: Partial<Record<2 | 3 | 4, string>>;
   recallChecks?: readonly [string, string, string];
   verification?: PythonVerification;
+  starterCode?: string;
 };
 
 export const INTERVIEW_ITEMS: PracticeItem[] = PROBLEMS.map(

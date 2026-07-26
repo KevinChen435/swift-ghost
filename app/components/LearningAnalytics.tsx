@@ -26,6 +26,7 @@ export function LearningAnalytics({ attempts, items, onOpenItem }: Props) {
   const currentAttempts = useMemo(
     () =>
       attempts.filter((attempt) => {
+        if (attempt.practiceKind !== "typing") return false;
         const item = items.find(
           (candidate) => candidate.itemId === attempt.itemId,
         );

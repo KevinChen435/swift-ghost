@@ -13,7 +13,12 @@ export type CloudUnavailableReason =
 
 export type CloudResult<T> =
   | { available: true; data: T; status: number }
-  | { available: false; reason: CloudUnavailableReason; status?: number; retryAfterSeconds?: number };
+  | {
+      available: false;
+      reason: CloudUnavailableReason;
+      status?: number;
+      retryAfterSeconds?: number;
+    };
 
 export type CloudCapabilities = {
   apiVersion: string;
@@ -100,12 +105,17 @@ export type CloudAttemptInput = {
   peeks: number;
   accuracy: number;
   outcome?: "completed" | "abandoned";
-  qualification?: "syntax" | "guided" | "independent" | "assisted" | "incomplete";
+  qualification?:
+    "syntax" | "guided" | "independent" | "solved" | "assisted" | "incomplete";
   challengeDate?: string;
   sessionId?: string;
 };
 
-export type CloudAttemptRejection = { id: string; code: string; message?: string };
+export type CloudAttemptRejection = {
+  id: string;
+  code: string;
+  message?: string;
+};
 export type CloudAttemptBatchReceipt = {
   accepted: string[];
   duplicates: string[];
@@ -171,10 +181,20 @@ export type CloudItemLeaderboard = CloudList<CloudItemLeaderboardEntry> & {
   stage: number;
   mode: "strict";
 };
-export type CloudDailyLeaderboard = CloudList<CloudDailyLeaderboardEntry> & { date: string; challenge: CloudDailyChallenge };
+export type CloudDailyLeaderboard = CloudList<CloudDailyLeaderboardEntry> & {
+  date: string;
+  challenge: CloudDailyChallenge;
+};
 
 export type CloudRequestOptions = { signal?: AbortSignal };
-export type CloudListOptions = CloudRequestOptions & { limit?: number; cursor?: string };
+export type CloudListOptions = CloudRequestOptions & {
+  limit?: number;
+  cursor?: string;
+};
+export type CloudItemLeaderboardOptions = CloudListOptions & {
+  itemRevision?: number;
+  stage?: number;
+};
 export type CloudClientOptions = {
   fetchImpl?: typeof fetch;
   apiRoot?: string;
@@ -183,15 +203,37 @@ export type CloudClientOptions = {
 };
 
 export type CloudClient = {
-  capabilities(options?: CloudRequestOptions): Promise<CloudResult<CloudCapabilities>>;
+  capabilities(
+    options?: CloudRequestOptions,
+  ): Promise<CloudResult<CloudCapabilities>>;
   session(options?: CloudRequestOptions): Promise<CloudResult<CloudSession>>;
-  patchProfile(patch: CloudProfilePatch | CloudProfile, options?: CloudRequestOptions): Promise<CloudResult<CloudProfile>>;
-  publicProfile(handle: string, options?: CloudRequestOptions): Promise<CloudResult<CloudPublicProfile>>;
-  postAttemptBatch(attempts: CloudAttemptInput[], options?: CloudRequestOptions & { maximum?: number }): Promise<CloudResult<CloudAttemptBatchReceipt>>;
-  communityRecent(options?: CloudListOptions): Promise<CloudResult<CloudList<CloudCommunityEntry>>>;
-  itemLeaderboard(itemId: string, options?: CloudListOptions): Promise<CloudResult<CloudItemLeaderboard>>;
-  dailyLeaderboard(date: string, options?: CloudListOptions): Promise<CloudResult<CloudDailyLeaderboard>>;
+  patchProfile(
+    patch: CloudProfilePatch | CloudProfile,
+    options?: CloudRequestOptions,
+  ): Promise<CloudResult<CloudProfile>>;
+  publicProfile(
+    handle: string,
+    options?: CloudRequestOptions,
+  ): Promise<CloudResult<CloudPublicProfile>>;
+  postAttemptBatch(
+    attempts: CloudAttemptInput[],
+    options?: CloudRequestOptions & { maximum?: number },
+  ): Promise<CloudResult<CloudAttemptBatchReceipt>>;
+  communityRecent(
+    options?: CloudListOptions,
+  ): Promise<CloudResult<CloudList<CloudCommunityEntry>>>;
+  itemLeaderboard(
+    itemId: string,
+    options?: CloudItemLeaderboardOptions,
+  ): Promise<CloudResult<CloudItemLeaderboard>>;
+  dailyLeaderboard(
+    date: string,
+    options?: CloudListOptions,
+  ): Promise<CloudResult<CloudDailyLeaderboard>>;
 };
 
 export function createCloudClient(options?: CloudClientOptions): CloudClient;
-export const CLOUD_LIMITS: Readonly<{ maxAttemptBatch: number; maxListEntries: number }>;
+export const CLOUD_LIMITS: Readonly<{
+  maxAttemptBatch: number;
+  maxListEntries: number;
+}>;
