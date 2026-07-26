@@ -11,9 +11,9 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
   title: "Swift Ghost — Type it. Fade it. Own it.",
   description:
-    "Rebuild Swift interview fluency by typing known solutions with progressively fading guidance.",
+    "Rebuild Swift interview fluency with progressively fading solutions, local progress, spaced review, and a 33-problem pattern library.",
   openGraph: {
-    title: "Swift Ghost",
+    title: "Swift Ghost — Swift interview typing practice",
     description: "Type it. Fade it. Own it.",
     images: [{ url: socialImageUrl, width: 1734, height: 907, alt: "Swift Ghost practice preview" }],
   },
@@ -25,11 +25,9 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{ children: React.ReactNode }>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body>{children}</body>
     </html>
   );

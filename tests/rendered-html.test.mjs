@@ -33,12 +33,16 @@ test("server-renders the Swift Ghost practice shell", async () => {
   assert.match(html, /Type it\./);
   assert.match(html, /Fade it\./);
   assert.match(html, /Two Sum/);
-  assert.match(html, /Progress stays on this device/);
+  assert.match(html, /33-problem pattern library/);
+  assert.match(html, /Recall ladder/);
+  assert.match(html, /Strict correction/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/i);
 });
 
 test("ships the full five-stage practice model and original problem links", async () => {
-  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const page = await readFile(new URL("../app/components/SwiftGhostApp.tsx", import.meta.url), "utf8");
+  const product = await readFile(new URL("../app/lib/product.ts", import.meta.url), "utf8");
+  const catalog = await readFile(new URL("../app/data/problems.ts", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
 
   for (const stage of [
@@ -48,11 +52,16 @@ test("ships the full five-stage practice model and original problem links", asyn
     "Skeleton only",
     "Blank editor",
   ]) {
-    assert.match(page, new RegExp(stage));
+    assert.match(product, new RegExp(stage));
   }
 
-  assert.match(page, /swift-ghost-progress/);
-  assert.match(page, /https:\/\/leetcode\.com\/problems\/two-sum\//);
-  assert.match(page, /Correct mistakes/);
+  assert.match(product, /swift-ghost-state-v2/);
+  assert.match(product, /correctKeystrokes/);
+  assert.match(product, /outcome: "completed" \| "abandoned"/);
+  assert.match(catalog, /`https:\/\/leetcode\.com\/problems\/\$\{problem\.slug\}\/`/);
+  assert.equal((catalog.match(/^    id:/gm) ?? []).length, 33);
+  assert.match(page, /Strict correction/);
+  assert.match(page, /Spaced review/);
+  assert.match(page, /Pattern mastery/);
   assert.match(layout, /"og\.png"/);
 });
