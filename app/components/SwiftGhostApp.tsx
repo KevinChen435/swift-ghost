@@ -219,9 +219,12 @@ export default function SwiftGhostApp() {
     const correctAdded = addedText.split("").filter((char, index) => char === problem.code[oldValue.length + index]).length;
 
     if (state.settings.strictMode && !isCorrectPrefix && inserted > 0) {
-      const wrong = proposed[oldValue.length] ?? "?";
-      const keyName = wrong === "\n" ? "↵" : wrong === " " ? "space" : wrong;
-      setErrorKeys((keys) => ({ ...keys, [keyName]: (keys[keyName] ?? 0) + 1 }));
+      const attempted = proposed.slice(oldValue.length);
+      setErrorKeys((keys) => attempted.split("").reduce((next, character, index) => {
+        if (character === problem.code[oldValue.length + index]) return next;
+        const keyName = character === "\n" ? "↵" : character === " " ? "space" : character;
+        return { ...next, [keyName]: (next[keyName] ?? 0) + 1 };
+      }, keys));
       updateDraft({
         ...draft,
         startedAt,
