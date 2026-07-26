@@ -90,8 +90,14 @@ export type SessionHistoryRecord = {
   total: number;
 };
 
+export type CloudPreferences = {
+  communityEnabled: boolean;
+  uploadedAttemptIds: string[];
+  lastSyncedAt?: string;
+};
+
 export type AppState = {
-  version: 5;
+  version: 6;
   attempts: AttemptRecord[];
   favorites: ItemId[];
   customItems: PracticeItem[];
@@ -101,12 +107,14 @@ export type AppState = {
   lastStage: number;
   activeSession: TrainingSession | null;
   sessionHistory: SessionHistoryRecord[];
+  cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v5";
-export const LEGACY_STORAGE_KEY = "swift-ghost-state-v4";
-export const OLDER_STORAGE_KEY = "swift-ghost-state-v3";
-export const OLDEST_STORAGE_KEY = "swift-ghost-state-v2";
+export const STORAGE_KEY = "swift-ghost-state-v6";
+export const LEGACY_STORAGE_KEY = "swift-ghost-state-v5";
+export const OLDER_STORAGE_KEY = "swift-ghost-state-v4";
+export const OLDEST_STORAGE_KEY = "swift-ghost-state-v3";
+export const ORIGINAL_STORAGE_KEY = "swift-ghost-state-v2";
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: "midnight",
@@ -121,7 +129,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 5,
+  version: 6,
   attempts: [],
   favorites: [],
   customItems: [],
@@ -131,6 +139,7 @@ export const EMPTY_STATE: AppState = {
   lastStage: 1,
   activeSession: null,
   sessionHistory: [],
+  cloud: { communityEnabled: false, uploadedAttemptIds: [] },
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -273,6 +282,18 @@ function normalizeSessionHistory(value: unknown): SessionHistoryRecord[] {
   }).slice(-25);
 }
 
+function normalizeCloudPreferences(value: unknown): CloudPreferences {
+  const raw = isRecord(value) ? value : {};
+  const uploadedAttemptIds = Array.isArray(raw.uploadedAttemptIds)
+    ? [...new Set(raw.uploadedAttemptIds.filter((id): id is string => typeof id === "string" && id.length > 0 && id.length <= 120))].slice(-1000)
+    : [];
+  return {
+    communityEnabled: raw.communityEnabled === true,
+    uploadedAttemptIds,
+    lastSyncedAt: typeof raw.lastSyncedAt === "string" && !Number.isNaN(Date.parse(raw.lastSyncedAt)) ? raw.lastSyncedAt : undefined,
+  };
+}
+
 export function qualificationFor(input: Pick<AttemptRecord, "outcome" | "stage" | "peeks" | "accuracy">): AttemptQualification {
   if (input.outcome !== "completed") return "incomplete";
   if (input.peeks > 0 || input.accuracy < 95) return "assisted";
@@ -282,7 +303,7 @@ export function qualificationFor(input: Pick<AttemptRecord, "outcome" | "stage" 
 }
 
 export function normalizeState(value: unknown): AppState {
-  if (!isRecord(value) || ![2, 3, 4, 5].includes(Number(value.version))) return EMPTY_STATE;
+  if (!isRecord(value) || ![2, 3, 4, 5, 6].includes(Number(value.version))) return EMPTY_STATE;
   const customItems = normalizeCustomItems(value.customItems);
   const validIds = new Set<ItemId>([...BUILTIN_ITEMS.map((item) => item.itemId), ...customItems.map((item) => item.itemId)]);
   const activeIds = new Set<ItemId>([...BUILTIN_ITEMS.map((item) => item.itemId), ...customItems.filter((item) => !item.archivedAt).map((item) => item.itemId)]);
@@ -353,7 +374,7 @@ export function normalizeState(value: unknown): AppState {
   const draftMatchesSession = Boolean(draft?.sessionId && activeSession && activeEntry && draft.sessionId === activeSession.id && draft.itemId === activeEntry.itemId && draft.stage === activeEntry.stage && draft.itemRevision === activeEntry.itemRevision);
   const normalizedDraft = draft ? { ...draft, sessionId: draftMatchesSession ? draft.sessionId : undefined } : null;
   return {
-    version: 5,
+    version: 6,
     attempts,
     favorites,
     customItems,
@@ -363,6 +384,7 @@ export function normalizeState(value: unknown): AppState {
     lastStage: Math.round(finiteNumber(value.lastStage, draft?.stage ?? 1, 1, 5)),
     activeSession,
     sessionHistory: normalizeSessionHistory(value.sessionHistory),
+    cloud: normalizeCloudPreferences(value.cloud),
   };
 }
 
@@ -376,7 +398,9 @@ export function loadState(): AppState {
     const older = localStorage.getItem(OLDER_STORAGE_KEY);
     if (older) return normalizeState(JSON.parse(older));
     const oldest = localStorage.getItem(OLDEST_STORAGE_KEY);
-    return oldest ? normalizeState(JSON.parse(oldest)) : EMPTY_STATE;
+    if (oldest) return normalizeState(JSON.parse(oldest));
+    const original = localStorage.getItem(ORIGINAL_STORAGE_KEY);
+    return original ? normalizeState(JSON.parse(original)) : EMPTY_STATE;
   } catch {
     return EMPTY_STATE;
   }

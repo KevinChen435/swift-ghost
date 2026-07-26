@@ -45,6 +45,8 @@ test("ships the full five-stage practice model and original problem links", asyn
   const product = await readFile(new URL("../app/lib/product.ts", import.meta.url), "utf8");
   const catalog = await readFile(new URL("../app/data/problems.ts", import.meta.url), "utf8");
   const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
+  const community = await readFile(new URL("../app/components/CommunityPanel.tsx", import.meta.url), "utf8");
+  const worker = await readFile(new URL("../worker/index.ts", import.meta.url), "utf8");
 
   for (const stage of [
     "Full ghost",
@@ -56,6 +58,7 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
+  assert.match(product, /swift-ghost-state-v6/);
   assert.match(product, /swift-ghost-state-v5/);
   assert.match(product, /swift-ghost-state-v4/);
   assert.match(product, /swift-ghost-state-v3/);
@@ -78,6 +81,13 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(page, /Spaced review/);
   assert.match(page, /Pattern mastery/);
   assert.match(page, /Personal bests/);
+  assert.match(community, /Community beta/);
+  assert.match(community, /new Date\(\)\.toISOString\(\)\.slice\(0, 10\)/);
+  assert.match(page, /Fixed stage 1/);
+  assert.match(page, /cloudClient\.dailyLeaderboard/);
+  assert.match(page, /dailyAvailable/);
+  assert.match(worker, /filter\(\(item\) => item\.track === "interview"\)/);
+  assert.match(page, /onToggleUploads/);
   assert.match(page, /CustomSnippetDialog/);
   assert.match(page, /SessionsView/);
   assert.match(page, /updateCustomItem/);

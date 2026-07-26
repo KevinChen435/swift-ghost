@@ -1,0 +1,433 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "7a67f977-5ba3-449f-a2d7-9efb659c92e0",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "community_attempts": {
+      "name": "community_attempts",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "client_attempt_id": {
+          "name": "client_attempt_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item_revision": {
+          "name": "item_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item_title": {
+          "name": "item_title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "track": {
+          "name": "track",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "stage": {
+          "name": "stage",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mode": {
+          "name": "mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "accuracy_bps": {
+          "name": "accuracy_bps",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "wpm_bps": {
+          "name": "wpm_bps",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "duration_ms": {
+          "name": "duration_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "typed_chars": {
+          "name": "typed_chars",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "peeks": {
+          "name": "peeks",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "completed_day": {
+          "name": "completed_day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "challenge_date": {
+          "name": "challenge_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "feed_eligible": {
+          "name": "feed_eligible",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "ranking_eligible": {
+          "name": "ranking_eligible",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "uploaded_at": {
+          "name": "uploaded_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "community_attempts_user_client_uidx": {
+          "name": "community_attempts_user_client_uidx",
+          "columns": [
+            "user_id",
+            "client_attempt_id"
+          ],
+          "isUnique": true
+        },
+        "community_attempts_recent_idx": {
+          "name": "community_attempts_recent_idx",
+          "columns": [
+            "feed_eligible",
+            "completed_at"
+          ],
+          "isUnique": false
+        },
+        "community_attempts_item_rank_idx": {
+          "name": "community_attempts_item_rank_idx",
+          "columns": [
+            "item_id",
+            "item_revision",
+            "stage",
+            "mode",
+            "ranking_eligible",
+            "wpm_bps"
+          ],
+          "isUnique": false
+        },
+        "community_attempts_daily_rank_idx": {
+          "name": "community_attempts_daily_rank_idx",
+          "columns": [
+            "challenge_date",
+            "ranking_eligible",
+            "user_id"
+          ],
+          "isUnique": false
+        },
+        "community_attempts_user_idx": {
+          "name": "community_attempts_user_idx",
+          "columns": [
+            "user_id",
+            "completed_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "community_attempts_user_id_community_profiles_user_id_fk": {
+          "name": "community_attempts_user_id_community_profiles_user_id_fk",
+          "tableFrom": "community_attempts",
+          "tableTo": "community_profiles",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "user_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "community_attempts_stage_check": {
+          "name": "community_attempts_stage_check",
+          "value": "\"community_attempts\".\"stage\" BETWEEN 1 AND 5"
+        },
+        "community_attempts_accuracy_check": {
+          "name": "community_attempts_accuracy_check",
+          "value": "\"community_attempts\".\"accuracy_bps\" BETWEEN 0 AND 10000"
+        },
+        "community_attempts_ranking_check": {
+          "name": "community_attempts_ranking_check",
+          "value": "\"community_attempts\".\"ranking_eligible\" = 0 OR (\"community_attempts\".\"mode\" = 'strict' AND \"community_attempts\".\"peeks\" = 0 AND \"community_attempts\".\"accuracy_bps\" >= 9500 AND \"community_attempts\".\"wpm_bps\" <= 30000 AND \"community_attempts\".\"typed_chars\" >= 20 AND \"community_attempts\".\"duration_ms\" >= 1000)"
+        },
+        "community_attempts_feed_check": {
+          "name": "community_attempts_feed_check",
+          "value": "\"community_attempts\".\"feed_eligible\" = 0 OR (\"community_attempts\".\"mode\" = 'strict' AND \"community_attempts\".\"peeks\" = 0 AND \"community_attempts\".\"accuracy_bps\" >= 9500 AND \"community_attempts\".\"wpm_bps\" <= 30000 AND \"community_attempts\".\"typed_chars\" >= 20 AND \"community_attempts\".\"duration_ms\" >= 1000)"
+        }
+      }
+    },
+    "community_profiles": {
+      "name": "community_profiles",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "handle": {
+          "name": "handle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "bio": {
+          "name": "bio",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "timezone": {
+          "name": "timezone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "is_public": {
+          "name": "is_public",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "share_activity": {
+          "name": "share_activity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "show_on_leaderboards": {
+          "name": "show_on_leaderboards",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "community_profiles_email_uidx": {
+          "name": "community_profiles_email_uidx",
+          "columns": [
+            "email"
+          ],
+          "isUnique": true
+        },
+        "community_profiles_handle_uidx": {
+          "name": "community_profiles_handle_uidx",
+          "columns": [
+            "handle"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "community_profiles_private_off_check": {
+          "name": "community_profiles_private_off_check",
+          "value": "\"community_profiles\".\"is_public\" = 1 OR (\"community_profiles\".\"share_activity\" = 0 AND \"community_profiles\".\"show_on_leaderboards\" = 0)"
+        }
+      }
+    },
+    "daily_challenges": {
+      "name": "daily_challenges",
+      "columns": {
+        "date": {
+          "name": "date",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item_revision": {
+          "name": "item_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item_title": {
+          "name": "item_title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "track": {
+          "name": "track",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "stage": {
+          "name": "stage",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mode": {
+          "name": "mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'strict'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "daily_challenges_stage_check": {
+          "name": "daily_challenges_stage_check",
+          "value": "\"daily_challenges\".\"stage\" = 1"
+        },
+        "daily_challenges_mode_check": {
+          "name": "daily_challenges_mode_check",
+          "value": "\"daily_challenges\".\"mode\" = 'strict'"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

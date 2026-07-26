@@ -24,6 +24,8 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - Device-local custom Swift snippets with safe content revisions and learning milestones
 - Persistent multi-problem sessions with independent track, source, category, difficulty, count, and recall-policy controls
 - Separate interview/iOS catalog filtering, track coverage, and persisted key-friction analytics
+- An optional hosted community edition with ChatGPT identity, public profiles, recent qualifying runs, per-exercise records, and a shared daily benchmark
+- Server-validated rankings that accept only current, built-in, strict, no-peek passes with at least 95% accuracy
 - Favorites, random practice, focus mode, autosaved drafts, and JSON backup/restore
 - Six themes, three code fonts, editor sizing, indentation, and an optional key-friction heatmap
 - Responsive desktop and mobile layouts
@@ -34,7 +36,9 @@ Swift interview content and code-typing products usually exist separately. Swift
 
 ## Privacy
 
-There are no accounts, analytics, cookies, or network-backed progress records. Practice history and settings stay in the browser's local storage. A portable JSON export is available in Settings.
+The GitHub Pages edition is entirely local: it has no account requirement, telemetry, cookies, or network-backed progress. Practice history and settings stay in the browser's local storage, and a portable JSON export is available in Settings.
+
+The hosted community edition uses ChatGPT identity. Community uploads are off by default and must be explicitly enabled. Only completed built-in attempt summaries can upload; custom snippets, drafts, source code, email addresses, and key-level telemetry are never public. Public profiles, activity sharing, and leaderboard participation each require a separate opt-in.
 
 ## Development
 
@@ -59,7 +63,7 @@ Interview problem names link to their public LeetCode pages; iOS fundamentals li
 
 ## Roadmap
 
-The local-first training core is the priority. Planned work includes a larger 75-problem catalog, authored semantic masks, executable Swift test cases, deeper session analytics, optional account sync, and privacy-preserving community benchmarks.
+The local-first training core remains the priority. Planned work includes a larger 75-problem catalog, authored semantic masks, executable Swift test cases, deeper session analytics, addressable exercise URLs, and broader language support.
 
 ## License
 
