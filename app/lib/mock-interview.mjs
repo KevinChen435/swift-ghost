@@ -4,23 +4,25 @@ export const MOCK_INTERVIEW_PRESETS = Object.freeze([
     label: "Phone screen",
     durationMinutes: 30,
     difficulties: Object.freeze(["Easy"]),
-    note: "One focused warm-up with executable checks.",
+    note: "A focused easy interview set with executable checks.",
   }),
   Object.freeze({
     id: "standard",
     label: "Coding interview",
     durationMinutes: 45,
     difficulties: Object.freeze(["Medium"]),
-    note: "A realistic medium problem with no answer access.",
+    note: "Realistic medium problems with no answer access.",
   }),
   Object.freeze({
     id: "stretch",
     label: "Stretch interview",
     durationMinutes: 60,
     difficulties: Object.freeze(["Medium", "Hard"]),
-    note: "A longer, higher-variance problem under interview rules.",
+    note: "Longer, higher-variance work under interview rules.",
   }),
 ]);
+
+export const MOCK_INTERVIEW_PROBLEM_COUNTS = Object.freeze([1, 2]);
 
 export function mockInterviewPreset(presetId) {
   return (
@@ -42,9 +44,9 @@ function currentAttemptsFor(item, attempts) {
   );
 }
 
-export function selectMockInterviewItem(items, attempts, presetId) {
+function rankedMockInterviewItems(items, attempts, presetId) {
   const preset = mockInterviewPreset(presetId);
-  const candidates = (Array.isArray(items) ? items : [])
+  return (Array.isArray(items) ? items : [])
     .filter(
       (item) =>
         item?.source === "builtin" &&
@@ -77,8 +79,31 @@ export function selectMockInterviewItem(items, attempts, presetId) {
         left.solveAttempts - right.solveAttempts ||
         left.mostRecent - right.mostRecent ||
         left.item.itemId.localeCompare(right.item.itemId),
-    );
-  return candidates[0]?.item ?? null;
+    )
+    .map((candidate) => candidate.item);
+}
+
+export function selectMockInterviewItems(
+  items,
+  attempts,
+  presetId,
+  problemCount,
+) {
+  if (!MOCK_INTERVIEW_PROBLEM_COUNTS.includes(problemCount)) return [];
+
+  const selected = [];
+  const selectedItemIds = new Set();
+  for (const item of rankedMockInterviewItems(items, attempts, presetId)) {
+    if (selectedItemIds.has(item.itemId)) continue;
+    selectedItemIds.add(item.itemId);
+    selected.push(item);
+    if (selected.length === problemCount) return selected;
+  }
+  return [];
+}
+
+export function selectMockInterviewItem(items, attempts, presetId) {
+  return selectMockInterviewItems(items, attempts, presetId, 1)[0] ?? null;
 }
 
 export function mockInterviewEndsAt(startedAt, durationMinutes) {

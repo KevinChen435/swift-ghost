@@ -102,13 +102,14 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v15"/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v16"/);
+  assert.match(product, /FIFTEENTH_STORAGE_KEY = "swift-ghost-state-v15"/);
   assert.match(product, /FOURTEENTH_STORAGE_KEY = "swift-ghost-state-v14"/);
   assert.match(product, /THIRTEENTH_STORAGE_KEY = "swift-ghost-state-v13"/);
   assert.match(product, /TWELFTH_STORAGE_KEY = "swift-ghost-state-v12"/);
   assert.match(product, /PREVIOUS_STORAGE_KEY = "swift-ghost-state-v11"/);
   assert.match(product, /FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2"/);
-  assert.match(product, /version: 15/);
+  assert.match(product, /version: 16/);
   assert.match(product, /swift-ghost-state-v10/);
   assert.match(product, /swift-ghost-state-v9/);
   assert.match(product, /swift-ghost-state-v8/);
@@ -293,9 +294,17 @@ test("ships reload-safe timed mock interviews", async () => {
   assert.match(product, /durationMinutes\?: number/);
   assert.match(product, /expiresAt\?: string/);
   assert.match(mock, /MOCK_INTERVIEW_PRESETS/);
-  assert.match(mock, /selectMockInterviewItem/);
+  assert.match(mock, /selectMockInterviewItems/);
   assert.match(mock, /mockInterviewRemainingMs/);
-  assert.match(app, /One cold problem\. A real countdown\. No in-app answer reveal\./);
+  assert.match(app, /One or two cold problems\. One clock\. No in-app answer reveal\./);
+  assert.match(app, /Two-problem mocks keep the same absolute deadline/);
+  assert.match(app, /<MockNotebook/);
+  assert.match(app, /<MockDebriefDialog/);
+  const mockDebrief = await readFile(
+    new URL("../app/components/MockDebriefDialog.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(mockDebrief, /Final source snapshot/);
   assert.match(app, /Interview mode locked/);
   assert.match(app, /<ChallengeStatement item=\{props\.item\}/);
   assert.match(app, /prompt && !isMock/);

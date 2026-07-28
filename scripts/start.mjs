@@ -35,6 +35,17 @@ const port = Number(rawPort);
 if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`Invalid port: ${rawPort}`);
 
 if (process.platform === "win32") path.relative = (...args) => platformRelative(...args).replaceAll("\\", "/");
+
+// Vinext 0.0.50 omits .wasm from its static MIME map. Patch the shared map
+// before the server constructs its immutable file cache so browsers can use
+// WebAssembly.instantiateStreaming instead of downloading and recompiling a
+// generic octet stream. Resolve from Vinext's public entry rather than relying
+// on a machine-specific node_modules path.
+const vinextEntryUrl = import.meta.resolve("vinext");
+const staticCacheUrl = new URL("./server/static-file-cache.js", vinextEntryUrl);
+const { CONTENT_TYPES } = await import(staticCacheUrl.href);
+CONTENT_TYPES[".wasm"] = "application/wasm";
+
 const { startProdServer } = await import("vinext/server/prod-server");
 try {
   await startProdServer({

@@ -276,6 +276,7 @@ test("profile handle conflicts surface status without copying server details", a
 });
 
 test("attempt batches are deduplicated, capped, normalized, and omit client WPM", async () => {
+  const privateMockSentinel = "PRIVATE_MOCK_NOTEBOOK_SENTINEL";
   let sent;
   const mock = recorder((_url, init) => {
     sent = JSON.parse(init.body);
@@ -292,7 +293,16 @@ test("attempt batches are deduplicated, capped, normalized, and omit client WPM"
   });
   const oversized = [
     { nope: true },
-    attempt(0, { stage: 99, accuracy: 300, durationMs: -2, wpm: 999 }),
+    attempt(0, {
+      stage: 99,
+      accuracy: 300,
+      durationMs: -2,
+      wpm: 999,
+      notebook: { approach: privateMockSentinel },
+      mockProblems: [{ source: privateMockSentinel }],
+      checkpoints: { codingStarted: 12 },
+      debrief: { nextStep: privateMockSentinel },
+    }),
     attempt(0),
     ...Array.from({ length: 70 }, (_, index) => attempt(index + 1)),
   ];
@@ -314,6 +324,11 @@ test("attempt batches are deduplicated, capped, normalized, and omit client WPM"
   assert.equal(Object.hasOwn(sent.attempts[0], "keyErrors"), false);
   assert.equal(Object.hasOwn(sent.attempts[0], "lineErrors"), false);
   assert.equal(Object.hasOwn(sent.attempts[0], "timeline"), false);
+  assert.equal(JSON.stringify(sent).includes(privateMockSentinel), false);
+  assert.equal(Object.hasOwn(sent.attempts[0], "notebook"), false);
+  assert.equal(Object.hasOwn(sent.attempts[0], "mockProblems"), false);
+  assert.equal(Object.hasOwn(sent.attempts[0], "checkpoints"), false);
+  assert.equal(Object.hasOwn(sent.attempts[0], "debrief"), false);
 });
 
 test("Python built-ins are eligible for the same defensive upload path", async () => {

@@ -32,9 +32,11 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - Spaced review at 1, 3, 7, 14, and 30 days, with lapses returning tomorrow
 - Device-local custom Python or Swift snippets with safe content revisions and learning milestones
 - Persistent multi-problem sessions with independent track, source, category, difficulty, count, and recall-policy controls, plus mixed typing, concept-recall, and verified-solve tasks from the Daily Coach
-- Reload-safe 30-, 45-, and 60-minute mock interviews that choose under-practiced verified Python problems, lock guidance and hidden judge values while keeping prompt examples visible, and preserve completed, ended, or expired outcomes separately from ordinary sessions
+- Reload-safe 30-, 45-, and 60-minute mock interviews with an exact one- or two-problem format, one absolute deadline, direct problem-to-problem advancement, and no interim coaching or reference-solution reveal; published prompt examples remain visible
+- A private interview notebook for clarifications, approach, invariant, complexity, edge cases, and final explanation, plus first-write checkpoints for prompt, approach, coding, testing, completion, and explanation
+- History-backed post-mock debriefs for completed, ended, and expired interviews, with both problem workspaces, bounded source snapshots, a five-dimension 0–2 rubric, mistake tags, and reflection prompts
 - A self-contained Python Challenge Lab across all 48 exercises, with original task statements, callable contracts, parameters, constraints, public examples, persistent custom JSON cases, keyboard-first runs, and aggregate hidden-suite submissions
-- A Hacker-style solve workbench with resizable Problem/Code panels on desktop, focused Problem/Code/Tests tabs on mobile, and independently scrolling panes
+- A Hacker-style solve workbench with resizable Prompt/Notebook and Code panels on desktop, focused Problem/Notes/Code/Tests tabs on mobile, and independently scrolling panes
 - A tabbed Testcases/Custom/Result/Submissions console with safe aggregate judge feedback, cancelable isolated runs, and a structured per-parameter testcase builder with Raw JSON fallback
 - Bounded device-local submission history with lazy source inspection, current-draft comparison, prompt/judge revision warnings, and exact snapshot restore that is tracked as assisted practice
 - Separate Python interview, Swift interview, and iOS catalog filtering, coverage, and persisted key-friction analytics
@@ -51,7 +53,7 @@ Interview content and code-typing products usually exist separately. Swift Ghost
 
 ## Privacy
 
-The GitHub Pages edition is entirely local: it has no account requirement, telemetry, cookies, or network-backed progress. Practice history and settings stay in the browser's local storage, and a portable JSON export is available in Settings. Python checks execute only inside an isolated browser worker and never send source code to a server. The fast local interpreter covers every shipped exercise and common interview helpers, but it is intentionally labeled as a subset: CPython-only packages and some newer Python language features are outside its scope.
+The GitHub Pages edition is entirely local: it has no account requirement, telemetry, cookies, or network-backed progress. Practice history, interview notebooks, source snapshots, rubric responses, and settings stay in the browser's local storage, and a portable JSON export is available in Settings. Python checks execute only inside an isolated browser worker and never send source code to a server. The fast local interpreter covers every shipped exercise and common interview helpers, but it is intentionally labeled as a subset: CPython-only packages and some newer Python language features are outside its scope.
 
 The hosted community edition uses ChatGPT identity. Community uploads are off by default and must be explicitly enabled. Only completed built-in attempt summaries can upload; custom snippets, drafts, source code, email addresses, and key-level telemetry are never public. Public profiles, activity sharing, and leaderboard participation each require a separate opt-in.
 
@@ -78,7 +80,7 @@ Interview problem names link to their public LeetCode pages; iOS fundamentals li
 
 ## Roadmap
 
-The local-first training core remains the priority. Planned work includes richer hidden boundary suites, interview scratchpads and evidence-grade mock debriefs, authored semantic masks, longitudinal readiness trends, cold-transfer variants, executable Swift solving, and cross-device learning-state sync.
+The local-first training core remains the priority. Planned work includes richer hidden boundary suites, authored semantic masks, longitudinal readiness trends, cold-transfer variants, executable Swift solving, and cross-device learning-state sync.
 
 ## License
 
