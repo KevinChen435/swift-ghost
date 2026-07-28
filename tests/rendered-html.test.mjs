@@ -102,7 +102,10 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
-  assert.match(product, /swift-ghost-state-v10/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v11"/);
+  assert.match(product, /PREVIOUS_STORAGE_KEY = "swift-ghost-state-v10"/);
+  assert.match(product, /FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2"/);
+  assert.match(product, /version: 11/);
   assert.match(product, /swift-ghost-state-v9/);
   assert.match(product, /swift-ghost-state-v8/);
   assert.match(product, /swift-ghost-state-v7/);
@@ -120,7 +123,7 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(worker, /isCurrentDailyChallenge\(existing, CHALLENGE_ITEMS\)/);
   assert.match(worker, /UPDATE daily_challenges/);
   assert.match(product, /outcome: "completed" \| "abandoned"/);
-  assert.match(product, /PracticeKind = "typing" \| "solving"/);
+  assert.match(product, /PracticeKind = "typing" \| "solving" \| "concept"/);
   assert.match(product, /learningEvents: LearningEvent\[\]/);
   assert.match(product, /normalizeLearningEvents/);
   assert.match(product, /attempt\.practiceKind === "typing"/);
@@ -235,4 +238,32 @@ test("ships the full five-stage practice model and original problem links", asyn
   );
   assert.match(page, /edit\.insertedCount > 0/);
   assert.match(layout, /"og-v7\.png"/);
+});
+
+test("ships first-class Swift and iOS concept recall", async () => {
+  const app = await readFile(
+    new URL("../app/components/SwiftGhostApp.tsx", import.meta.url),
+    "utf8",
+  );
+  const product = await readFile(
+    new URL("../app/lib/product.ts", import.meta.url),
+    "utf8",
+  );
+  const concept = await readFile(
+    new URL("../app/components/ConceptPractice.tsx", import.meta.url),
+    "utf8",
+  );
+  const fundamentals = await readFile(
+    new URL("../app/data/fundamentals.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(product, /PracticeKind = "typing" \| "solving" \| "concept"/);
+  assert.match(product, /conceptCommittedResponse/);
+  assert.match(app, /finishConcept/);
+  assert.match(app, /practiceKind: "concept"/);
+  assert.match(app, /FIRST_VERSION_STORAGE_KEY/);
+  assert.match(concept, /Commit & compare answer/);
+  assert.match(concept, /Optional guided typing/);
+  assert.match(concept, /Self-rated recall · not automated correctness/);
+  assert.equal((fundamentals.match(/conceptAnswers:/g) ?? []).length, 17);
 });

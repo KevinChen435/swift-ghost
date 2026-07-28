@@ -71,6 +71,14 @@ export function buildReadinessSummary(input = {}) {
       Number(attempt.verification?.passed) ===
         Number(attempt.verification?.total),
   );
+  const conceptAttempts = attempts.filter(
+    (attempt) => attempt.practiceKind === "concept",
+  );
+  const strongConceptAttempts = conceptAttempts.filter(
+    (attempt) =>
+      Number(attempt.peeks ?? 0) === 0 &&
+      (attempt.conceptGrade === "good" || attempt.conceptGrade === "easy"),
+  );
   const hintFree = solves.filter((attempt) => Number(attempt.peeks ?? 0) === 0);
   const events = (
     Array.isArray(input.learningEvents) ? input.learningEvents : []
@@ -85,9 +93,15 @@ export function buildReadinessSummary(input = {}) {
         createdAt <= nowTime,
     );
   });
-  const strongRetrieval = events.filter(
-    (event) => event.grade === "good" || event.grade === "easy",
-  );
+  const attemptById = new Map(attempts.map((attempt) => [attempt.id, attempt]));
+  const strongRetrieval = events.filter((event) => {
+    if (event.grade !== "good" && event.grade !== "easy") return false;
+    if (event.activityKind !== "concept") return true;
+    const attempt = attemptById.get(event.attemptId);
+    return Boolean(
+      attempt?.practiceKind === "concept" && Number(attempt.peeks ?? 0) === 0,
+    );
+  });
   const debriefedAttempts = new Set(events.map((event) => event.attemptId));
   const frictionCounts = new Map();
   for (const event of events) {
@@ -128,6 +142,11 @@ export function buildReadinessSummary(input = {}) {
       numerator: strongRetrieval.length,
       denominator: events.length,
       percent: percent(strongRetrieval.length, events.length),
+    },
+    conceptRecall: {
+      numerator: strongConceptAttempts.length,
+      denominator: conceptAttempts.length,
+      percent: percent(strongConceptAttempts.length, conceptAttempts.length),
     },
     debriefCoverage: {
       numerator: attempts.filter((attempt) => debriefedAttempts.has(attempt.id))

@@ -10,11 +10,13 @@ import {
   type TimelineSample,
 } from "./analytics.mjs";
 import { correctPositionCount } from "./typing-engine.mjs";
+import { supportsConceptPractice } from "./concept-practice.mjs";
 import { resolveSessionCurrentIndex } from "./sessions.mjs";
 import {
   applyDebriefToReviewState,
   normalizeLearningEvents,
   type LearningEvent,
+  type RetrievalGrade,
 } from "./learning-state.mjs";
 import type {
   SessionLanguage,
@@ -65,7 +67,7 @@ export type Theme =
   "midnight" | "paper" | "forest" | "synthwave" | "ember" | "ocean";
 export type AttemptQualification =
   "syntax" | "guided" | "independent" | "solved" | "assisted" | "incomplete";
-export type PracticeKind = "typing" | "solving";
+export type PracticeKind = "typing" | "solving" | "concept";
 export type VerificationSummary = {
   revision: number;
   passed: number;
@@ -112,6 +114,8 @@ export type AttemptRecord = {
   consistency: number;
   outcome: "completed" | "abandoned";
   qualification: AttemptQualification;
+  conceptGrade?: RetrievalGrade;
+  conceptCheckIndex?: 0 | 1 | 2;
   verification?: VerificationSummary;
   challengeDate?: string;
   sessionId?: string;
@@ -133,6 +137,8 @@ export type Draft = {
   lineErrors: Record<string, number>;
   timeline: TimelineSample[];
   testRuns: number;
+  conceptCommittedAt?: number;
+  conceptCommittedResponse?: string;
   challengeDate?: string;
   sessionId?: string;
 };
@@ -165,7 +171,7 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 10;
+  version: 11;
   attempts: AttemptRecord[];
   learningEvents: LearningEvent[];
   favorites: ItemId[];
@@ -179,15 +185,16 @@ export type AppState = {
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v10";
-export const PREVIOUS_STORAGE_KEY = "swift-ghost-state-v9";
-export const LEGACY_STORAGE_KEY = "swift-ghost-state-v8";
-export const OLDER_STORAGE_KEY = "swift-ghost-state-v7";
-export const OLDEST_STORAGE_KEY = "swift-ghost-state-v6";
-export const ORIGINAL_STORAGE_KEY = "swift-ghost-state-v5";
-export const FIRST_STORAGE_KEY = "swift-ghost-state-v4";
-export const EARLIEST_STORAGE_KEY = "swift-ghost-state-v3";
-export const INITIAL_STORAGE_KEY = "swift-ghost-state-v2";
+export const STORAGE_KEY = "swift-ghost-state-v11";
+export const PREVIOUS_STORAGE_KEY = "swift-ghost-state-v10";
+export const LEGACY_STORAGE_KEY = "swift-ghost-state-v9";
+export const OLDER_STORAGE_KEY = "swift-ghost-state-v8";
+export const OLDEST_STORAGE_KEY = "swift-ghost-state-v7";
+export const ORIGINAL_STORAGE_KEY = "swift-ghost-state-v6";
+export const FIRST_STORAGE_KEY = "swift-ghost-state-v5";
+export const EARLIEST_STORAGE_KEY = "swift-ghost-state-v4";
+export const INITIAL_STORAGE_KEY = "swift-ghost-state-v3";
+export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: "midnight",
@@ -203,7 +210,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 10,
+  version: 11,
   attempts: [],
   learningEvents: [],
   favorites: [],
@@ -447,6 +454,7 @@ function normalizeActiveSession(
   tracks: Map<ItemId, PracticeItem["track"]>,
   languages: Map<ItemId, CodeLanguage>,
   supportsSolving: Map<ItemId, boolean>,
+  supportsConcept: Map<ItemId, boolean>,
 ): TrainingSession | null {
   if (
     !isRecord(value) ||
@@ -481,7 +489,9 @@ function normalizeActiveSession(
         const practiceKind: PracticeKind =
           raw.practiceKind === "solving" && supportsSolving.get(itemId)
             ? "solving"
-            : "typing";
+            : raw.practiceKind === "concept" && supportsConcept.get(itemId)
+              ? "concept"
+              : "typing";
         const key = `${itemId}:${stage}:${practiceKind}`;
         if (seen.has(key)) return [];
         seen.add(key);
@@ -617,10 +627,22 @@ function normalizeCloudPreferences(value: unknown): CloudPreferences {
 export function qualificationFor(
   input: Pick<
     AttemptRecord,
-    "outcome" | "stage" | "peeks" | "accuracy" | "practiceKind" | "verification"
+    | "outcome"
+    | "stage"
+    | "peeks"
+    | "accuracy"
+    | "practiceKind"
+    | "verification"
+    | "conceptGrade"
   >,
 ): AttemptQualification {
   if (input.outcome !== "completed") return "incomplete";
+  if (input.practiceKind === "concept") {
+    return input.peeks === 0 &&
+      (input.conceptGrade === "good" || input.conceptGrade === "easy")
+      ? "independent"
+      : "assisted";
+  }
   if (input.practiceKind === "solving") {
     const verification = input.verification;
     if (
@@ -671,6 +693,12 @@ export function normalizeState(value: unknown): AppState {
       Boolean(item.language === "python" && item.verification),
     ]),
   );
+  const supportsConcept = new Map<ItemId, boolean>(
+    [...BUILTIN_ITEMS, ...customItems].map((item) => [
+      item.itemId,
+      supportsConceptPractice(item),
+    ]),
+  );
   const attempts = (Array.isArray(value.attempts) ? value.attempts : [])
     .flatMap((raw): AttemptRecord[] => {
       if (
@@ -693,9 +721,26 @@ export function normalizeState(value: unknown): AppState {
         !(item?.language === "python" && item.verification)
       )
         return [];
+      if (
+        raw.practiceKind === "concept" &&
+        !supportsConceptPractice(item)
+      )
+        return [];
       const keyErrors = normalizeKeyErrors(raw.keyErrors);
       const practiceKind: PracticeKind =
-        raw.practiceKind === "solving" ? "solving" : "typing";
+        raw.practiceKind === "solving"
+          ? "solving"
+          : raw.practiceKind === "concept"
+            ? "concept"
+            : "typing";
+      const conceptGrade: RetrievalGrade | undefined = [
+        "again",
+        "hard",
+        "good",
+        "easy",
+      ].includes(String(raw.conceptGrade))
+        ? (raw.conceptGrade as RetrievalGrade)
+        : undefined;
       const attempt: AttemptRecord = {
         id: raw.id,
         itemId,
@@ -739,6 +784,17 @@ export function normalizeState(value: unknown): AppState {
         consistency: Math.round(finiteNumber(raw.consistency, 0, 0, 100)),
         outcome,
         qualification: "assisted",
+        conceptGrade:
+          practiceKind === "concept" ? conceptGrade : undefined,
+        conceptCheckIndex:
+          practiceKind === "concept" &&
+          Number.isInteger(Number(raw.conceptCheckIndex)) &&
+          Number(raw.conceptCheckIndex) >= 0 &&
+          Number(raw.conceptCheckIndex) <= 2
+            ? (Math.round(
+                finiteNumber(raw.conceptCheckIndex, 0, 0, 2),
+              ) as 0 | 1 | 2)
+            : undefined,
         verification: normalizeVerificationSummary(raw.verification),
         keyErrors,
         lineErrors: normalizeLineErrors(raw.lineErrors),
@@ -758,7 +814,9 @@ export function normalizeState(value: unknown): AppState {
     ? itemIdFromRaw(rawDraft.itemId ?? rawDraft.problemId)
     : null;
   const draftCurrentRevision = draftItemId
-    ? (customItems.find((item) => item.itemId === draftItemId)
+    ? ([...BUILTIN_ITEMS, ...customItems].find(
+        (item) => item.itemId === draftItemId,
+      )
         ?.contentRevision ?? 1)
     : 1;
   const draftItem = draftItemId
@@ -769,6 +827,9 @@ export function normalizeState(value: unknown): AppState {
   const draftSupportsSolve = Boolean(
     draftItem?.language === "python" && draftItem.verification,
   );
+  const draftSupportsConcept = Boolean(
+    supportsConceptPractice(draftItem),
+  );
   const draft: Draft | null =
     rawDraft &&
     draftItemId &&
@@ -776,6 +837,7 @@ export function normalizeState(value: unknown): AppState {
     Math.round(finiteNumber(rawDraft.itemRevision, 1, 1, 1000000)) ===
       draftCurrentRevision &&
     !(rawDraft.practiceKind === "solving" && !draftSupportsSolve) &&
+    !(rawDraft.practiceKind === "concept" && !draftSupportsConcept) &&
     typeof rawDraft.value === "string" &&
     rawDraft.value.length <= 50000
       ? {
@@ -785,7 +847,11 @@ export function normalizeState(value: unknown): AppState {
           ),
           stage: Math.round(finiteNumber(rawDraft.stage, 1, 1, 5)),
           practiceKind:
-            rawDraft.practiceKind === "solving" ? "solving" : "typing",
+            rawDraft.practiceKind === "solving"
+              ? "solving"
+              : rawDraft.practiceKind === "concept"
+                ? "concept"
+                : "typing",
           value: rawDraft.value,
           startedAt:
             typeof rawDraft.startedAt === "number" &&
@@ -809,6 +875,15 @@ export function normalizeState(value: unknown): AppState {
           lineErrors: normalizeLineErrors(rawDraft.lineErrors),
           timeline: normalizeTimelineSamples(rawDraft.timeline),
           testRuns: Math.round(finiteNumber(rawDraft.testRuns, 0, 0, 100000)),
+          conceptCommittedAt:
+            typeof rawDraft.conceptCommittedAt === "number" &&
+            Number.isFinite(rawDraft.conceptCommittedAt)
+              ? rawDraft.conceptCommittedAt
+              : undefined,
+          conceptCommittedResponse:
+            typeof rawDraft.conceptCommittedResponse === "string"
+              ? rawDraft.conceptCommittedResponse.slice(0, 1000)
+              : undefined,
           challengeDate:
             typeof rawDraft.challengeDate === "string"
               ? rawDraft.challengeDate
@@ -837,6 +912,7 @@ export function normalizeState(value: unknown): AppState {
     tracks,
     languages,
     supportsSolving,
+    supportsConcept,
   );
   const activeEntry = activeSession?.entries[activeSession.currentIndex];
   const draftMatchesSession = Boolean(
@@ -853,7 +929,7 @@ export function normalizeState(value: unknown): AppState {
     ? { ...draft, sessionId: draftMatchesSession ? draft.sessionId : undefined }
     : null;
   return {
-    version: 10,
+    version: 11,
     attempts,
     learningEvents: normalizeLearningEvents(value.learningEvents, {
       validItemIds: validIds,
@@ -889,6 +965,7 @@ export function loadState(): AppState {
       FIRST_STORAGE_KEY,
       EARLIEST_STORAGE_KEY,
       INITIAL_STORAGE_KEY,
+      FIRST_VERSION_STORAGE_KEY,
     ]) {
       const stored = localStorage.getItem(key);
       if (!stored) continue;
@@ -911,7 +988,7 @@ function hasSupportedStateVersion(
 ): value is Record<string, unknown> {
   return (
     isRecord(value) &&
-    [2, 3, 4, 5, 6, 7, 8, 9, 10].includes(Number(value.version))
+    [2, 3, 4, 5, 6, 7, 8, 9, 10, 11].includes(Number(value.version))
   );
 }
 
@@ -1028,6 +1105,11 @@ export function eligibleAttempt(attempt: AttemptRecord) {
 export function successfulLearningAttempt(attempt: AttemptRecord) {
   return (
     eligibleAttempt(attempt) ||
+    (attempt.practiceKind === "concept" &&
+      attempt.outcome === "completed" &&
+      attempt.peeks === 0 &&
+      (attempt.conceptGrade === "good" ||
+        attempt.conceptGrade === "easy")) ||
     (attempt.practiceKind === "solving" &&
       attempt.outcome === "completed" &&
       attempt.peeks === 0 &&
@@ -1059,10 +1141,16 @@ export function itemStats(state: AppState, itemId: ItemId) {
     (attempt) =>
       attempt.practiceKind === "solving" && successfulLearningAttempt(attempt),
   );
+  const conceptAttempts = attempts.filter(
+    (attempt) => attempt.practiceKind === "concept",
+  );
+  const strongConceptAttempts = conceptAttempts.filter(successfulLearningAttempt);
   return {
     attempts,
     completions: attempts.length,
     solveCompletions: verifiedSolves.length,
+    conceptCompletions: conceptAttempts.length,
+    strongConceptCompletions: strongConceptAttempts.length,
     qualifiedCompletions: qualified.length,
     highestStage: qualified.reduce(
       (highest, attempt) => Math.max(highest, attempt.stage),
@@ -1072,7 +1160,10 @@ export function itemStats(state: AppState, itemId: ItemId) {
       (highest, attempt) => Math.max(highest, attempt.stage),
       0,
     ),
-    owned: independent.length > 0 || verifiedSolves.length > 0,
+    owned:
+      independent.length > 0 ||
+      verifiedSolves.length > 0 ||
+      strongConceptAttempts.length > 0,
     bestWpm: qualified.reduce(
       (best, attempt) => Math.max(best, attempt.wpm),
       0,
@@ -1088,10 +1179,16 @@ export function itemStats(state: AppState, itemId: ItemId) {
 const REVIEW_DAYS = [1, 3, 7, 14, 30];
 export function reviewStatus(state: AppState, itemId: ItemId) {
   const revision = itemRevision(state, itemId);
+  const item =
+    state.customItems.find((candidate) => candidate.itemId === itemId) ??
+    BUILTIN_ITEMS.find((candidate) => candidate.itemId === itemId);
+  const conceptItem = supportsConceptPractice(item);
   const attempts = state.attempts
     .filter(
       (attempt) =>
-        attempt.itemId === itemId && attempt.itemRevision === revision,
+        attempt.itemId === itemId &&
+        attempt.itemRevision === revision &&
+        (!conceptItem || attempt.practiceKind === "concept"),
     )
     .slice()
     .sort((a, b) => Date.parse(a.completedAt) - Date.parse(b.completedAt));
@@ -1118,6 +1215,7 @@ export function reviewStatus(state: AppState, itemId: ItemId) {
       (event) =>
         event.itemId === itemId &&
         event.itemRevision === revision &&
+        (!conceptItem || event.activityKind === "concept") &&
         !Number.isNaN(Date.parse(event.createdAt)),
     )
     .slice()

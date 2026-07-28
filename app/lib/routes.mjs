@@ -56,8 +56,13 @@ export function parseRoute(input) {
     requestedStage <= 5
       ? requestedStage
       : undefined;
+  const requestedPractice = params.get("practice");
   const practiceKind =
-    params.get("practice") === "solve" ? "solving" : undefined;
+    requestedPractice === "solve"
+      ? "solving"
+      : requestedPractice === "concept"
+        ? "concept"
+        : undefined;
   const requestedTab = params.get("tab");
   const communityTab = COMMUNITY_TABS.includes(requestedTab)
     ? requestedTab
@@ -111,7 +116,9 @@ export function routeForItem(item, stage = 1, practiceKind = "typing") {
     track: item.track,
     item: itemRouteToken(item),
     stage: Math.max(1, Math.min(5, Math.round(stage))),
-    ...(practiceKind === "solving" ? { practiceKind } : {}),
+    ...(practiceKind === "solving" || practiceKind === "concept"
+      ? { practiceKind }
+      : {}),
   };
 }
 
@@ -145,6 +152,8 @@ export function serializeRoute(
     url.searchParams.set("stage", String(route.stage));
   if (view === "practice" && route?.practiceKind === "solving")
     url.searchParams.set("practice", "solve");
+  if (view === "practice" && route?.practiceKind === "concept")
+    url.searchParams.set("practice", "concept");
   if (view === "records" && COMMUNITY_TABS.includes(route?.communityTab))
     url.searchParams.set("tab", route.communityTab);
   const profile = view === "records" ? cleanHandle(route?.profile) : undefined;

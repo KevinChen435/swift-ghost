@@ -25,6 +25,7 @@ export type PracticeItem = Omit<Problem, "swiftNote"> & {
   archivedAt?: string;
   masks?: Partial<Record<2 | 3 | 4, string>>;
   recallChecks?: readonly [string, string, string];
+  conceptAnswers?: readonly [string, string, string];
   verification?: PythonVerification;
   starterCode?: string;
 };
@@ -63,7 +64,7 @@ export const IOS_ITEMS: PracticeItem[] = FUNDAMENTALS.map(
     language: "swift",
     languageNote: swiftNote,
     source: "builtin",
-    contentRevision: 1,
+    contentRevision: 2,
   }),
 );
 

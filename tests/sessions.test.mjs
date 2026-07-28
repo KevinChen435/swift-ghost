@@ -62,3 +62,24 @@ test("session migration keeps the current pending task after invalid entries are
   assert.equal(resolveSessionCurrentIndex(compacted, 1), 0);
   assert.equal(resolveSessionCurrentIndex(compacted, 2), 1);
 });
+
+test("authored iOS items enter sessions as concept recall", () => {
+  const ios = {
+    itemId: "ios:ownership",
+    contentRevision: 2,
+    track: "ios",
+    language: "swift",
+    source: "builtin",
+    pattern: "Memory Management",
+    difficulty: "Easy",
+    recallChecks: ["one", "two", "three"],
+    conceptAnswers: ["a", "b", "c"],
+  };
+  const [entry] = buildSessionQueue(
+    [ios],
+    { [ios.itemId]: { itemRevision: 2, recommendedStage: 5 } },
+    { count: 1, source: "mixed", track: "ios", language: "swift", pattern: "All", difficulty: "All", stageMode: "recommended" },
+    () => 0,
+  );
+  assert.equal(entry.practiceKind, "concept");
+});

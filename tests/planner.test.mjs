@@ -8,7 +8,7 @@ const items = [
   { itemId: "python:1", contentRevision: 1, title: "Two Sum", language: "python", track: "interview", pattern: "Arrays & Hashing", difficulty: "Easy", estimatedMinutes: 8, verification: { cases: [{}] } },
   { itemId: "python:49", contentRevision: 1, title: "Group Anagrams", language: "python", track: "interview", pattern: "Arrays & Hashing", difficulty: "Medium", estimatedMinutes: 9, verification: { cases: [{}] } },
   { itemId: "builtin:1", contentRevision: 1, title: "Swift Two Sum", language: "swift", track: "interview", pattern: "Arrays & Hashing", difficulty: "Easy", estimatedMinutes: 5 },
-  { itemId: "ios:arc", contentRevision: 1, title: "ARC", language: "swift", track: "ios", pattern: "Memory", difficulty: "Medium", estimatedMinutes: 5 },
+  { itemId: "ios:arc", contentRevision: 1, title: "ARC", language: "swift", track: "ios", pattern: "Memory", difficulty: "Medium", estimatedMinutes: 5, recallChecks: ["one", "two", "three"], conceptAnswers: ["a", "b", "c"] },
 ];
 
 function attempt(overrides = {}) {
@@ -140,4 +140,19 @@ test("an Again debrief returns the matching competence sooner", () => {
     { now: new Date("2026-07-21T12:00:00.000Z"), budgetMinutes: 15 },
   );
   assert.match(plan.entries[0].rationale, /due|Again|recognition/i);
+});
+
+test("iOS coaching emits first-class concept practice", () => {
+  const item = items.find((candidate) => candidate.track === "ios");
+  assert.ok(item);
+  const plan = buildDailyPlan({
+    items: [item],
+    attempts: [],
+    learningEvents: [],
+    profile: { iosShare: 1, pythonShare: 0, reviewShare: 0 },
+    now: "2026-07-27T12:00:00.000Z",
+    budgetMinutes: 15,
+  });
+  assert.equal(plan.tasks[0]?.activityKind, "concept");
+  assert.equal(plan.tasks[0]?.practiceKind, "concept");
 });

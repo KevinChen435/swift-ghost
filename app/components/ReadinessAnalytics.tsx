@@ -64,6 +64,14 @@ export function ReadinessAnalytics({
           </p>
         </article>
         <article>
+          <small>Swift / iOS concept recall</small>
+          <strong>{rateValue(summary.conceptRecall)}</strong>
+          <p>
+            {summary.conceptRecall.numerator}/
+            {summary.conceptRecall.denominator} unassisted Good/Easy recalls
+          </p>
+        </article>
+        <article>
           <small>Debrief coverage</small>
           <strong>{rateValue(summary.debriefCoverage)}</strong>
           <p>

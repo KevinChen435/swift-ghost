@@ -94,6 +94,37 @@ test("activity kinds keep solving, syntax, and iOS concepts separate", () => {
   assert.equal(activityKindFor({ track: "ios", practiceKind: "typing" }), "concept");
 });
 
+test("concept events accept the new concept mode and preserve legacy iOS typing debriefs", () => {
+  const base = {
+    id: "event-concept",
+    attemptId: "attempt-concept",
+    itemId: "ios:value-reference-snapshots",
+    itemRevision: 2,
+    activityKind: "concept",
+    grade: "good",
+    friction: "none",
+    confidence: 4,
+    createdAt: "2026-07-27T12:00:00.000Z",
+  };
+  assert.equal(
+    normalizeLearningEvents([{ ...base, practiceKind: "concept" }]).length,
+    1,
+  );
+  assert.equal(
+    normalizeLearningEvents([
+      {
+        ...base,
+        id: "legacy-event",
+        attemptId: "legacy-attempt",
+        itemRevision: 1,
+        practiceKind: "typing",
+      },
+    ]).length,
+    1,
+  );
+  assert.equal(activityKindFor({ practiceKind: "concept" }), "concept");
+});
+
 test("learning history is capped to the newest one thousand events", () => {
   const events = Array.from({ length: 1002 }, (_, index) =>
     event({
