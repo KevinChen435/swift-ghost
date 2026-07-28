@@ -8622,6 +8622,434 @@ kbd {
   }
 }
 
+/* Submission work log */
+.records-section-switch {
+  display: inline-flex;
+  gap: 4px;
+  margin: 0 0 22px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-soft);
+}
+.records-section-switch button {
+  min-height: 44px;
+  padding: 9px 18px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: 700 11px var(--font-code);
+}
+.records-section-switch button.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.submission-work-log {
+  display: grid;
+  gap: 18px;
+}
+.submission-work-log-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(260px, 0.7fr);
+  gap: 28px;
+  align-items: end;
+  padding: 26px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 85% 0%, color-mix(in srgb, var(--violet) 12%, transparent), transparent 42%),
+    var(--panel);
+  box-shadow: var(--shadow);
+}
+.submission-work-log-hero small,
+.submission-work-log-annotation small {
+  color: var(--accent);
+  font: 700 10px var(--font-code);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.submission-work-log-hero h2 {
+  margin: 8px 0 8px;
+  font-size: clamp(1.6rem, 3vw, 2.35rem);
+  letter-spacing: -0.04em;
+}
+.submission-work-log-hero p,
+.submission-work-log-note,
+.submission-work-log-row p,
+.submission-work-log-detail-head p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.submission-work-log-trust {
+  padding: 15px 16px;
+  border-left: 2px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 7%, transparent);
+  font-size: 0.84rem;
+}
+.submission-work-log-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.submission-work-log-stats > span {
+  display: grid;
+  gap: 3px;
+  padding: 15px 17px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--panel-soft);
+}
+.submission-work-log-stats strong {
+  font: 700 1.3rem var(--font-code);
+}
+.submission-work-log-stats small {
+  color: var(--muted);
+}
+.submission-work-log-filters {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.5fr) repeat(6, minmax(118px, 0.75fr)) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+}
+.submission-work-log-filters label,
+.submission-work-log-compare,
+.submission-work-log-annotation > label {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+.submission-work-log-filters label > span,
+.submission-work-log-compare > span,
+.submission-work-log-annotation label > span,
+.submission-work-log-annotation legend {
+  color: var(--muted);
+  font: 700 9px var(--font-code);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.submission-work-log-filters input,
+.submission-work-log-filters select,
+.submission-work-log-compare select,
+.submission-work-log-annotation textarea {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-raised);
+  color: var(--text);
+  padding: 10px 11px;
+}
+.submission-work-log-results {
+  margin: 0;
+  color: var(--muted);
+  font: 500 11px var(--font-code);
+}
+.submission-work-log-layout {
+  display: grid;
+  grid-template-columns: minmax(330px, 0.72fr) minmax(0, 1.28fr);
+  gap: 16px;
+  align-items: start;
+}
+.submission-work-log-list,
+.submission-work-log-detail,
+.submission-work-log-detail-empty {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel);
+}
+.submission-work-log-list {
+  display: grid;
+  gap: 10px;
+}
+.submission-work-log-row {
+  display: grid;
+  gap: 9px;
+  padding: 15px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--faint);
+  border-radius: 11px;
+  background: var(--panel-soft);
+}
+.submission-work-log-row.is-accepted { border-left-color: var(--success); }
+.submission-work-log-row.is-wrong-answer,
+.submission-work-log-row.is-runtime-error,
+.submission-work-log-row.is-time-limit,
+.submission-work-log-row.is-invalid-entrypoint { border-left-color: var(--danger); }
+.submission-work-log-row.is-judge-error,
+.submission-work-log-row.is-pending { border-left-color: var(--warning); }
+.submission-work-log-row.is-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.submission-work-log-row-head,
+.submission-work-log-row-foot,
+.submission-work-log-detail-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+.submission-work-log-row-head strong {
+  font: 700 10px var(--font-code);
+  text-transform: uppercase;
+}
+.submission-work-log-row-head time,
+.submission-work-log-row-foot > span {
+  color: var(--muted);
+  font: 500 9px var(--font-code);
+}
+.submission-work-log-row h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+.submission-work-log-row p { font-size: 0.8rem; }
+.submission-work-log-row-foot button { min-height: 44px; }
+.submission-work-log-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 6px;
+}
+.submission-work-log-pagination span {
+  color: var(--muted);
+  font: 500 10px var(--font-code);
+}
+.submission-work-log-detail {
+  position: sticky;
+  top: 92px;
+  display: grid;
+  gap: 18px;
+  max-height: calc(100vh - 112px);
+  overflow: auto;
+}
+.submission-work-log-back { display: none; }
+.submission-work-log-detail-head {
+  align-items: flex-start;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.submission-work-log-detail-head h3 {
+  margin: 5px 0;
+  font-size: 1.35rem;
+}
+.submission-work-log-detail-head small {
+  color: var(--accent);
+  font: 700 9px var(--font-code);
+  text-transform: uppercase;
+}
+.submission-work-log-verdict {
+  flex: 0 0 auto;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font: 700 9px var(--font-code);
+}
+.submission-work-log-verdict.is-accepted { color: var(--success); }
+.submission-work-log-verdict.is-pending,
+.submission-work-log-verdict.is-judge-error { color: var(--warning); }
+.submission-work-log-verdict.is-wrong-answer,
+.submission-work-log-verdict.is-runtime-error,
+.submission-work-log-verdict.is-time-limit,
+.submission-work-log-verdict.is-invalid-entrypoint { color: var(--danger); }
+.submission-work-log-evidence {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+.submission-work-log-evidence > div {
+  display: grid;
+  gap: 4px;
+  padding: 11px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: var(--panel-soft);
+}
+.submission-work-log-evidence dt {
+  color: var(--muted);
+  font: 600 9px var(--font-code);
+}
+.submission-work-log-evidence dd {
+  margin: 0;
+  font: 600 0.84rem var(--font-code);
+}
+.submission-work-log-warning {
+  margin: 0;
+  padding: 12px 13px;
+  border-left: 2px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 7%, transparent);
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.submission-work-log-detail-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-soft);
+}
+.submission-work-log-detail-tabs button {
+  flex: 1;
+  min-height: 44px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.submission-work-log-detail-tabs button.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.submission-work-log-detail .submission-inspector-source {
+  width: 100%;
+  min-height: 21rem;
+  max-width: 100%;
+  resize: vertical;
+  overflow: auto;
+}
+.submission-work-log-diff-wrap,
+.submission-work-log-diff-wrap .submission-inspector-diff {
+  min-width: 0;
+  max-width: 100%;
+}
+.submission-work-log-diff-wrap .submission-inspector-diff { overflow-x: auto; }
+.submission-work-log-compare { margin-bottom: 12px; }
+.submission-work-log-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.submission-work-log-actions button { min-height: 44px; }
+.submission-work-log-annotation {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--panel-soft);
+}
+.submission-work-log-annotation h4 { margin: 5px 0 0; }
+.submission-work-log-annotation textarea {
+  min-height: 104px;
+  resize: vertical;
+}
+.submission-work-log-annotation fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.submission-work-log-annotation fieldset > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 9px;
+}
+.submission-work-log-annotation fieldset label {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  min-height: 40px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.submission-work-log-annotation fieldset label:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.submission-work-log-annotation fieldset input { width: 16px; height: 16px; }
+.submission-work-log-detail-empty {
+  min-height: 360px;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  text-align: center;
+  color: var(--muted);
+}
+.submission-work-log-detail-empty > span {
+  color: var(--accent);
+  font-size: 2rem;
+}
+.submission-work-log-detail-empty h3 { margin: 12px 0 4px; color: var(--text); }
+.submission-work-log-detail-empty p { max-width: 420px; line-height: 1.55; }
+
+@media (max-width: 1180px) {
+  .submission-work-log-filters {
+    grid-template-columns: repeat(4, minmax(135px, 1fr));
+  }
+  .submission-work-log-search { grid-column: span 2; }
+}
+
+@media (max-width: 900px) {
+  .submission-work-log-hero { grid-template-columns: minmax(0, 1fr); }
+  .submission-work-log-layout { grid-template-columns: minmax(0, 1fr); }
+  .submission-work-log-detail { position: static; max-height: none; }
+  .submission-work-log-layout.has-selection .submission-work-log-list { display: none; }
+  .submission-work-log-back { display: inline-flex; justify-self: start; min-height: 44px; }
+}
+
+@media (max-width: 720px) {
+  .records-section-switch { display: flex; width: 100%; }
+  .records-section-switch button { flex: 1; }
+  .submission-work-log-hero,
+  .submission-work-log-list,
+  .submission-work-log-detail,
+  .submission-work-log-detail-empty { padding: 15px; border-radius: 13px; }
+  .submission-work-log-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .submission-work-log-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 13px; }
+  .submission-work-log-search { grid-column: 1 / -1; }
+  .submission-work-log-filters > button { width: 100%; }
+  .submission-work-log-evidence { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .submission-work-log-actions {
+    position: sticky;
+    z-index: 3;
+    bottom: 84px;
+    padding: 10px;
+    margin-inline: -8px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--panel) 94%, transparent);
+    backdrop-filter: blur(14px);
+  }
+  .submission-work-log-actions button { flex: 1 1 145px; }
+}
+
+@media (max-width: 420px) {
+  .submission-work-log-filters { grid-template-columns: minmax(0, 1fr); }
+  .submission-work-log-search { grid-column: auto; }
+  .submission-work-log-row-head,
+  .submission-work-log-detail-head { align-items: flex-start; flex-direction: column; }
+  .submission-work-log-row-foot { align-items: flex-end; }
+  .submission-work-log-verdict { order: -1; }
+}
+
+@media (forced-colors: active) {
+  .submission-work-log-hero,
+  .submission-work-log-list,
+  .submission-work-log-detail,
+  .submission-work-log-detail-empty,
+  .submission-work-log-row,
+  .submission-work-log-annotation,
+  .submission-work-log-evidence > div {
+    border-color: CanvasText;
+    background: Canvas;
+  }
+}
+
 @media (max-width: 1100px) {
   .solve-workbench .challenge-console .challenge-console-actions {
     position: sticky;

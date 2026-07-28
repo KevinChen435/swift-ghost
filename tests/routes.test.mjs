@@ -7,6 +7,7 @@ import {
   serializeRoute,
 } from "../app/lib/routes.mjs";
 import { DEFAULT_CATALOG_QUERY } from "../app/lib/catalog-discovery.mjs";
+import { DEFAULT_SUBMISSION_WORK_LOG_QUERY } from "../app/lib/submission-work-log.mjs";
 
 test("study plans have a first-class reload-safe route", () => {
   const route = parseRoute("/?view=plans");
@@ -47,6 +48,37 @@ test("assessments have reload-safe list and detail routes", () => {
     ),
     /assessment=/,
   );
+});
+
+test("the Records submission work log round-trips filters, selection, and compare state", () => {
+  const route = parseRoute(
+    "/swift-ghost/?view=records&section=submissions&sq=two+sum&verdict=accepted&verdict=pending&origin=mock&language=python&revision=older&range=30d&sort=oldest&page=3&size=50&submission=receipt-2&compare=receipt-1",
+  );
+  assert.equal(route.view, "records");
+  assert.equal(route.recordsSection, "submissions");
+  assert.deepEqual(route.submissions, {
+    ...DEFAULT_SUBMISSION_WORK_LOG_QUERY,
+    text: "two sum",
+    statuses: ["accepted", "pending"],
+    origins: ["mock"],
+    languages: ["python"],
+    revision: "older",
+    range: "30d",
+    sort: "oldest",
+    page: 3,
+    pageSize: 50,
+    selectedId: "receipt-2",
+    compareId: "receipt-1",
+  });
+  assert.equal(
+    serializeRoute(route, "https://example.test/swift-ghost/?stale=1"),
+    "/swift-ghost/?view=records&section=submissions&sq=two+sum&verdict=accepted&verdict=pending&origin=mock&language=python&revision=older&range=30d&sort=oldest&page=3&size=50&submission=receipt-2&compare=receipt-1",
+  );
+  const ignored = parseRoute(
+    "/?view=library&section=submissions&verdict=accepted&submission=receipt-2",
+  );
+  assert.equal(ignored.recordsSection, undefined);
+  assert.equal(ignored.submissions, undefined);
 });
 
 const items = [
@@ -105,6 +137,7 @@ test("parses safe deep links and preserves legacy profile links", () => {
     communityTab: "profile",
     profile: "kevin-swift",
     assessment: undefined,
+    recordsSection: "overview",
   });
 });
 

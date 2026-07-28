@@ -5,9 +5,17 @@ import {
   type PracticeItem,
 } from "./items";
 import {
-  appendSubmissionHistory,
-  isStorableSubmissionSource,
-} from "./submission-history.mjs";
+  createSubmissionLog,
+  normalizeSubmissionLog,
+  recoverInterruptedSubmissions,
+  settledSubmissionEvidence,
+  type SubmissionLog,
+} from "./submission-log.mjs";
+import { persistJsonProperty } from "./local-persistence.mjs";
+import {
+  normalizeSubmissionAnnotations,
+  type SubmissionAnnotations,
+} from "./submission-annotations.mjs";
 import {
   normalizeLineErrors,
   normalizeTimelineSamples,
@@ -143,6 +151,8 @@ export type SubmissionStatus =
 export type SubmissionRecord = {
   id: string;
   itemId: ItemId;
+  titleSnapshot: string;
+  language: CodeLanguage;
   itemRevision: number;
   verificationRevision: number;
   submittedAt: string;
@@ -277,9 +287,10 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 22;
+  version: 23;
   attempts: AttemptRecord[];
-  submissionHistory: SubmissionRecord[];
+  submissionLog: SubmissionLog;
+  submissionAnnotations: SubmissionAnnotations;
   learningEvents: LearningEvent[];
   favorites: ItemId[];
   customItems: PracticeItem[];
@@ -300,7 +311,8 @@ export type AppState = {
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v22";
+export const STORAGE_KEY = "swift-ghost-state-v23";
+export const TWENTY_SECOND_STORAGE_KEY = "swift-ghost-state-v22";
 export const TWENTY_FIRST_STORAGE_KEY = "swift-ghost-state-v21";
 export const TWENTIETH_STORAGE_KEY = "swift-ghost-state-v20";
 export const NINETEENTH_STORAGE_KEY = "swift-ghost-state-v19";
@@ -322,10 +334,11 @@ export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
-  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
 ];
 export const STATE_STORAGE_KEYS = [
   STORAGE_KEY,
+  TWENTY_SECOND_STORAGE_KEY,
   TWENTY_FIRST_STORAGE_KEY,
   TWENTIETH_STORAGE_KEY,
   NINETEENTH_STORAGE_KEY,
@@ -362,9 +375,10 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 22,
+  version: 23,
   attempts: [],
-  submissionHistory: [],
+  submissionLog: createSubmissionLog(),
+  submissionAnnotations: {},
   learningEvents: [],
   favorites: [],
   customItems: [],
@@ -429,68 +443,6 @@ function normalizeVerificationSummary(value: unknown) {
       finiteNumber(value.submissions, 1, 1, 100000),
     ),
   };
-}
-
-function normalizeSubmissionHistory(
-  value: unknown,
-  validIds: Set<ItemId>,
-  supportsSolving: Map<ItemId, boolean>,
-) {
-  if (!Array.isArray(value)) return [];
-  const statuses: SubmissionStatus[] = [
-    "accepted",
-    "wrong-answer",
-    "runtime-error",
-    "time-limit",
-    "invalid-entrypoint",
-    "judge-error",
-  ];
-  return value.slice(-1000).reduce<SubmissionRecord[]>((history, raw) => {
-    if (!isRecord(raw) || typeof raw.id !== "string" || !raw.id.trim())
-      return history;
-    const itemId = itemIdFromRaw(raw.itemId);
-    if (
-      !itemId ||
-      !validIds.has(itemId) ||
-      !supportsSolving.get(itemId) ||
-      !statuses.includes(raw.status as SubmissionStatus) ||
-      !isStorableSubmissionSource(raw.source) ||
-      typeof raw.submittedAt !== "string" ||
-      Number.isNaN(Date.parse(raw.submittedAt))
-    )
-      return history;
-    const total = Math.round(finiteNumber(raw.total, 0, 0, 64));
-    return appendSubmissionHistory(history, {
-      id: raw.id.trim().slice(0, 100),
-      itemId,
-      itemRevision: Math.round(
-        finiteNumber(raw.itemRevision, 1, 1, 1000000),
-      ),
-      verificationRevision: Math.round(
-        finiteNumber(raw.verificationRevision, 1, 1, 1000000),
-      ),
-      submittedAt: raw.submittedAt,
-      status: raw.status as SubmissionStatus,
-      durationMs: finiteNumber(raw.durationMs, 0, 0, 86400000),
-      passed: Math.round(finiteNumber(raw.passed, 0, 0, total)),
-      total,
-      source: raw.source,
-      origin:
-        raw.origin === "mock"
-          ? "mock"
-          : raw.origin === "round"
-            ? "round"
-            : "practice",
-      sessionId:
-        typeof raw.sessionId === "string"
-          ? raw.sessionId.slice(0, 100)
-          : undefined,
-      virtualRoundId:
-        typeof raw.virtualRoundId === "string"
-          ? raw.virtualRoundId.slice(0, 120)
-          : undefined,
-    });
-  }, []);
 }
 
 function normalizeSettings(value: unknown): Settings {
@@ -1544,14 +1496,30 @@ export function normalizeState(value: unknown): AppState {
           : undefined,
       }
     : null;
-  return {
-    version: 22,
-    attempts,
-    submissionHistory: normalizeSubmissionHistory(
-      value.submissionHistory,
-      validIds,
-      supportsSolving,
+  const submissionNow = new Date().toISOString();
+  const submissionLog = recoverInterruptedSubmissions(
+    normalizeSubmissionLog(
+      Number(value.version) >= 23 ? value.submissionLog : undefined,
+      {
+        items: [...BUILTIN_ITEMS, ...customItems],
+        now: submissionNow,
+        legacyHistory:
+          Number(value.version) <= 22 && Array.isArray(value.submissionHistory)
+            ? value.submissionHistory
+            : undefined,
+      },
     ),
+    { now: submissionNow },
+  );
+  const submissionAnnotations = normalizeSubmissionAnnotations(
+    Number(value.version) >= 23 ? value.submissionAnnotations : undefined,
+    new Set(submissionLog.receipts.map((receipt) => receipt.id)),
+  );
+  return {
+    version: 23,
+    attempts,
+    submissionLog,
+    submissionAnnotations,
     learningEvents: normalizeLearningEvents(value.learningEvents, {
       validItemIds: validIds,
       attemptsById: new Map(attempts.map((attempt) => [attempt.id, attempt])),
@@ -1631,12 +1599,8 @@ function hasSupportedStateVersion(
 }
 
 export function saveState(state: AppState) {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    /* local-only mode still works */
-  }
+  if (typeof window === "undefined") return false;
+  return persistJsonProperty(window, "localStorage", STORAGE_KEY, state);
 }
 
 export function maskCode(
@@ -1951,6 +1915,9 @@ export type Milestone = {
   note: string;
   achieved: boolean;
 };
+export function submissionEvidence(state: AppState) {
+  return settledSubmissionEvidence(state.submissionLog);
+}
 export function milestones(state: AppState): Milestone[] {
   const completed = completedAttempts(state);
   const independent = completed.filter(
@@ -1960,7 +1927,7 @@ export function milestones(state: AppState): Milestone[] {
     variants: BUILTIN_ITEMS.filter((item) => Boolean(item.transfer)),
     workspace: state.transferWorkspace,
     attempts: state.attempts,
-    submissions: state.submissionHistory,
+    submissions: submissionEvidence(state),
     now: new Date().toISOString(),
   }).some((entry) => entry.isProven);
   const recovered = state.attempts.some(

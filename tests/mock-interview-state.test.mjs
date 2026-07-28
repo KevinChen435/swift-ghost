@@ -12,8 +12,8 @@ test("state v17 preserves multi-problem mock notebooks and debriefs", async () =
     "utf8",
   );
 
-  assert.match(product, /export type AppState = \{\s+version: 22;/);
-  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v22"/);
+  assert.match(product, /export type AppState = \{\s+version: 23;/);
+  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v23"/);
   assert.match(product, /TWENTY_FIRST_STORAGE_KEY = "swift-ghost-state-v21"/);
   assert.match(product, /TWENTIETH_STORAGE_KEY = "swift-ghost-state-v20"/);
   assert.match(product, /NINETEENTH_STORAGE_KEY = "swift-ghost-state-v19"/);
@@ -48,8 +48,10 @@ test("state v17 preserves multi-problem mock notebooks and debriefs", async () =
   assert.match(product, /migrateLegacyCustomTestcases/);
   assert.match(product, /CUSTOM_TESTCASE_STATE_BYTE_LIMIT = 512_000/);
   assert.match(product, /submissions: Math\.round/);
-  assert.match(product, /submissionHistory: SubmissionRecord\[\]/);
-  assert.match(product, /normalizeSubmissionHistory/);
+  assert.match(product, /submissionLog: SubmissionLog/);
+  assert.match(product, /submissionAnnotations: SubmissionAnnotations/);
+  assert.match(product, /normalizeSubmissionLog/);
+  assert.match(product, /recoverInterruptedSubmissions/);
 
   assert.match(app, /expireMockInterviewRef/);
   assert.match(app, /mockInterviewRemainingMs\(session, now\) !== 0/);
