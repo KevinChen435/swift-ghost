@@ -3,6 +3,11 @@ import { buildDailyPlan } from "./planner.mjs";
 const DAY_MS = 86_400_000;
 const REVIEW_DAYS = [1, 3, 7, 14, 30];
 const ISO_EPOCH = "1970-01-01T00:00:00.000Z";
+const COLLECTION_ADDITIONS_MODULE = Object.freeze({
+  id: "collection-additions",
+  title: "Collection additions",
+  outcome: "Build current evidence for items added after this curriculum was authored.",
+});
 
 export const STUDY_PLAN_LIMITS = Object.freeze({
   maxCollections: 50,
@@ -327,6 +332,33 @@ export function updateStudyCollection(workspace, collectionId, patch = {}, optio
   return updated ? changed(workspace, { collections: workspace.collections.map((entry) => entry.id === collectionId ? updated : entry) }, now) : workspace;
 }
 
+export function appendStudyCollectionItems(workspace, collectionId, requestedItemIds, options = {}) {
+  const collectionIndex = workspace.collections.findIndex((entry) => entry.id === collectionId);
+  if (collectionIndex < 0) return workspace;
+
+  const existing = workspace.collections[collectionIndex];
+  const existingIds = Array.isArray(existing.itemIds) ? existing.itemIds : [];
+  const existingSet = new Set(existingIds);
+  const additions = uniqueIds(requestedItemIds, Number.POSITIVE_INFINITY)
+    .filter((id) => !existingSet.has(id));
+  if (!additions.length) return workspace;
+  if (existingIds.length + additions.length > STUDY_PLAN_LIMITS.maxItemsPerCollection) return workspace;
+
+  const now = iso(options.now, new Date().toISOString());
+  const collection = {
+    ...existing,
+    revision: boundedInt(existing.revision, 1, 1, 2_147_483_646) + 1,
+    itemIds: [...existingIds, ...additions],
+    updatedAt: now,
+  };
+  return {
+    ...workspace,
+    revision: boundedInt(workspace.revision, 0, 0, 2_147_483_646) + 1,
+    updatedAt: now,
+    collections: workspace.collections.map((entry, index) => index === collectionIndex ? collection : entry),
+  };
+}
+
 export function deleteStudyCollection(workspace, collectionId, options = {}) {
   const now = iso(options.now, new Date().toISOString());
   if (!workspace.collections.some((entry) => entry.id === collectionId)) return normalizeStudyWorkspace(workspace, { now });
@@ -556,15 +588,42 @@ function capstoneEvidence(plan, history = []) {
   return { required: Boolean(plan.capstone), completed: qualifying, selfAssessed: plan.capstone?.format === "ios-technical" };
 }
 
+function scopedCollectionModules(collection) {
+  if (!collection.modules?.length) {
+    return [{ id: "focus", title: collection.title, outcome: collection.outcome, itemIds: [...collection.itemIds] }];
+  }
+  const membership = new Set(collection.itemIds);
+  const assigned = new Set();
+  const authored = collection.modules.map((module) => {
+    const itemIds = module.itemIds.filter((id) => membership.has(id));
+    for (const id of itemIds) assigned.add(id);
+    return { ...module, itemIds };
+  });
+  const additions = collection.itemIds.filter((id) => !assigned.has(id));
+  const occupiedIds = new Set(authored
+    .filter((module) => module.id !== COLLECTION_ADDITIONS_MODULE.id)
+    .map((module) => module.id));
+  const scopedAuthored = additions.length ? authored.map((module, index) => {
+    if (module.id !== COLLECTION_ADDITIONS_MODULE.id) return module;
+    let id = `authored-collection-additions-${index + 1}`;
+    while (occupiedIds.has(id)) id = `${id}-derived`;
+    occupiedIds.add(id);
+    return { ...module, id };
+  }) : authored;
+  return additions.length
+    ? [...scopedAuthored, { ...COLLECTION_ADDITIONS_MODULE, itemIds: additions, patterns: [] }]
+    : scopedAuthored;
+}
+
 export function deriveStudyPlanProgress(plan, workspace, evidence = {}) {
   const collection = normalizeSnapshot(plan.collectionSnapshot, workspace.collections.find((entry) => plan.collectionIds?.includes(entry.id)));
   const progress = deriveStudyCollectionProgress(collection, evidence);
   const statusById = new Map(progress.statuses.map((entry) => [entry.itemId, entry]));
-  const modules = collection.modules?.length ? collection.modules : [{ id: "focus", title: collection.title, outcome: collection.outcome, itemIds: collection.itemIds }];
+  const modules = scopedCollectionModules(collection);
   const moduleProgress = modules.map((module) => {
-    const ids = module.itemIds?.length ? module.itemIds : collection.itemIds;
+    const ids = module.itemIds;
     const completed = ids.filter((id) => statusById.get(id)?.independent).length;
-    return { ...module, total: ids.length, completed, evidenceMet: ids.length > 0 && completed === ids.length };
+    return { ...module, total: ids.length, completed, evidenceMet: completed === ids.length };
   });
   const currentModule = moduleProgress.find((module) => !module.evidenceMet) ?? moduleProgress.at(-1) ?? { title: "Interview capstone", outcome: "Rehearse the complete conversation." };
   const capstone = capstoneEvidence(plan, evidence.interviewStudioHistory ?? []);
@@ -591,7 +650,7 @@ export function buildNextFocusBlock(plan, workspace, evidence = {}, options = {}
   const allowed = new Set(snapshot.itemIds);
   const currentProgress = deriveStudyPlanProgress(plan, workspace, evidence);
   const currentModuleIds = new Set(
-    currentProgress.currentModule.itemIds?.length
+    Array.isArray(currentProgress.currentModule.itemIds)
       ? currentProgress.currentModule.itemIds
       : snapshot.itemIds,
   );

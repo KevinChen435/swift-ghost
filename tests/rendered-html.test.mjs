@@ -121,6 +121,10 @@ test("ships the full five-stage practice model and original problem links", asyn
     new URL("../app/lib/readiness.mjs", import.meta.url),
     "utf8",
   );
+  const catalogLibrary = await readFile(
+    new URL("../app/components/CatalogLibrary.tsx", import.meta.url),
+    "utf8",
+  );
 
   for (const stage of [
     "Full ghost",
@@ -132,7 +136,8 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v19"/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v20"/);
+  assert.match(product, /NINETEENTH_STORAGE_KEY = "swift-ghost-state-v19"/);
   assert.match(product, /EIGHTEENTH_STORAGE_KEY = "swift-ghost-state-v18"/);
   assert.match(product, /SEVENTEENTH_STORAGE_KEY = "swift-ghost-state-v17"/);
   assert.match(product, /SIXTEENTH_STORAGE_KEY = "swift-ghost-state-v16"/);
@@ -142,7 +147,7 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(product, /TWELFTH_STORAGE_KEY = "swift-ghost-state-v12"/);
   assert.match(product, /PREVIOUS_STORAGE_KEY = "swift-ghost-state-v11"/);
   assert.match(product, /FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2"/);
-  assert.match(product, /version: 19/);
+  assert.match(product, /version: 20/);
   assert.match(product, /swift-ghost-state-v10/);
   assert.match(product, /swift-ghost-state-v9/);
   assert.match(product, /swift-ghost-state-v8/);
@@ -290,7 +295,17 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(page, /data-modal-autofocus="true"/);
   assert.match(page, /autoFocus/);
   assert.match(page, /Full analysis/);
-  assert.match(page, /Estimated time/);
+  assert.match(catalogLibrary, /Estimated time/);
+  assert.match(catalogLibrary, /Saved views/);
+  assert.match(catalogLibrary, /Live collections/);
+  assert.match(catalogLibrary, /Rows per page/);
+  assert.match(catalogLibrary, /Show filters/);
+  assert.match(catalogLibrary, /aria-controls="catalog-facet-controls"/);
+  assert.match(catalogLibrary, /Future search matches are not auto-added/);
+  assert.match(catalogLibrary, /Update saved view/);
+  assert.match(catalogLibrary, /Needs independent Python solve/);
+  assert.doesNotMatch(catalogLibrary, /cold Python solve/i);
+  assert.doesNotMatch(page, /function LibraryView/);
   assert.match(page, /mobile-practice-controls/);
   assert.match(page, /coercePracticeKind/);
   assert.match(page, /practiceEpoch/);
@@ -371,6 +386,8 @@ test("ships first-class Swift and iOS concept recall", async () => {
   assert.match(app, /finishConcept/);
   assert.match(app, /practiceKind: "concept"/);
   assert.match(app, /STATE_STORAGE_KEYS/);
+  assert.match(app, /Export a portable v20 JSON backup/);
+  assert.match(app, /restore any v2-v19 backup/);
   assert.match(concept, /Commit & compare answer/);
   assert.match(concept, /Optional guided typing/);
   assert.match(concept, /Self-rated recall · not automated correctness/);

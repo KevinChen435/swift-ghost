@@ -6,6 +6,7 @@ import {
   routeForItem,
   serializeRoute,
 } from "../app/lib/routes.mjs";
+import { DEFAULT_CATALOG_QUERY } from "../app/lib/catalog-discovery.mjs";
 
 test("study plans have a first-class reload-safe route", () => {
   const route = parseRoute("/?view=plans");
@@ -187,5 +188,133 @@ test("concept practice deep links round-trip explicitly", () => {
   assert.match(
     serializeRoute(route, "https://example.test/swift-ghost/"),
     /practice=concept/,
+  );
+});
+
+test("library catalog routes round-trip every canonical query dimension in order", () => {
+  const catalog = {
+    text: " two sum ",
+    lanes: ["python", "ios"],
+    patterns: ["Sliding Window", "Heap"],
+    difficulties: ["Medium", "Hard"],
+    statuses: ["due", "favorite"],
+    lineRange: "26-40",
+    timeRange: "11-15",
+    collectionIds: ["plan:meta", "favorites"],
+    sort: "title",
+    direction: "desc",
+    layout: "cards",
+    page: 3,
+    pageSize: 50,
+  };
+  const serialized = serializeRoute(
+    { view: "library", catalog },
+    "https://example.test/swift-ghost/?old=1#catalog",
+  );
+  assert.equal(
+    serialized,
+    "/swift-ghost/?view=library&q=two+sum&lane=python&lane=ios&pattern=Sliding+Window&pattern=Heap&difficulty=Medium&difficulty=Hard&status=due&status=favorite&lines=26-40&time=11-15&collection=plan%3Ameta&collection=favorites&sort=title&dir=desc&layout=cards&page=3&size=50#catalog",
+  );
+  assert.deepEqual(parseRoute(serialized).catalog, {
+    ...catalog,
+    text: "two sum",
+  });
+});
+
+test("library catalog routes omit normalized defaults and discard unknown params", () => {
+  const route = parseRoute("/?view=library&unknown=drop-me");
+  assert.deepEqual(route.catalog, DEFAULT_CATALOG_QUERY);
+  assert.equal(
+    serializeRoute(route, "https://example.test/base/?stale=1#results"),
+    "/base/?view=library#results",
+  );
+});
+
+test("library routes dedupe and bound repeated facets through the catalog normalizer", () => {
+  const patterns = Array.from({ length: 55 }, (_, index) => `pattern-${index}`);
+  const params = new URLSearchParams({ view: "library" });
+  params.append("lane", "python");
+  params.append("lane", "python");
+  params.append("lane", "ios");
+  params.append("difficulty", "Easy");
+  params.append("difficulty", "Easy");
+  params.append("status", "due");
+  params.append("status", "due");
+  params.append("collection", "study-one");
+  params.append("collection", "study-one");
+  for (const pattern of patterns) params.append("pattern", pattern);
+
+  const catalog = parseRoute(params).catalog;
+  assert.deepEqual(catalog.lanes, ["python", "ios"]);
+  assert.deepEqual(catalog.difficulties, ["Easy"]);
+  assert.deepEqual(catalog.statuses, ["due"]);
+  assert.deepEqual(catalog.collectionIds, ["study-one"]);
+  assert.equal(catalog.patterns.length, 50);
+  assert.equal(catalog.patterns.at(-1), "pattern-49");
+});
+
+test("legacy library language and track params map to canonical lanes", () => {
+  const laneFor = (query) => parseRoute(`/?view=library&${query}`).catalog.lanes;
+  assert.deepEqual(laneFor("lang=python"), ["python"]);
+  assert.deepEqual(laneFor("lang=swift"), ["swift"]);
+  assert.deepEqual(laneFor("track=ios"), ["ios"]);
+  assert.deepEqual(laneFor("track=ios&lang=python"), ["ios"]);
+  assert.deepEqual(laneFor("track=ios&lang=swift"), ["ios"]);
+  assert.deepEqual(laneFor("track=interview&lang=python"), ["python"]);
+  assert.deepEqual(laneFor("track=interview&lang=swift"), ["swift"]);
+  assert.deepEqual(laneFor("track=interview"), []);
+  assert.deepEqual(laneFor("lane=nope&track=ios&lang=python"), []);
+  assert.equal(
+    serializeRoute(parseRoute("/?view=library&track=ios&lang=python")),
+    "/?view=library&lane=ios",
+  );
+  assert.equal(
+    serializeRoute({ view: "library", language: "python" }),
+    "/?view=library&lane=python",
+  );
+});
+
+test("malformed and oversized catalog route input normalizes safely", () => {
+  const params = new URLSearchParams({
+    view: "library",
+    q: `  ${"x".repeat(200)}  `,
+    lines: "huge",
+    time: "soon",
+    sort: "random",
+    dir: "sideways",
+    layout: "grid",
+    page: "9007199254740992",
+    size: "30",
+  });
+  params.append("lane", "ruby");
+  params.append("difficulty", "easy");
+  params.append("status", "done");
+  params.append("pattern", ` ${"p".repeat(160)} `);
+  const catalog = parseRoute(params).catalog;
+  assert.equal(catalog.text.length, 120);
+  assert.deepEqual(catalog.lanes, []);
+  assert.deepEqual(catalog.difficulties, []);
+  assert.deepEqual(catalog.statuses, []);
+  assert.equal(catalog.patterns[0].length, 120);
+  assert.equal(catalog.lineRange, "all");
+  assert.equal(catalog.timeRange, "all");
+  assert.equal(catalog.sort, "recommended");
+  assert.equal(catalog.direction, "asc");
+  assert.equal(catalog.layout, "table");
+  assert.equal(catalog.page, 1);
+  assert.equal(catalog.pageSize, 25);
+});
+
+test("catalog query data is ignored outside the library view", () => {
+  const route = parseRoute("/?view=practice&q=two-sum&lane=python&item=two-sum");
+  assert.equal("catalog" in route, false);
+  assert.equal(
+    serializeRoute({
+      view: "practice",
+      language: "python",
+      item: "two-sum",
+      catalog: { ...DEFAULT_CATALOG_QUERY, lanes: ["ios"] },
+    }),
+    "/?view=practice&lang=python&item=two-sum",
   );
 });

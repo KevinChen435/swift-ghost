@@ -1,3 +1,8 @@
+import {
+  DEFAULT_CATALOG_QUERY,
+  normalizeCatalogQuery,
+} from "./catalog-discovery.mjs";
+
 export const ROUTE_VIEWS = [
   "today",
   "plans",
@@ -37,6 +42,33 @@ function cleanAssessmentId(value) {
   return /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(normalized)
     ? normalized
     : undefined;
+}
+
+function legacyCatalogLanes(params) {
+  if (params.has("lane")) return [];
+  if (params.get("track") === "ios") return ["ios"];
+  const language = params.get("lang");
+  return language === "python" || language === "swift" ? [language] : [];
+}
+
+function catalogQueryFromParams(params) {
+  return normalizeCatalogQuery({
+    text: params.get("q") ?? "",
+    lanes: params.has("lane")
+      ? params.getAll("lane")
+      : legacyCatalogLanes(params),
+    patterns: params.getAll("pattern"),
+    difficulties: params.getAll("difficulty"),
+    statuses: params.getAll("status"),
+    lineRange: params.get("lines"),
+    timeRange: params.get("time"),
+    collectionIds: params.getAll("collection"),
+    sort: params.get("sort"),
+    direction: params.get("dir"),
+    layout: params.get("layout"),
+    page: Number(params.get("page")),
+    pageSize: Number(params.get("size")),
+  });
 }
 
 export function parseRoute(input) {
@@ -92,6 +124,7 @@ export function parseRoute(input) {
     communityTab,
     profile,
     assessment,
+    ...(view === "library" ? { catalog: catalogQueryFromParams(params) } : {}),
   };
 }
 
@@ -144,13 +177,49 @@ export function serializeRoute(
   url.search = "";
   const view = ROUTE_VIEWS.includes(route?.view) ? route.view : "today";
   if (view !== "today") url.searchParams.set("view", view);
-  if (ROUTE_LANGUAGES.includes(route?.language))
+  if (view === "practice" && ROUTE_LANGUAGES.includes(route?.language))
     url.searchParams.set("lang", route.language);
   if (
-    (view === "library" || view === "practice") &&
+    view === "practice" &&
     (route?.track === "interview" || route?.track === "ios")
   )
     url.searchParams.set("track", route.track);
+  if (view === "library") {
+    const legacyLanes =
+      route?.track === "ios"
+        ? ["ios"]
+        : route?.language === "python" || route?.language === "swift"
+          ? [route.language]
+          : [];
+    const query = normalizeCatalogQuery(
+      route?.catalog ?? { lanes: legacyLanes },
+    );
+    if (query.text !== DEFAULT_CATALOG_QUERY.text)
+      url.searchParams.append("q", query.text);
+    for (const lane of query.lanes) url.searchParams.append("lane", lane);
+    for (const pattern of query.patterns)
+      url.searchParams.append("pattern", pattern);
+    for (const difficulty of query.difficulties)
+      url.searchParams.append("difficulty", difficulty);
+    for (const status of query.statuses)
+      url.searchParams.append("status", status);
+    if (query.lineRange !== DEFAULT_CATALOG_QUERY.lineRange)
+      url.searchParams.append("lines", query.lineRange);
+    if (query.timeRange !== DEFAULT_CATALOG_QUERY.timeRange)
+      url.searchParams.append("time", query.timeRange);
+    for (const collectionId of query.collectionIds)
+      url.searchParams.append("collection", collectionId);
+    if (query.sort !== DEFAULT_CATALOG_QUERY.sort)
+      url.searchParams.append("sort", query.sort);
+    if (query.direction !== DEFAULT_CATALOG_QUERY.direction)
+      url.searchParams.append("dir", query.direction);
+    if (query.layout !== DEFAULT_CATALOG_QUERY.layout)
+      url.searchParams.append("layout", query.layout);
+    if (query.page !== DEFAULT_CATALOG_QUERY.page)
+      url.searchParams.append("page", String(query.page));
+    if (query.pageSize !== DEFAULT_CATALOG_QUERY.pageSize)
+      url.searchParams.append("size", String(query.pageSize));
+  }
   if (
     view === "practice" &&
     typeof route?.item === "string" &&

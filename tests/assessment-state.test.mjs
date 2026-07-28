@@ -7,14 +7,15 @@ import {
   startAssessment,
 } from "../app/lib/assessments.mjs";
 
-test("state v19 adds bounded local assessments and retains the v18 fallback", async () => {
+test("state v20 retains bounded local assessments and the v19 fallback", async () => {
   const product = await readFile(
     new URL("../app/lib/product.ts", import.meta.url),
     "utf8",
   );
-  assert.match(product, /export type AppState = \{\s+version: 19;/);
+  assert.match(product, /export type AppState = \{\s+version: 20;/);
   assert.match(product, /assessments: AssessmentWorkspace/);
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v19"/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v20"/);
+  assert.match(product, /NINETEENTH_STORAGE_KEY = "swift-ghost-state-v19"/);
   assert.match(product, /EIGHTEENTH_STORAGE_KEY = "swift-ghost-state-v18"/);
   assert.match(product, /assessments: createAssessmentWorkspace\(\)/);
   assert.match(

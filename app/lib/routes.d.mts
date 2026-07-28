@@ -1,6 +1,7 @@
 import type { CodeLanguage, PracticeItem } from "./items";
 import type { View } from "./product";
 import type { PracticeKind } from "./product";
+import type { CatalogQuery } from "./catalog-discovery.mjs";
 
 export type CommunityTab = "recent" | "records" | "daily" | "profile";
 export type AppRoute = {
@@ -13,6 +14,7 @@ export type AppRoute = {
   communityTab?: CommunityTab;
   profile?: string;
   assessment?: string;
+  catalog?: CatalogQuery;
 };
 
 export const ROUTE_VIEWS: View[];
