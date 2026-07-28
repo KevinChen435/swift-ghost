@@ -136,7 +136,8 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v20"/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v21"/);
+  assert.match(product, /TWENTIETH_STORAGE_KEY = "swift-ghost-state-v20"/);
   assert.match(product, /NINETEENTH_STORAGE_KEY = "swift-ghost-state-v19"/);
   assert.match(product, /EIGHTEENTH_STORAGE_KEY = "swift-ghost-state-v18"/);
   assert.match(product, /SEVENTEENTH_STORAGE_KEY = "swift-ghost-state-v17"/);
@@ -147,7 +148,7 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(product, /TWELFTH_STORAGE_KEY = "swift-ghost-state-v12"/);
   assert.match(product, /PREVIOUS_STORAGE_KEY = "swift-ghost-state-v11"/);
   assert.match(product, /FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2"/);
-  assert.match(product, /version: 20/);
+  assert.match(product, /version: 21/);
   assert.match(product, /swift-ghost-state-v10/);
   assert.match(product, /swift-ghost-state-v9/);
   assert.match(product, /swift-ghost-state-v8/);
@@ -230,7 +231,7 @@ test("ships the full five-stage practice model and original problem links", asyn
   );
   assert.match(
     page,
-    /item\.track === "interview" && item\.difficulty !== "Hard"/,
+    /!item\.transfer &&[\s\S]{0,120}item\.track === "interview" &&[\s\S]{0,80}item\.difficulty !== "Hard"/,
   );
   assert.match(
     product,
@@ -386,8 +387,8 @@ test("ships first-class Swift and iOS concept recall", async () => {
   assert.match(app, /finishConcept/);
   assert.match(app, /practiceKind: "concept"/);
   assert.match(app, /STATE_STORAGE_KEYS/);
-  assert.match(app, /Export a portable v20 JSON backup/);
-  assert.match(app, /restore any v2-v19 backup/);
+  assert.match(app, /Export a portable v21 JSON backup/);
+  assert.match(app, /restore any v2-v20 backup/);
   assert.match(concept, /Commit & compare answer/);
   assert.match(concept, /Optional guided typing/);
   assert.match(concept, /Self-rated recall · not automated correctness/);

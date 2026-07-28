@@ -3,6 +3,7 @@ import test from "node:test";
 import { loadMicroPython } from "@micropython/micropython-webassembly-pyscript";
 import { ADVANCED_PYTHON_PROBLEMS } from "../app/data/advanced-python-problems.ts";
 import { PYTHON_PROBLEMS } from "../app/data/python-problems.ts";
+import { TRANSFER_PROBLEMS } from "../app/data/transfer-problems.ts";
 import { buildPythonHarness } from "../app/lib/python-runner.mjs";
 
 let runtimePromise;
@@ -46,6 +47,16 @@ test("every shipped Python reference solution passes in the bundled runtime", as
     if (!result.ok) failures.push({ slug: problem.slug, result });
   }
   assert.equal(catalog.length, 48);
+  assert.deepEqual(failures, []);
+});
+
+test("every original transfer variant passes its sample and hidden checks", async () => {
+  const failures = [];
+  for (const problem of TRANSFER_PROBLEMS) {
+    const result = await execute(problem.code, problem.verification);
+    if (!result.ok) failures.push({ slug: problem.slug, result });
+  }
+  assert.equal(TRANSFER_PROBLEMS.length, 8);
   assert.deepEqual(failures, []);
 });
 

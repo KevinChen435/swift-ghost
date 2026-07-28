@@ -32,6 +32,11 @@ import {
 } from "./StudyPlans";
 import { ReadinessAnalytics } from "./ReadinessAnalytics";
 import { AssessmentCenter } from "./AssessmentCenter";
+import {
+  TransferLab,
+  type TransferTotals,
+  type TransferVariant,
+} from "./TransferLab";
 import { ChallengeStatement } from "./ChallengeStatement";
 import { SolveWorkbench, type MobilePane } from "./SolveWorkbench";
 import { MockNotebook } from "./MockNotebook";
@@ -226,6 +231,12 @@ import {
 } from "../lib/challenge-lab.mjs";
 import { appendSubmissionHistory } from "../lib/submission-history.mjs";
 import {
+  deriveTransferProgress,
+  recordTransferHint,
+  recordTransferOpened,
+  selectNextTransferVariant,
+} from "../lib/transfer-lab.mjs";
+import {
   INTERVIEW_STUDIO_LIMITS,
   advanceInterviewPhase,
   commitInterviewResponse,
@@ -335,10 +346,16 @@ function laneLabel(item: Pick<PracticeItem, "track" | "language">) {
 function coercePracticeKind(
   item: Pick<
     PracticeItem,
-    "language" | "verification" | "track" | "recallChecks" | "conceptAnswers"
+    | "language"
+    | "verification"
+    | "track"
+    | "recallChecks"
+    | "conceptAnswers"
+    | "transfer"
   >,
   requested: PracticeKind | undefined,
 ): PracticeKind {
+  if (item.transfer) return "solving";
   if (
     requested === "solving" &&
     item.language === "python" &&
@@ -659,6 +676,10 @@ export default function SwiftGhostApp() {
     ],
     [state.customItems],
   );
+  const curriculumItems = useMemo(
+    () => allItems.filter((candidate) => !candidate.transfer),
+    [allItems],
+  );
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -681,8 +702,22 @@ export default function SwiftGhostApp() {
         initialItem,
         route.practiceKind ?? restoredPracticeKind,
       );
-      stateRef.current = restored;
-      setState(restored);
+      const hydratedState =
+        route.view === "practice" && initialItem.transfer
+          ? {
+              ...restored,
+              transferWorkspace: recordTransferOpened(
+                restored.transferWorkspace,
+                initialItem.itemId,
+                {
+                  now: new Date().toISOString(),
+                  variantRevision: initialItem.contentRevision,
+                },
+              ),
+            }
+          : restored;
+      stateRef.current = hydratedState;
+      setState(hydratedState);
       setView(route.view);
       setCatalogQuery(
         normalizeCatalogQuery(route.catalog ?? DEFAULT_CATALOG_QUERY),
@@ -725,6 +760,22 @@ export default function SwiftGhostApp() {
         activeItem,
         route.practiceKind,
       );
+      if (
+        route.view === "practice" &&
+        activeItem.transfer
+      ) {
+        mutateState((current) => ({
+          ...current,
+          transferWorkspace: recordTransferOpened(
+            current.transferWorkspace,
+            activeItem.itemId,
+            {
+              now: new Date().toISOString(),
+              variantRevision: activeItem.contentRevision,
+            },
+          ),
+        }));
+      }
       setView(route.view);
       setCatalogQuery(
         normalizeCatalogQuery(route.catalog ?? DEFAULT_CATALOG_QUERY),
@@ -1092,8 +1143,120 @@ export default function SwiftGhostApp() {
     selectedId,
     item.contentRevision,
   );
-  const dueItems = allItems.filter((candidate) =>
+  const dueItems = curriculumItems.filter((candidate) =>
     isReviewDue(state, candidate.itemId),
+  );
+  const transferItems = useMemo(
+    () => allItems.filter((candidate) => Boolean(candidate.transfer)),
+    [allItems],
+  );
+  const transferProgress = useMemo(
+    () =>
+      deriveTransferProgress({
+        variants: transferItems,
+        workspace: state.transferWorkspace,
+        attempts: state.attempts,
+        submissions: state.submissionHistory,
+        now: new Date(now).toISOString(),
+      }),
+    [
+      now,
+      state.attempts,
+      state.submissionHistory,
+      state.transferWorkspace,
+      transferItems,
+    ],
+  );
+  const transferProgressById = useMemo(
+    () => new Map(transferProgress.map((entry) => [entry.variantId, entry])),
+    [transferProgress],
+  );
+  const recommendedTransferItem = useMemo(
+    () =>
+      selectNextTransferVariant({
+        variants: transferItems,
+        workspace: state.transferWorkspace,
+        attempts: state.attempts,
+        submissions: state.submissionHistory,
+        now: new Date(now).toISOString(),
+      }),
+    [
+      now,
+      state.attempts,
+      state.submissionHistory,
+      state.transferWorkspace,
+      transferItems,
+    ],
+  );
+  const transferVariants = useMemo<TransferVariant[]>(
+    () =>
+      transferItems.map((candidate) => {
+        const progress = transferProgressById.get(candidate.itemId);
+        const evidenceLabels: string[] = [];
+        if (progress?.exposureUnknown)
+          evidenceLabels.push("Earlier exposure history is incomplete");
+        if (progress?.exposure?.openCount)
+          evidenceLabels.push(
+            `${progress.exposure.openCount} prompt open${progress.exposure.openCount === 1 ? "" : "s"}`,
+          );
+        if (progress?.attemptCount)
+          evidenceLabels.push(
+            `${progress.attemptCount} completed attempt${progress.attemptCount === 1 ? "" : "s"}`,
+          );
+        if (progress?.failedSubmissionCount)
+          evidenceLabels.push(
+            `${progress.failedSubmissionCount} unsuccessful submission${progress.failedSubmissionCount === 1 ? "" : "s"}`,
+          );
+        if (progress?.spacedSolveCount)
+          evidenceLabels.push(
+            `${progress.spacedSolveCount} spaced independent solve${progress.spacedSolveCount === 1 ? "" : "s"}`,
+          );
+        if (progress?.exposure?.maxHintLevel)
+          evidenceLabels.push(
+            `Assistance recorded through hint ${progress.exposure.maxHintLevel}`,
+          );
+        if (progress?.dueAt)
+          evidenceLabels.push(`Next check ${formatDate(progress.dueAt)}`);
+        const debriefReady = Boolean(
+          progress &&
+            (progress.attemptCount > 0 ||
+              progress.isProven ||
+              progress.isDue),
+        );
+        return {
+          id: candidate.itemId,
+          displayLabel: itemDisplayId(candidate),
+          difficulty: candidate.difficulty,
+          estimatedMinutes: candidate.estimatedMinutes,
+          status: progress?.status ?? "opened",
+          evidenceLabels,
+          attemptedAtLabel: progress?.lastActivityAt
+            ? formatDate(progress.lastActivityAt)
+            : undefined,
+          revealed:
+            debriefReady && candidate.transfer
+              ? {
+                  title: candidate.title,
+                  pattern: candidate.transfer.postAttemptPatternLabel,
+                  contrast: candidate.transfer.contrastExplanation,
+                  teachBack: candidate.transfer.teachBackQuestion,
+                }
+              : undefined,
+        };
+      }),
+    [transferItems, transferProgressById],
+  );
+  const transferTotals = useMemo<TransferTotals>(
+    () => ({
+      total: transferVariants.length,
+      unseen: transferVariants.filter((entry) => entry.status === "unseen").length,
+      opened: transferVariants.filter((entry) => entry.status === "opened").length,
+      attempted: transferVariants.filter((entry) => entry.status === "attempted").length,
+      assisted: transferVariants.filter((entry) => entry.status === "assisted").length,
+      proven: transferVariants.filter((entry) => entry.status === "proven").length,
+      due: transferVariants.filter((entry) => entry.status === "due").length,
+    }),
+    [transferVariants],
   );
   const todayMinutes = practicedMinutesToday(state);
   const dailyPercent = Math.min(
@@ -1257,7 +1420,21 @@ export default function SwiftGhostApp() {
         current.draft.sessionId === sessionId &&
         current.draft.assessmentRunId === assessment?.runId &&
         current.draft.assessmentProbeId === assessment?.probeId;
-      const base = resuming ? current : recordAbandon(current);
+      const abandoned = resuming ? current : recordAbandon(current);
+      const base =
+        next.transfer
+          ? {
+              ...abandoned,
+              transferWorkspace: recordTransferOpened(
+                abandoned.transferWorkspace,
+                next.itemId,
+                {
+                  now: new Date().toISOString(),
+                  variantRevision: next.contentRevision,
+                },
+              ),
+            }
+          : abandoned;
       const mockWorkspaceSource =
         sessionId &&
         base.activeSession?.kind === "mock" &&
@@ -1617,6 +1794,18 @@ export default function SwiftGhostApp() {
           startedAt: currentDraft.startedAt ?? Date.now(),
           peeks: currentDraft.peeks + 1,
         },
+        transferWorkspace: item.transfer
+          ? recordTransferHint(
+              current.transferWorkspace,
+              item.itemId,
+              3,
+              {
+                now: new Date().toISOString(),
+                variantRevision: item.contentRevision,
+                referenceRevealed: true,
+              },
+            )
+          : current.transferWorkspace,
         lastItemId: item.itemId,
         lastStage: 5,
       };
@@ -2132,7 +2321,8 @@ export default function SwiftGhostApp() {
     );
   }
   function randomItem(mode: "all" | "due" = "all") {
-    const pool = mode === "due" && dueItems.length ? dueItems : allItems;
+    const pool =
+      mode === "due" && dueItems.length ? dueItems : curriculumItems;
     openItem(pool[Math.floor(Math.random() * pool.length)]);
   }
 
@@ -2141,6 +2331,25 @@ export default function SwiftGhostApp() {
     setAssessmentRouteId(assessmentId);
     setResult(null);
     writeRoute({ view: "assessments", assessment: assessmentId });
+    window.setTimeout(() => document.getElementById("main-content")?.focus(), 0);
+  }
+
+  function openTransferLab() {
+    selectAssessment("transfer-lab");
+  }
+
+  function startTransferVariant(variantId: string) {
+    const candidate = transferItems.find(
+      (entry) => entry.itemId === variantId && entry.transfer,
+    );
+    if (!candidate) {
+      setToast("That transfer variant is not available in this build");
+      return;
+    }
+    openItem(candidate, 5, undefined, undefined, "solving");
+    setToast(
+      "Cold prompt opened · pattern hidden · hints permanently mark this attempt assisted",
+    );
   }
 
   function startAssessmentProgram(programId: string) {
@@ -2417,6 +2626,38 @@ export default function SwiftGhostApp() {
         0,
         STUDY_PLAN_LIMITS.maxItemsPerCollection,
       ),
+    });
+  }
+
+  function useSolveHint(level: 1 | 2 | 3) {
+    const hintedAt = new Date().toISOString();
+    mutateState((current) => {
+      const active =
+        current.draft?.itemId === item.itemId &&
+        current.draft.itemRevision === item.contentRevision &&
+        current.draft.practiceKind === "solving"
+          ? current.draft
+          : draft;
+      return {
+        ...current,
+        draft: {
+          ...active,
+          startedAt: active.startedAt ?? Date.now(),
+          peeks: active.peeks + 1,
+        },
+        transferWorkspace: item.transfer
+          ? recordTransferHint(
+              current.transferWorkspace,
+              item.itemId,
+              level,
+              {
+                now: hintedAt,
+                variantRevision: item.contentRevision,
+                referenceRevealed: level === 3,
+              },
+            )
+          : current.transferWorkspace,
+      };
     });
   }
 
@@ -2742,7 +2983,7 @@ export default function SwiftGhostApp() {
       return;
     const preset = mockInterviewPreset(presetId);
     const candidates = selectMockInterviewItems(
-      allItems,
+      curriculumItems,
       state.attempts,
       preset.id,
       problemCount,
@@ -2842,7 +3083,7 @@ export default function SwiftGhostApp() {
     const selected =
       format === "python-coding"
         ? selectMockInterviewItems(
-            allItems,
+            curriculumItems,
             state.attempts,
             durationMinutes === 30
               ? "screen"
@@ -3725,7 +3966,7 @@ export default function SwiftGhostApp() {
         <TodayView
           ready={ready}
           state={state}
-          items={allItems}
+          items={curriculumItems}
           cloudStatus={cloud.status}
           cloudDaily={cloud.dailyChallenge}
           onOpen={openItem}
@@ -3758,7 +3999,7 @@ export default function SwiftGhostApp() {
       {view === "plans" && (
         <StudyPlans
           workspace={state.studyWorkspace}
-          items={allItems}
+          items={curriculumItems}
           attempts={state.attempts}
           learningEvents={state.learningEvents}
           interviewStudioHistory={state.interviewStudio.history}
@@ -3781,7 +4022,7 @@ export default function SwiftGhostApp() {
       )}
       {view === "practice" && (
         <PracticeView
-          key={`${selectedId}:${stage}:${practiceKind}:${practiceEpoch}`}
+          key={`${selectedId}:${item.contentRevision}:${stage}:${practiceKind}:${practiceEpoch}`}
           state={state}
           items={allItems}
           item={item}
@@ -3844,7 +4085,7 @@ export default function SwiftGhostApp() {
           onRestoreSubmission={restoreSubmissionSource}
           onCustomCaseChange={updateCustomCaseInput}
           onCustomTestcasesChange={updateCustomTestcases}
-          onUseHint={() => updateDraft({ ...draft, peeks: draft.peeks + 1 })}
+          onUseHint={useSolveHint}
           onMockNotebookChange={updateActiveMockNotebook}
           onMockCheckpoint={recordActiveMockCheckpoint}
           onInterviewCommitResponse={commitActiveInterviewResponse}
@@ -3863,6 +4104,10 @@ export default function SwiftGhostApp() {
           onBrowse={() => navigateView("library")}
           onRandom={() => randomItem()}
           onSession={() => {
+            if (item.transfer) {
+              openTransferLab();
+              return;
+            }
             if (draft.assessmentRunId) {
               selectAssessment(draft.assessmentRunId);
               return;
@@ -3876,7 +4121,7 @@ export default function SwiftGhostApp() {
       {view === "sessions" && (
         <SessionsView
           state={state}
-          items={allItems}
+          items={curriculumItems}
           onStart={startSession}
           onStartMock={startMockInterview}
           onStartInterview={startInterviewStudio}
@@ -3891,10 +4136,31 @@ export default function SwiftGhostApp() {
           onOpenMockDebrief={setMockReviewSessionId}
         />
       )}
-      {view === "assessments" && (
+      {view === "assessments" && assessmentRouteId === "transfer-lab" && (
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="page-container assessments-page transfer-lab-page"
+        >
+          <TransferLab
+            variants={transferVariants}
+            recommendedVariantId={recommendedTransferItem?.itemId}
+            totals={transferTotals}
+            onStart={startTransferVariant}
+            onBack={() => selectAssessment(undefined)}
+          />
+        </main>
+      )}
+      {view === "assessments" && assessmentRouteId !== "transfer-lab" && (
         <AssessmentCenter
           workspace={state.assessments}
-          items={allItems}
+          items={curriculumItems}
+          transferSummary={{
+            total: transferTotals.total,
+            unseen: transferTotals.unseen,
+            due: transferTotals.due,
+            proven: transferTotals.proven,
+          }}
           selectedAssessment={assessmentRouteId}
           activeDraft={state.draft}
           onSelect={selectAssessment}
@@ -3906,12 +4172,13 @@ export default function SwiftGhostApp() {
           onFinish={finishAssessmentEarly}
           onCreatePlan={createPlanFromAssessment}
           onArchive={archiveAssessmentReport}
+          onOpenTransferLab={openTransferLab}
         />
       )}
       {view === "library" && (
         <CatalogLibrary
           state={state}
-          items={allItems}
+          items={curriculumItems}
           now={Math.floor(now / 60_000) * 60_000}
           query={catalogQuery}
           onQueryChange={updateCatalogRoute}
@@ -3932,6 +4199,8 @@ export default function SwiftGhostApp() {
           key={`${cloud.status}:${cloud.refresh}:${cloud.session?.profile?.handle ?? "local"}:${cloud.session?.profile?.updatedAt ?? "new"}`}
           state={state}
           items={allItems}
+          transferVariants={transferVariants}
+          transferTotals={transferTotals}
           cloud={cloud}
           onOpen={openItem}
           onReview={() => randomItem("due")}
@@ -3971,6 +4240,7 @@ export default function SwiftGhostApp() {
           onRetry={handleResultRetry}
           onRandom={() => randomItem()}
           onRecords={() => navigateView("records")}
+          onTransferLab={openTransferLab}
           debrief={state.learningEvents.find(
             (event) => event.attemptId === result.id,
           )}
@@ -4058,7 +4328,10 @@ function TodayView({
   const todayDate = ready ? new Date() : new Date(2000, 0, 1, 12);
   const today = cloudDaily?.date ?? dayKey(todayDate);
   const interviewItems = BUILTIN_ITEMS.filter(
-    (item) => item.track === "interview" && item.difficulty !== "Hard",
+    (item) =>
+      !item.transfer &&
+      item.track === "interview" &&
+      item.difficulty !== "Hard",
   );
   const preferredInterviewItems = interviewItems.filter(
     (item) =>
@@ -4359,7 +4632,7 @@ type PracticeProps = {
   onRestoreSubmission: (submission: SubmissionRecord) => void;
   onCustomCaseChange: (value: string) => void;
   onCustomTestcasesChange: (collection: CustomTestcaseCollection) => void;
-  onUseHint: () => void;
+  onUseHint: (level: 1 | 2 | 3) => void;
   onMockNotebookChange: (notebook: MockNotebookValue) => void;
   onMockCheckpoint: (kind: MockCheckpointKind) => void;
   onInterviewCommitResponse: (text: string) => void;
@@ -4446,6 +4719,7 @@ function PracticeView(props: PracticeProps) {
   const isAssessment = Boolean(
     props.draft.assessmentRunId && props.draft.assessmentProbeId,
   );
+  const isTransfer = Boolean(props.item.transfer);
   const isLocked = isMock || isAssessment;
   const activeStudio =
     props.interviewStudio?.format === "python-coding" &&
@@ -4484,17 +4758,15 @@ function PracticeView(props: PracticeProps) {
       pythonRunner.current?.dispose();
     };
   }, []);
-  useEffect(() => {
-    verificationRunId.current += 1;
-    customExecutionRunId.current += 1;
-  }, [props.item.itemId]);
   const visible = useMemo(
     () =>
       props.items
-        .filter((item) =>
-          `${itemDisplayId(item)} ${item.title} ${item.pattern}`
-            .toLowerCase()
-            .includes(query.toLowerCase()),
+        .filter(
+          (item) =>
+            !item.transfer &&
+            `${itemDisplayId(item)} ${item.title} ${item.pattern}`
+              .toLowerCase()
+              .includes(query.toLowerCase()),
         )
         .slice(0, 12),
     [props.items, query],
@@ -4863,8 +5135,9 @@ function PracticeView(props: PracticeProps) {
   }
 
   function revealSolveHint() {
-    setSolveHintLevel((current) => Math.min(3, current + 1));
-    props.onUseHint();
+    const nextLevel = Math.min(3, solveHintLevel + 1) as 1 | 2 | 3;
+    setSolveHintLevel(nextLevel);
+    props.onUseHint(nextLevel);
   }
 
   function resetPractice() {
@@ -4886,7 +5159,7 @@ function PracticeView(props: PracticeProps) {
       return;
     }
     inspectedSubmissionIds.current.add(submission.id);
-    props.onUseHint();
+    props.onUseHint(3);
   }
 
   function restoreSubmission(submission: SubmissionRecord) {
@@ -4973,7 +5246,24 @@ function PracticeView(props: PracticeProps) {
               : props.items.length}
           </span>
         </div>
-        {isAssessment ? (
+        {isTransfer ? (
+          <div className="assessment-practice-rail transfer-practice-rail">
+            <span className="eyebrow">Local transfer rehearsal</span>
+            <strong>Identity opened. Pattern still hidden.</strong>
+            <p>
+              This prompt was unseen in Swift Ghost history on this device when
+              you opened it. That is a local practice claim, not proctoring.
+            </p>
+            <ul>
+              <li>Examples stay available for iteration</li>
+              <li>Every hint permanently marks assistance</li>
+              <li>The contrastive debrief unlocks after an attempt</li>
+            </ul>
+            <button className="outline-button" onClick={props.onSession}>
+              Back to Transfer Lab
+            </button>
+          </div>
+        ) : isAssessment ? (
           <div className="assessment-practice-rail">
             <span className="eyebrow">Evidence contract</span>
             <strong>One prompt. No solution help.</strong>
@@ -5098,7 +5388,9 @@ function PracticeView(props: PracticeProps) {
           className="mobile-practice-controls"
           aria-label="Practice problem controls"
         >
-          {isAssessment ? (
+          {isTransfer ? (
+            <span>Local transfer rehearsal · pattern hidden</span>
+          ) : isAssessment ? (
             <span>Assessment checkpoint · pattern hidden</span>
           ) : props.activeSession ? (
             <span>
@@ -5131,6 +5423,7 @@ function PracticeView(props: PracticeProps) {
                   {props.items
                     .filter(
                       (candidate) =>
+                        !candidate.transfer &&
                         candidate.language === "python" &&
                         candidate.track === "interview",
                     )
@@ -5144,6 +5437,7 @@ function PracticeView(props: PracticeProps) {
                   {props.items
                     .filter(
                       (candidate) =>
+                        !candidate.transfer &&
                         candidate.language === "swift" &&
                         candidate.track === "interview",
                     )
@@ -5155,7 +5449,10 @@ function PracticeView(props: PracticeProps) {
                 </optgroup>
                 <optgroup label="iOS and Swift">
                   {props.items
-                    .filter((candidate) => candidate.track === "ios")
+                    .filter(
+                      (candidate) =>
+                        !candidate.transfer && candidate.track === "ios",
+                    )
                     .map((candidate) => (
                       <option value={candidate.itemId} key={candidate.itemId}>
                         {itemDisplayId(candidate)} {candidate.title}
@@ -5166,7 +5463,7 @@ function PracticeView(props: PracticeProps) {
             </label>
           )}
           <button onClick={resetPractice}>Restart</button>
-          {!props.activeSession && !isAssessment && (
+          {!props.activeSession && !isAssessment && !isTransfer && (
             <button onClick={props.onRandom}>Random</button>
           )}
         </nav>
@@ -5209,21 +5506,25 @@ function PracticeView(props: PracticeProps) {
                 {props.item.difficulty}
               </span>
               <span>{laneLabel(props.item)}</span>
-              <span>{isLocked ? "Pattern hidden" : props.item.pattern}</span>
+              <span>
+                {isLocked || isTransfer ? "Pattern hidden" : props.item.pattern}
+              </span>
               {props.item.source === "custom" && <span>Device-local</span>}
             </div>
             <h1>{props.item.title}</h1>
             <p>{props.item.summary}</p>
           </div>
           <div className="problem-actions">
-            <button
-              className={favorite ? "favorite active" : "favorite"}
-              onClick={props.onFavorite}
-              aria-label={favorite ? "Remove favorite" : "Add favorite"}
-            >
+            {!isTransfer && (
+              <button
+                className={favorite ? "favorite active" : "favorite"}
+                onClick={props.onFavorite}
+                aria-label={favorite ? "Remove favorite" : "Add favorite"}
+              >
               {favorite ? "★" : "☆"}
-            </button>
-            {prompt && !isLocked && (
+              </button>
+            )}
+            {prompt && !isLocked && !isTransfer && (
               <a
                 className="outline-button"
                 href={prompt}
@@ -5243,6 +5544,16 @@ function PracticeView(props: PracticeProps) {
               Pattern guidance, hints, the reference solution, and prior
               submissions stay out of this view until the checkpoint ends.
               Sample outputs remain part of the prompt.
+            </small>
+          </div>
+        ) : isTransfer ? (
+          <div className="mock-policy transfer-policy" role="status">
+            <span>Cold-transfer evidence contract</span>
+            <strong>Solve from the prompt before asking for recognition help.</strong>
+            <small>
+              The pattern stays hidden while you work. Progressive hints remain
+              available, but the first hint permanently changes this run from
+              independent to assisted on this device.
             </small>
           </div>
         ) : (
@@ -5430,11 +5741,18 @@ function PracticeView(props: PracticeProps) {
                   </div>
                 )}
                 <div className="solve-brief">
-                  <span className="eyebrow">Verified solve workspace</span>
-                  <strong>Pass every local check, then submit.</strong>
+                  <span className="eyebrow">
+                    {isTransfer ? "Cold transfer workspace" : "Verified solve workspace"}
+                  </span>
+                  <strong>
+                    {isTransfer
+                      ? "Commit to an approach, pass every local check, then compare."
+                      : "Pass every local check, then submit."}
+                  </strong>
                   <p>
-                    Examples help you iterate. Only a complete accepted judge
-                    run records solving evidence.
+                    {isTransfer
+                      ? "Examples help you iterate. Pattern and contrast stay hidden until attempt evidence exists."
+                      : "Examples help you iterate. Only a complete accepted judge run records solving evidence."}
                   </p>
                 </div>
                 {isMock && (
@@ -6607,6 +6925,8 @@ function SessionsView({
 function RecordsView({
   state,
   items,
+  transferVariants,
+  transferTotals,
   cloud,
   onOpen,
   onReview,
@@ -6616,6 +6936,8 @@ function RecordsView({
 }: {
   state: AppState;
   items: PracticeItem[];
+  transferVariants: TransferVariant[];
+  transferTotals: TransferTotals;
   cloud: CloudRuntime;
   onOpen: (
     item: PracticeItem,
@@ -6629,6 +6951,7 @@ function RecordsView({
   onToggleUploads: (enabled: boolean) => void;
   onCloudRefresh: () => void;
 }) {
+  const curriculumRecordItems = items.filter((item) => !item.transfer);
   const attempts = completedAttempts(state);
   const typingAttempts = attempts.filter(
     (attempt) => attempt.practiceKind === "typing",
@@ -6654,7 +6977,7 @@ function RecordsView({
   const latestAssessmentReport = assessmentReports.at(-1);
   const eligible = attempts.filter(eligibleAttempt);
   const currentEligible = eligible.filter((attempt) =>
-    items.some(
+    curriculumRecordItems.some(
       (item) =>
         item.itemId === attempt.itemId &&
         item.contentRevision === attempt.itemRevision,
@@ -6673,13 +6996,17 @@ function RecordsView({
           typingAttempts.length,
       )
     : 0;
-  const owned = items.filter(
+  const owned = curriculumRecordItems.filter(
     (item) => itemStats(state, item.itemId).owned,
   ).length;
-  const due = items.filter((item) => isReviewDue(state, item.itemId));
+  const due = curriculumRecordItems.filter((item) =>
+    isReviewDue(state, item.itemId),
+  );
   const maxWpm = Math.max(1, ...recent.map((attempt) => attempt.wpm));
   const patternStats = PATTERN_ORDER.map((pattern) => {
-    const group = BUILTIN_ITEMS.filter((item) => item.pattern === pattern);
+    const group = BUILTIN_ITEMS.filter(
+      (item) => !item.transfer && item.pattern === pattern,
+    );
     const points = group.reduce(
       (sum, item) => sum + itemStats(state, item.itemId).highestStage,
       0,
@@ -6711,7 +7038,7 @@ function RecordsView({
     .sort((a, b) => b.wpm - a.wpm)
     .slice(0, 8);
   const trackCoverage = (["python", "swift", "ios"] as const).map((lane) => {
-    const group = items.filter((item) => matchesLane(item, lane));
+    const group = curriculumRecordItems.filter((item) => matchesLane(item, lane));
     const started = group.filter(
       (item) => itemStats(state, item.itemId).completions > 0,
     ).length;
@@ -6757,13 +7084,17 @@ function RecordsView({
       />
       <CommunityPanel
         state={state}
-        items={items}
+        items={curriculumRecordItems}
         status={cloud.status}
         session={cloud.session}
         onToggleUploads={onToggleUploads}
         onRefresh={onCloudRefresh}
       />
-      <ReadinessAnalytics state={state} items={items} dueCount={due.length} />
+      <ReadinessAnalytics
+        state={state}
+        items={curriculumRecordItems}
+        dueCount={due.length}
+      />
       <section className="dashboard-card assessment-records-card">
         <div className="section-head">
           <div>
@@ -6804,6 +7135,51 @@ function RecordsView({
           </div>
         )}
       </section>
+      <section className="dashboard-card assessment-records-card transfer-records-card">
+        <div className="section-head">
+          <div>
+            <small>Local cold-transfer history</small>
+            <h2>Transfer evidence</h2>
+          </div>
+          <span>
+            {transferTotals.proven} proven · {transferTotals.due} due
+          </span>
+        </div>
+        <div className="assessment-records-summary">
+          <div>
+            <strong>
+              {transferTotals.unseen} of {transferTotals.total} variants remain
+              unseen in this device&apos;s Swift Ghost history
+            </strong>
+            <p>
+              Independent and assisted results stay separate. These are local
+              practice signals—not proctored, identity-verified credentials.
+            </p>
+            {transferVariants.some((entry) => entry.status !== "unseen") ? (
+              <small>
+                {transferVariants
+                  .filter((entry) => entry.status !== "unseen")
+                  .slice(-3)
+                  .map(
+                    (entry) =>
+                      `${entry.displayLabel}: ${entry.status.replaceAll("-", " ")}`,
+                  )
+                  .join(" · ")}
+              </small>
+            ) : null}
+          </div>
+          <div>
+            <span>{transferTotals.proven}</span>
+            <small>current-revision independent proofs</small>
+          </div>
+          <button
+            className="outline-button"
+            onClick={() => onAssess("transfer-lab")}
+          >
+            Open Transfer Lab →
+          </button>
+        </div>
+      </section>
       <div className="stat-grid">
         <StatCard
           label="Completed passes"
@@ -6831,7 +7207,7 @@ function RecordsView({
         />
         <StatCard
           label="Owned solutions"
-          value={`${owned}/${items.length}`}
+          value={`${owned}/${curriculumRecordItems.length}`}
           note="Clean typing, self-rated concept recall, or verified solve"
         />
       </div>
@@ -7330,11 +7706,11 @@ function SettingsView({
           <small>Your data</small>
           <h2>Local profile</h2>
           <p>
-            Export a portable v20 JSON backup with Python, Swift, iOS, assessments, plans, sessions,
+            Export a portable v21 JSON backup with Python, Swift, iOS, assessments, plans, sessions,
             learning debriefs, revisioned snippets, local pacing and weak-line
             analytics, community preferences, structured custom testcases, and
             local submission snapshots, mock notebooks and debriefs, Interview
-            Studio transcripts and criteria, or restore any v2-v19 backup.
+            Studio transcripts and criteria, transfer evidence, or restore any v2-v20 backup.
           </p>
         </div>
         <div className="data-actions">
@@ -7590,6 +7966,7 @@ function ResultDialog({
   onRetry,
   onRandom,
   onRecords,
+  onTransferLab,
   debrief,
   onSaveDebrief,
   cloud,
@@ -7600,6 +7977,7 @@ function ResultDialog({
   onRetry: () => void;
   onRandom: () => void;
   onRecords: () => void;
+  onTransferLab: () => void;
   debrief?: LearningEvent;
   onSaveDebrief: (input: DebriefInput) => void;
   cloud: CloudRuntime;
@@ -7607,6 +7985,7 @@ function ResultDialog({
   const eligible = eligibleAttempt(result);
   const isSolve = result.practiceKind === "solving";
   const isConcept = result.practiceKind === "concept";
+  const isTransfer = Boolean(result.item.transfer);
   const isCleanSolve = result.qualification === "solved";
   const isStrongConcept =
     isConcept && result.qualification === "independent";
@@ -7710,7 +8089,11 @@ function ResultDialog({
           {successful ? "✓" : "~"}
         </div>
         <span className="eyebrow">
-          {isSolve
+          {isTransfer
+            ? isCleanSolve
+              ? "Independent transfer recorded"
+              : "Assisted transfer recorded"
+            : isSolve
             ? result.mockInterview
               ? "Mock interview verified"
               : "Solution verified"
@@ -7720,7 +8103,11 @@ function ResultDialog({
         </span>
         <h2 id="result-title">{result.item.title}</h2>
         <p>
-          {result.sessionComplete
+          {isTransfer
+            ? isCleanSolve
+              ? "All local checks passed without recorded help. This is independent transfer evidence in Swift Ghost history on this device—not a proctored or identity-verified result."
+              : "All local checks passed, but hints or revealed work influenced the solve. The result stays useful and is permanently labeled assisted."
+            : result.sessionComplete
             ? result.mockInterview
               ? "You produced a verified solution before the deadline. The mock is saved as independent interview evidence."
               : "That was the final item in this session. Your set is saved in session history."
@@ -7810,6 +8197,19 @@ function ResultDialog({
         {!isConcept && (
           <AttemptForensics attempt={result} item={result.item} />
         )}
+        {isTransfer && result.item.transfer && (
+          <section className="result-benchmark transfer-result-debrief">
+            <span>
+              <small>Pattern revealed after attempt</small>
+              <strong>{result.item.transfer.postAttemptPatternLabel}</strong>
+            </span>
+            <p>{result.item.transfer.contrastExplanation}</p>
+            <div>
+              <small>Teach it back</small>
+              <strong>{result.item.transfer.teachBackQuestion}</strong>
+            </div>
+          </section>
+        )}
         {!isConcept && (
           <PostAttemptDebrief
             item={result.item}
@@ -7827,7 +8227,7 @@ function ResultDialog({
             <p>{benchmarkCopy()}</p>
           </section>
         )}
-        {result.nextReview && (
+        {result.nextReview && !isTransfer && (
           <div className="result-review">
             <span>Next review</span>
             <strong>{formatDay(result.nextReview)}</strong>
@@ -7837,6 +8237,25 @@ function ResultDialog({
           </div>
         )}
         <div className="result-actions">
+          {isTransfer ? (
+            <>
+              <button className="outline-button" onClick={onRetry}>
+                Retry this revealed variant
+              </button>
+              <button className="outline-button" onClick={onRecords}>
+                View transfer evidence
+              </button>
+              <button
+                className="primary-button"
+                data-modal-autofocus="true"
+                autoFocus
+                onClick={onTransferLab}
+              >
+                Back to Transfer Lab -&gt;
+              </button>
+            </>
+          ) : (
+            <>
           <button className="outline-button" onClick={onRetry}>
             Retry same {isSolve ? "solve" : isConcept ? "concept" : "stage"}
           </button>
@@ -7864,6 +8283,8 @@ function ResultDialog({
                     ? "Climb to next stage →"
                     : "Practice recall again →"}
           </button>
+            </>
+          )}
         </div>
       </section>
     </div>
