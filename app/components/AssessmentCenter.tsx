@@ -252,6 +252,7 @@ export function AssessmentCenter({
   workspace,
   items,
   transferSummary,
+  virtualRoundSummary,
   selectedAssessment,
   activeDraft,
   onSelect,
@@ -264,6 +265,7 @@ export function AssessmentCenter({
   onCreatePlan,
   onArchive,
   onOpenTransferLab,
+  onOpenVirtualRounds,
 }: {
   workspace: AssessmentWorkspace;
   items: PracticeItem[];
@@ -272,6 +274,11 @@ export function AssessmentCenter({
     unseen: number;
     due: number;
     proven: number;
+  };
+  virtualRoundSummary: {
+    eligible: number;
+    active: boolean;
+    finished: number;
   };
   selectedAssessment?: string;
   activeDraft: { assessmentRunId?: string; assessmentProbeId?: string } | null;
@@ -289,6 +296,7 @@ export function AssessmentCenter({
   onCreatePlan: (runId: string) => void;
   onArchive: (runId: string) => void;
   onOpenTransferLab: () => void;
+  onOpenVirtualRounds: () => void;
 }) {
   const selectedRun = useMemo(
     () => workspace.runs.find((run) => run.id === selectedAssessment) ?? null,
@@ -324,6 +332,36 @@ export function AssessmentCenter({
       </header>
 
       <section className="assessment-program-grid" aria-label="Assessment programs">
+        <article className="assessment-virtual-round-card">
+          <div className="assessment-program-topline">
+            <span>Timed strategy</span>
+            <small>{virtualRoundSummary.active ? "Round in progress" : "Device-local"}</small>
+          </div>
+          <h2>Virtual Rounds</h2>
+          <p>
+            Work through a two-to-four problem set against one clock. Switch
+            problems freely, submit to the local Python judge, flag work to
+            revisit, and finish with an immutable submission timeline.
+          </p>
+          <div className="assessment-program-stats">
+            <span><strong>3</strong> formats</span>
+            <span><strong>{virtualRoundSummary.eligible}</strong> eligible problems</span>
+            <span><strong>{virtualRoundSummary.finished}</strong> finished</span>
+          </div>
+          <small className="assessment-program-disclaimer">
+            Familiar catalog questions may appear. Scores are private practice
+            evidence, not a global rank, readiness rating, or proctored result.
+          </small>
+          <div className="assessment-card-actions">
+            <button
+              className="primary-button"
+              type="button"
+              onClick={onOpenVirtualRounds}
+            >
+              {virtualRoundSummary.active ? "Resume virtual round →" : "Open Virtual Rounds →"}
+            </button>
+          </div>
+        </article>
         <article className="assessment-transfer-card">
           <div className="assessment-program-topline">
             <span>Python transfer</span>

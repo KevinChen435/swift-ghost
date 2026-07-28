@@ -69,6 +69,11 @@ import {
   normalizeCatalogWorkspace,
   type CatalogWorkspace,
 } from "./catalog-discovery.mjs";
+import {
+  createVirtualRoundWorkspace,
+  normalizeVirtualRoundWorkspace,
+  type VirtualRoundWorkspace,
+} from "./virtual-rounds.mjs";
 
 export { analyzeEdit, correctPositionCount } from "./typing-engine.mjs";
 
@@ -146,8 +151,9 @@ export type SubmissionRecord = {
   passed: number;
   total: number;
   source: string;
-  origin: "practice" | "mock";
+  origin: "practice" | "mock" | "round";
   sessionId?: string;
+  virtualRoundId?: string;
 };
 
 export type Settings = {
@@ -222,6 +228,7 @@ export type Draft = {
   sessionId?: string;
   assessmentRunId?: string;
   assessmentProbeId?: string;
+  virtualRoundId?: string;
 };
 
 export type TrainingSession = {
@@ -270,7 +277,7 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 21;
+  version: 22;
   attempts: AttemptRecord[];
   submissionHistory: SubmissionRecord[];
   learningEvents: LearningEvent[];
@@ -289,10 +296,12 @@ export type AppState = {
   studyWorkspace: StudyWorkspace;
   catalogWorkspace: CatalogWorkspace;
   transferWorkspace: TransferWorkspace;
+  virtualRoundWorkspace: VirtualRoundWorkspace;
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v21";
+export const STORAGE_KEY = "swift-ghost-state-v22";
+export const TWENTY_FIRST_STORAGE_KEY = "swift-ghost-state-v21";
 export const TWENTIETH_STORAGE_KEY = "swift-ghost-state-v20";
 export const NINETEENTH_STORAGE_KEY = "swift-ghost-state-v19";
 export const EIGHTEENTH_STORAGE_KEY = "swift-ghost-state-v18";
@@ -313,10 +322,11 @@ export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
-  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
 ];
 export const STATE_STORAGE_KEYS = [
   STORAGE_KEY,
+  TWENTY_FIRST_STORAGE_KEY,
   TWENTIETH_STORAGE_KEY,
   NINETEENTH_STORAGE_KEY,
   EIGHTEENTH_STORAGE_KEY,
@@ -352,7 +362,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 21,
+  version: 22,
   attempts: [],
   submissionHistory: [],
   learningEvents: [],
@@ -371,6 +381,7 @@ export const EMPTY_STATE: AppState = {
   studyWorkspace: createStudyWorkspace("1970-01-01T00:00:00.000Z"),
   catalogWorkspace: createCatalogWorkspace("1970-01-01T00:00:00.000Z"),
   transferWorkspace: createTransferWorkspace("1970-01-01T00:00:00.000Z"),
+  virtualRoundWorkspace: createVirtualRoundWorkspace(),
   cloud: { communityEnabled: false, uploadedAttemptIds: [] },
 };
 
@@ -464,10 +475,19 @@ function normalizeSubmissionHistory(
       passed: Math.round(finiteNumber(raw.passed, 0, 0, total)),
       total,
       source: raw.source,
-      origin: raw.origin === "mock" ? "mock" : "practice",
+      origin:
+        raw.origin === "mock"
+          ? "mock"
+          : raw.origin === "round"
+            ? "round"
+            : "practice",
       sessionId:
         typeof raw.sessionId === "string"
           ? raw.sessionId.slice(0, 100)
+          : undefined,
+      virtualRoundId:
+        typeof raw.virtualRoundId === "string"
+          ? raw.virtualRoundId.slice(0, 120)
           : undefined,
     });
   }, []);
@@ -1383,6 +1403,10 @@ export function normalizeState(value: unknown): AppState {
             typeof rawDraft.assessmentProbeId === "string"
               ? rawDraft.assessmentProbeId.slice(0, 160)
               : undefined,
+          virtualRoundId:
+            typeof rawDraft.virtualRoundId === "string"
+              ? rawDraft.virtualRoundId.slice(0, 120)
+              : undefined,
         }
       : null;
 
@@ -1491,11 +1515,37 @@ export function normalizeState(value: unknown): AppState {
     draft.itemRevision === activeEntry.itemRevision &&
     draft.practiceKind === (activeEntry.practiceKind ?? "typing"),
   );
-  const normalizedDraft = draft && !rejectedMockSession
-    ? { ...draft, sessionId: draftMatchesSession ? draft.sessionId : undefined }
+  const virtualRoundWorkspace = normalizeVirtualRoundWorkspace(
+    Number(value.version) >= 22 ? value.virtualRoundWorkspace : undefined,
+    {
+      validItemIds: activeIds,
+      revisions,
+      now: new Date().toISOString(),
+    },
+  );
+  const draftMatchesVirtualRound = Boolean(
+    draft?.virtualRoundId &&
+      virtualRoundWorkspace.active?.id === draft.virtualRoundId &&
+      virtualRoundWorkspace.active.problems.some(
+        (problem) =>
+          problem.itemId === draft.itemId &&
+          problem.itemRevision === draft.itemRevision,
+      ),
+  );
+  const rejectedVirtualRoundDraft = Boolean(
+    draft?.virtualRoundId && !draftMatchesVirtualRound,
+  );
+  const normalizedDraft = draft && !rejectedMockSession && !rejectedVirtualRoundDraft
+    ? {
+        ...draft,
+        sessionId: draftMatchesSession ? draft.sessionId : undefined,
+        virtualRoundId: draftMatchesVirtualRound
+          ? draft.virtualRoundId
+          : undefined,
+      }
     : null;
   return {
-    version: 21,
+    version: 22,
     attempts,
     submissionHistory: normalizeSubmissionHistory(
       value.submissionHistory,
@@ -1546,6 +1596,7 @@ export function normalizeState(value: unknown): AppState {
       Number(value.version) >= 21 ? value.transferWorkspace : undefined,
       { now: "1970-01-01T00:00:00.000Z" },
     ),
+    virtualRoundWorkspace,
     cloud: normalizeCloudPreferences(value.cloud),
   };
 }

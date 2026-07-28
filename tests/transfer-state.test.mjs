@@ -11,13 +11,14 @@ test("state v21 persists transfer evidence after the v20 fallback", async () => 
     new URL("../app/lib/product.ts", import.meta.url),
     "utf8",
   );
-  assert.match(product, /export type AppState = \{\s+version: 21;/);
+  assert.match(product, /export type AppState = \{\s+version: 22;/);
   assert.match(product, /transferWorkspace: TransferWorkspace/);
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v21"/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v22"/);
+  assert.match(product, /TWENTY_FIRST_STORAGE_KEY = "swift-ghost-state-v21"/);
   assert.match(product, /TWENTIETH_STORAGE_KEY = "swift-ghost-state-v20"/);
   assert.match(
     product,
-    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTIETH_STORAGE_KEY,/,
+    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY,\s+TWENTIETH_STORAGE_KEY,/,
   );
   assert.match(
     product,

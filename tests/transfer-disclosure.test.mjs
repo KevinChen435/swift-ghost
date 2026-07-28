@@ -169,7 +169,7 @@ test("active transfer solving hides recognition cues and ordinary navigation", (
   );
   assert.match(
     practiceView,
-    /\{isTransfer \? \([\s\S]*?className="assessment-practice-rail transfer-practice-rail"/,
+    /isTransfer \? \([\s\S]*?className="assessment-practice-rail transfer-practice-rail"/,
   );
   assert.match(
     practiceView,

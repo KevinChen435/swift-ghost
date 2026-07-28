@@ -345,7 +345,13 @@ export function SubmissionInspector({
                   {submission.passed}/{submission.total} checks
                 </span>
                 <span>{Math.round(submission.durationMs)} ms</span>
-                <span>{submission.origin === "mock" ? "Mock" : "Practice"}</span>
+                <span>
+                  {submission.origin === "mock"
+                    ? "Mock"
+                    : submission.origin === "round"
+                      ? "Virtual round"
+                      : "Practice"}
+                </span>
                 <span>
                   {revisionLabel(
                     submission,

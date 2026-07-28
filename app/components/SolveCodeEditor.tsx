@@ -9,6 +9,7 @@ export type SolveCodeEditorProps = {
   fontSize: number;
   tabSize: number;
   isMock: boolean;
+  readOnly?: boolean;
   ariaLabel: string;
   onChange: (value: string) => void;
   onRunExamples: () => void;
@@ -18,7 +19,7 @@ export type SolveCodeEditorProps = {
 
 type EditorConfiguration = Pick<
   SolveCodeEditorProps,
-  "fontSize" | "tabSize" | "isMock" | "ariaLabel"
+  "fontSize" | "tabSize" | "isMock" | "readOnly" | "ariaLabel"
 >;
 
 type EditorRuntime = {
@@ -28,6 +29,7 @@ type EditorRuntime = {
   tabSize: Compartment;
   completions: Compartment;
   accessibility: Compartment;
+  editable: Compartment;
   configure: (configuration: EditorConfiguration) => void;
   syncValue: (value: string) => void;
 };
@@ -113,6 +115,7 @@ export function SolveCodeEditor(props: SolveCodeEditorProps) {
         const tabSize = new state.Compartment();
         const completions = new state.Compartment();
         const accessibility = new state.Compartment();
+        const editable = new state.Compartment();
         const externalChange = state.Annotation.define<boolean>();
 
         const fontSizeExtension = (value: number) =>
@@ -227,6 +230,7 @@ export function SolveCodeEditor(props: SolveCodeEditorProps) {
             tabSize.of(tabSizeExtension(initialProps.tabSize)),
             completions.of(completionExtension(initialProps.isMock)),
             accessibility.of(accessibilityExtension(initialProps.ariaLabel)),
+            editable.of(view.EditorView.editable.of(!initialProps.readOnly)),
             view.EditorView.updateListener.of((update) => {
               if (!update.docChanged) return;
               const cameFromExternalSync = update.transactions.some(
@@ -252,6 +256,7 @@ export function SolveCodeEditor(props: SolveCodeEditorProps) {
           tabSize,
           completions,
           accessibility,
+          editable,
           configure(configuration) {
             editorView.dispatch({
               effects: [
@@ -262,6 +267,9 @@ export function SolveCodeEditor(props: SolveCodeEditorProps) {
                 ),
                 accessibility.reconfigure(
                   accessibilityExtension(configuration.ariaLabel),
+                ),
+                editable.reconfigure(
+                  view.EditorView.editable.of(!configuration.readOnly),
                 ),
               ],
             });
@@ -309,9 +317,10 @@ export function SolveCodeEditor(props: SolveCodeEditorProps) {
       fontSize: props.fontSize,
       tabSize: props.tabSize,
       isMock: props.isMock,
+      readOnly: props.readOnly,
       ariaLabel: props.ariaLabel,
     });
-  }, [props.ariaLabel, props.fontSize, props.isMock, props.tabSize]);
+  }, [props.ariaLabel, props.fontSize, props.isMock, props.readOnly, props.tabSize]);
 
   return (
     <div className="solve-code-editor" data-editor-state={loadState}>
@@ -328,6 +337,7 @@ export function SolveCodeEditor(props: SolveCodeEditorProps) {
           </p>
           <textarea
             value={props.value}
+            readOnly={props.readOnly}
             onChange={(event) => props.onChange(event.target.value)}
             onKeyDown={(event) => {
               if (!(event.ctrlKey || event.metaKey) || event.key !== "Enter") {
