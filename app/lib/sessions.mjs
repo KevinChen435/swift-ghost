@@ -3,6 +3,17 @@ export const SESSION_TRACKS = ["all", "interview", "ios"];
 export const SESSION_LANGUAGES = ["all", "python", "swift"];
 export const SESSION_STAGE_MODES = ["recommended", "recall"];
 
+export function resolveSessionCurrentIndex(entries, requestedRawIndex) {
+  const requested = Math.max(0, Math.round(Number(requestedRawIndex) || 0));
+  const nextPending = entries.findIndex(
+    (entry) =>
+      entry?.status === "pending" && Number(entry.rawIndex) >= requested,
+  );
+  return nextPending >= 0
+    ? nextPending
+    : entries.findIndex((entry) => entry?.status === "pending");
+}
+
 export function buildSessionQueue(items, signals, options, random = Math.random) {
   const source = SESSION_SOURCES.includes(options.source) ? options.source : "mixed";
   const track = SESSION_TRACKS.includes(options.track) ? options.track : "all";

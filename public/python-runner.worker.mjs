@@ -1,6 +1,11 @@
-const PYODIDE_VERSION = "314.0.3";
-const PYODIDE_BASE_URL = new URL("./vendor/pyodide/", import.meta.url);
-const PYODIDE_MODULE_URL = new URL("pyodide.mjs", PYODIDE_BASE_URL);
+import { loadMicroPython } from "./vendor/micropython-1.28.0-6/micropython.mjs";
+
+const MICROPYTHON_VERSION = "1.28.0-6";
+const MICROPYTHON_BASE_URL = new URL(
+  `./vendor/micropython-${MICROPYTHON_VERSION}/`,
+  import.meta.url,
+);
+const MICROPYTHON_WASM_URL = new URL("micropython.wasm", MICROPYTHON_BASE_URL);
 const MAX_SOURCE_BYTES = 48_000;
 const MAX_SPEC_BYTES = 64_000;
 const MAX_HARNESS_BYTES = 180_000;
@@ -10,6 +15,7 @@ const NONCE_PATTERN = /^[a-f0-9]{32}$/;
 
 let runtimePromise;
 let busy = false;
+let activeOutput = null;
 
 function byteLength(value) {
   return new TextEncoder().encode(value).byteLength;
@@ -19,11 +25,25 @@ function safePost(message) {
   self.postMessage(message);
 }
 
+function appendOutput(channel, value) {
+  if (!activeOutput) return;
+  const text =
+    value instanceof Uint8Array
+      ? activeOutput.decoders[channel].decode(value, { stream: true })
+      : String(value);
+  const used = activeOutput[channel].reduce(
+    (total, part) => total + part.length,
+    0,
+  );
+  if (used >= 8_000) return;
+  activeOutput[channel].push(text.slice(0, 8_000 - used));
+}
+
 function blockNetworkPrimitives() {
   const blocked = () => {
     throw new Error("Network access is disabled during Python verification");
   };
-  // Keep JavaScript language intrinsics intact: Pyodide uses Function internally
+  // Keep JavaScript language intrinsics intact: MicroPython uses them internally
   // after initialization. Network-capable browser APIs are the exfiltration
   // boundary this worker needs to close.
   for (const name of [
@@ -64,14 +84,15 @@ function blockNetworkPrimitives() {
 async function loadRuntime() {
   if (!runtimePromise) {
     runtimePromise = (async () => {
-      const pyodideModule = await import(PYODIDE_MODULE_URL.href);
-      if (typeof pyodideModule.loadPyodide !== "function")
+      if (typeof loadMicroPython !== "function")
         throw new Error("vendored Python runtime is invalid");
-      const loaded = await pyodideModule.loadPyodide({
-        indexURL: PYODIDE_BASE_URL.href,
+      const loaded = await loadMicroPython({
+        url: MICROPYTHON_WASM_URL.href,
+        heapsize: 32 * 1024 * 1024,
+        stdout: (line) => appendOutput("stdout", line),
+        stderr: (line) => appendOutput("stderr", line),
+        linebuffer: false,
       });
-      if (loaded.version !== PYODIDE_VERSION)
-        throw new Error("vendored Python runtime version mismatch");
       blockNetworkPrimitives();
       return loaded;
     })();
@@ -130,18 +151,29 @@ self.addEventListener("message", async (event) => {
     if (busy)
       throw new Error("Python worker is already running a verification");
     validateJob(message);
-    const pyodide = await loadRuntime();
+    const python = await loadRuntime();
     busy = true;
+    activeOutput = {
+      stdout: [],
+      stderr: [],
+      decoders: { stdout: new TextDecoder(), stderr: new TextDecoder() },
+    };
     try {
-      const resultJson = await pyodide.runPythonAsync(message.harness);
+      python.runPython(message.harness);
+      appendOutput("stdout", activeOutput.decoders.stdout.decode());
+      appendOutput("stderr", activeOutput.decoders.stderr.decode());
+      const resultJson = python.globals.get("_RESULT_JSON");
       if (
         typeof resultJson !== "string" ||
         byteLength(resultJson) > MAX_RESULT_BYTES
       )
         throw new Error("Python verification returned an invalid result");
       const result = JSON.parse(resultJson);
+      result.stdout = activeOutput.stdout.join("");
+      result.stderr = activeOutput.stderr.join("");
       safePost({ type: "result", nonce, result });
     } finally {
+      activeOutput = null;
       busy = false;
     }
   } catch (error) {

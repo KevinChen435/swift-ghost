@@ -159,6 +159,21 @@ textarea:focus-visible {
     ),
     var(--bg);
 }
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  top: 8px;
+  left: 8px;
+  padding: 10px 13px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--bg);
+  font: 700 9px var(--font-code);
+  transform: translateY(-150%);
+}
+.skip-link:focus {
+  transform: translateY(0);
+}
 .topbar {
   position: sticky;
   z-index: 20;
@@ -1148,7 +1163,7 @@ kbd {
   padding: 8px;
   overflow-x: auto;
   border-radius: 7px;
-  background: var(--editor-bg);
+  background: var(--bg-raised);
   color: var(--muted);
   white-space: pre-wrap;
   font: 8px/1.5 var(--font-code);
@@ -2414,6 +2429,127 @@ kbd {
 .today-page {
   max-width: 1160px;
 }
+.daily-coach {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  gap: 0;
+  margin-bottom: 12px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 48%, var(--border));
+  border-radius: 18px;
+  background:
+    radial-gradient(
+      circle at 8% 0,
+      color-mix(in srgb, var(--accent) 17%, transparent),
+      transparent 36%
+    ),
+    var(--panel);
+  box-shadow: var(--shadow);
+}
+.daily-coach-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: clamp(25px, 4vw, 42px);
+  border-right: 1px solid var(--border-soft);
+}
+.daily-coach-copy h2 {
+  max-width: 510px;
+  margin: 10px 0 10px;
+  font-size: clamp(25px, 3vw, 38px);
+  letter-spacing: -1px;
+}
+.daily-coach-copy > p {
+  max-width: 540px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.65;
+}
+.coach-budget {
+  display: flex;
+  gap: 6px;
+  margin: 20px 0 12px;
+}
+.coach-budget button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--muted);
+  cursor: pointer;
+  font: 700 8px var(--font-code);
+}
+.coach-budget button.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.coach-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 19px;
+}
+.coach-summary span {
+  padding: 5px 7px;
+  border-radius: 5px;
+  background: var(--bg-raised);
+  color: var(--faint);
+  font: 7px var(--font-code);
+}
+.coach-plan {
+  display: grid;
+  align-content: center;
+  gap: 7px;
+  margin: 0;
+  padding: 24px;
+  list-style: none;
+  background: color-mix(in srgb, var(--bg-raised) 68%, transparent);
+}
+.coach-plan li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 11px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+}
+.coach-plan li > span {
+  color: var(--accent);
+  font: 500 9px var(--font-code);
+}
+.coach-plan li > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.coach-plan small {
+  color: var(--faint);
+  font: 700 6px var(--font-code);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+.coach-plan strong {
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+}
+.coach-plan p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: 7px;
+  line-height: 1.4;
+}
+.coach-plan b {
+  color: var(--violet);
+  font: 500 10px var(--font-code);
+}
 .today-hero {
   position: relative;
   display: grid;
@@ -3629,6 +3765,13 @@ kbd {
   .today-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+  .daily-coach {
+    grid-template-columns: 1fr;
+  }
+  .daily-coach-copy {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-soft);
+  }
   .weak-line-grid {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -3686,7 +3829,7 @@ kbd {
   .mobile-practice-controls {
     position: sticky;
     z-index: 15;
-    top: 7px;
+    top: 71px;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
     gap: 6px;
@@ -3874,6 +4017,21 @@ kbd {
   }
   .today-grid {
     grid-template-columns: 1fr;
+  }
+  .daily-coach-copy,
+  .coach-plan {
+    padding: 21px 17px;
+  }
+  .coach-budget {
+    width: 100%;
+  }
+  .coach-budget button {
+    flex: 1;
+    min-height: 44px;
+  }
+  .coach-plan li {
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    padding: 10px 8px;
   }
   .today-card {
     min-height: 165px;

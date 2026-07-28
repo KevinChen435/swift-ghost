@@ -33,6 +33,8 @@ test("server-renders the Swift Ghost practice shell", async () => {
   assert.match(html, /Type it\./);
   assert.match(html, /Fade it\./);
   assert.match(html, /Daily Type/);
+  assert.match(html, /Adaptive Daily Coach/);
+  assert.match(html, /Practice the skill that needs evidence/);
   assert.match(html, /Build recall, one clean pass at a time/);
   assert.match(html, /Add snippet/);
   assert.match(html, /Sessions/);
@@ -63,6 +65,14 @@ test("ships the full five-stage practice model and original problem links", asyn
   );
   const worker = await readFile(
     new URL("../worker/index.ts", import.meta.url),
+    "utf8",
+  );
+  const coach = await readFile(
+    new URL("../app/components/DailyCoach.tsx", import.meta.url),
+    "utf8",
+  );
+  const planner = await readFile(
+    new URL("../app/lib/planner.mjs", import.meta.url),
     "utf8",
   );
 
@@ -96,6 +106,9 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(product, /PracticeKind = "typing" \| "solving"/);
   assert.match(product, /attempt\.practiceKind === "typing"/);
   assert.match(product, /attempt\.practiceKind === "solving"/);
+  assert.match(product, /resolveSessionCurrentIndex/);
+  assert.match(page, /Stage is fixed for this session step/);
+  assert.match(page, /disabled=\{Boolean\(props\.draft\.sessionId\)\}/);
   assert.match(
     product,
     /attempt\.verification\.passed === attempt\.verification\.total/,
@@ -161,6 +174,13 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(page, /Run the solution against real checks/);
   assert.match(page, /Write any passing Python solution/);
   assert.match(page, /Record verified solve/);
+  assert.match(page, /expected:/);
+  assert.match(page, /Skip to practice content/);
+  assert.match(page, /Planned independent solve/);
+  assert.match(coach, /15, 30, 45/);
+  assert.match(coach, /Every task says why it earned time/);
+  assert.match(planner, /activityKind === "solve"/);
+  assert.match(planner, /deferredDueCount/);
   assert.match(page, /attempt\.practiceKind === "typing"/);
   assert.match(page, /Exact item/);
   assert.match(page, /Retry same/);

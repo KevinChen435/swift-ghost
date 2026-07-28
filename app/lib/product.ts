@@ -10,6 +10,7 @@ import {
   type TimelineSample,
 } from "./analytics.mjs";
 import { correctPositionCount } from "./typing-engine.mjs";
+import { resolveSessionCurrentIndex } from "./sessions.mjs";
 import type {
   SessionLanguage,
   SessionQueueEntry,
@@ -437,6 +438,7 @@ function normalizeActiveSession(
   revisions: Map<ItemId, number>,
   tracks: Map<ItemId, PracticeItem["track"]>,
   languages: Map<ItemId, CodeLanguage>,
+  supportsSolving: Map<ItemId, boolean>,
 ): TrainingSession | null {
   if (
     !isRecord(value) ||
@@ -451,53 +453,76 @@ function normalizeActiveSession(
       ? value.language
       : "all";
   const seen = new Set<string>();
-  const entries = value.entries
-    .flatMap((raw): SessionQueueEntry[] => {
-      if (!isRecord(raw)) return [];
-      const itemId = itemIdFromRaw(raw.itemId);
-      if (!itemId || !activeIds.has(itemId)) return [];
-      if (sessionTrack !== "all" && tracks.get(itemId) !== sessionTrack)
-        return [];
-      if (
-        sessionLanguage !== "all" &&
-        languages.get(itemId) !== sessionLanguage
-      )
-        return [];
-      const stage = Math.round(finiteNumber(raw.stage, 1, 1, 5));
-      const key = `${itemId}:${stage}`;
-      if (seen.has(key)) return [];
-      seen.add(key);
-      const status =
-        raw.status === "completed" || raw.status === "skipped"
-          ? raw.status
-          : "pending";
-      return [
-        {
-          itemId,
-          itemRevision:
-            status === "pending"
-              ? (revisions.get(itemId) ?? 1)
-              : Math.round(finiteNumber(raw.itemRevision, 1, 1, 1000000)),
-          stage,
-          status,
-          attemptId:
-            typeof raw.attemptId === "string" ? raw.attemptId : undefined,
-        },
-      ];
-    })
+  const indexedEntries = value.entries
+    .flatMap(
+      (
+        raw,
+        rawIndex,
+      ): Array<SessionQueueEntry & { rawIndex: number }> => {
+        if (!isRecord(raw)) return [];
+        const itemId = itemIdFromRaw(raw.itemId);
+        if (!itemId || !activeIds.has(itemId)) return [];
+        if (sessionTrack !== "all" && tracks.get(itemId) !== sessionTrack)
+          return [];
+        if (
+          sessionLanguage !== "all" &&
+          languages.get(itemId) !== sessionLanguage
+        )
+          return [];
+        const stage = Math.round(finiteNumber(raw.stage, 1, 1, 5));
+        const practiceKind: PracticeKind =
+          raw.practiceKind === "solving" && supportsSolving.get(itemId)
+            ? "solving"
+            : "typing";
+        const key = `${itemId}:${stage}:${practiceKind}`;
+        if (seen.has(key)) return [];
+        seen.add(key);
+        const status =
+          raw.status === "completed" || raw.status === "skipped"
+            ? raw.status
+            : "pending";
+        return [
+          {
+            itemId,
+            itemRevision:
+              status === "pending"
+                ? (revisions.get(itemId) ?? 1)
+                : Math.round(finiteNumber(raw.itemRevision, 1, 1, 1000000)),
+            stage,
+            status,
+            attemptId:
+              typeof raw.attemptId === "string" ? raw.attemptId : undefined,
+            practiceKind,
+            estimatedMinutes:
+              Math.round(finiteNumber(raw.estimatedMinutes, 0, 0, 120)) ||
+              undefined,
+            rationale:
+              typeof raw.rationale === "string" && raw.rationale.trim()
+                ? raw.rationale.trim().slice(0, 240)
+                : undefined,
+            rawIndex,
+          },
+        ];
+      },
+    )
     .slice(0, 20);
-  if (!entries.length || entries.every((entry) => entry.status !== "pending"))
+  if (
+    !indexedEntries.length ||
+    indexedEntries.every((entry) => entry.status !== "pending")
+  )
     return null;
-  const requestedIndex = Math.round(
-    finiteNumber(value.currentIndex, 0, 0, entries.length - 1),
+  const requestedRawIndex = Math.round(
+    finiteNumber(value.currentIndex, 0, 0, value.entries.length - 1),
   );
-  const nextPending = entries.findIndex(
-    (entry, index) => index >= requestedIndex && entry.status === "pending",
+  const currentIndex = resolveSessionCurrentIndex(
+    indexedEntries,
+    requestedRawIndex,
   );
-  const currentIndex =
-    nextPending >= 0
-      ? nextPending
-      : entries.findIndex((entry) => entry.status === "pending");
+  const entries = indexedEntries.map((entry) => {
+    const normalized = { ...entry };
+    Reflect.deleteProperty(normalized, "rawIndex");
+    return normalized;
+  });
   const sources: SessionSource[] = [
     "mixed",
     "due",
@@ -630,6 +655,12 @@ export function normalizeState(value: unknown): AppState {
     [...BUILTIN_ITEMS, ...customItems].map((item) => [
       item.itemId,
       item.language,
+    ]),
+  );
+  const supportsSolving = new Map<ItemId, boolean>(
+    [...BUILTIN_ITEMS, ...customItems].map((item) => [
+      item.itemId,
+      Boolean(item.language === "python" && item.verification),
     ]),
   );
   const attempts = (Array.isArray(value.attempts) ? value.attempts : [])
@@ -797,6 +828,7 @@ export function normalizeState(value: unknown): AppState {
     revisions,
     tracks,
     languages,
+    supportsSolving,
   );
   const activeEntry = activeSession?.entries[activeSession.currentIndex];
   const draftMatchesSession = Boolean(
@@ -806,7 +838,8 @@ export function normalizeState(value: unknown): AppState {
     draft.sessionId === activeSession.id &&
     draft.itemId === activeEntry.itemId &&
     draft.stage === activeEntry.stage &&
-    draft.itemRevision === activeEntry.itemRevision,
+    draft.itemRevision === activeEntry.itemRevision &&
+    draft.practiceKind === (activeEntry.practiceKind ?? "typing"),
   );
   const normalizedDraft = draft
     ? { ...draft, sessionId: draftMatchesSession ? draft.sessionId : undefined }

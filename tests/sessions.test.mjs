@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildSessionQueue } from "../app/lib/sessions.mjs";
+import {
+  buildSessionQueue,
+  resolveSessionCurrentIndex,
+} from "../app/lib/sessions.mjs";
 
 const items = [
   { itemId: "builtin:1", pattern: "Arrays & Hashing", difficulty: "Easy", source: "builtin", track: "interview", language: "swift" },
@@ -49,4 +52,13 @@ test("language filters keep corresponding Python and Swift problems independent"
   const variantSignals = { "builtin:1": { recommendedStage: 3 }, "python:1": { recommendedStage: 1 } };
   const python = buildSessionQueue(variants, variantSignals, { count: 5, source: "mixed", track: "interview", language: "python", pattern: "All", difficulty: "All", stageMode: "recommended" }, () => 0.2);
   assert.deepEqual(python.map((entry) => entry.itemId), ["python:1"]);
+});
+
+test("session migration keeps the current pending task after invalid entries are removed", () => {
+  const compacted = [
+    { rawIndex: 1, status: "pending" },
+    { rawIndex: 2, status: "pending" },
+  ];
+  assert.equal(resolveSessionCurrentIndex(compacted, 1), 0);
+  assert.equal(resolveSessionCurrentIndex(compacted, 2), 1);
 });

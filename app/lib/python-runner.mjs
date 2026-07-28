@@ -3,6 +3,9 @@ const MAX_SPEC_BYTES = 64_000;
 const MAX_CASES = 64;
 const MAX_CASE_NAME_BYTES = 120;
 const EXECUTION_TIMEOUT_MS = 4_000;
+const INITIALIZATION_TIMEOUT_MS = 12_000;
+const DEFAULT_WORKER_PATH =
+  "./python-runner.worker.mjs?v=1.28.0-6-micropython-1";
 
 const ENTRYPOINT_KINDS = new Set(["function", "method"]);
 const CODECS = new Set([
@@ -162,11 +165,14 @@ export function buildPythonHarness({ source, verification }) {
   const sourceLiteral = jsonDocumentLiteral(normalizedSource);
   const verificationLiteral = jsonDocumentLiteral(normalizedVerification);
 
-  return `import contextlib as _contextlib
-import json as _json
+  return `import json as _json
 import math as _math
-import traceback as _traceback
-from collections import Counter as _Counter, deque as _deque
+import sys as _sys
+import io as _io
+import collections as _collections
+import functools as _functools
+import itertools as _itertools
+import heapq as _heapq
 
 _SOURCE = _json.loads(${sourceLiteral})
 _SPEC = _json.loads(${verificationLiteral})
@@ -184,27 +190,109 @@ class TreeNode:
         self.left = left
         self.right = right
 
-class _BoundedWriter:
-    encoding = "utf-8"
-    def __init__(self, limit):
-        self.limit = limit
-        self.parts = []
-        self.length = 0
-        self.truncated = False
-    def write(self, value):
-        text = str(value)
-        available = self.limit - self.length
-        if available > 0:
-            piece = text[:available]
-            self.parts.append(piece)
-            self.length += len(piece)
-        if len(text) > max(available, 0):
-            self.truncated = True
-        return len(text)
-    def flush(self):
-        return None
-    def getvalue(self):
-        return "".join(self.parts) + ("..." if self.truncated else "")
+class _Deque:
+    def __init__(self, iterable=(), maxlen=None):
+        self._items = list(iterable)
+        self.maxlen = maxlen
+        self._trim_left()
+    def _trim_left(self):
+        if self.maxlen is not None:
+            while len(self._items) > self.maxlen:
+                self._items.pop(0)
+    def append(self, value):
+        self._items.append(value)
+        self._trim_left()
+    def appendleft(self, value):
+        self._items.insert(0, value)
+        if self.maxlen is not None and len(self._items) > self.maxlen:
+            self._items.pop()
+    def pop(self):
+        if not self._items:
+            raise IndexError("pop from an empty deque")
+        return self._items.pop()
+    def popleft(self):
+        if not self._items:
+            raise IndexError("pop from an empty deque")
+        return self._items.pop(0)
+    def extend(self, iterable):
+        for value in iterable:
+            self.append(value)
+    def extendleft(self, iterable):
+        for value in iterable:
+            self.appendleft(value)
+    def clear(self):
+        self._items.clear()
+    def rotate(self, steps=1):
+        if not self._items:
+            return
+        steps %= len(self._items)
+        self._items[:] = self._items[-steps:] + self._items[:-steps]
+    def reverse(self):
+        self._items.reverse()
+    def copy(self):
+        return _Deque(self._items, self.maxlen)
+    def __bool__(self):
+        return bool(self._items)
+    def __len__(self):
+        return len(self._items)
+    def __iter__(self):
+        return iter(self._items)
+    def __getitem__(self, index):
+        return self._items[index]
+    def __setitem__(self, index, value):
+        self._items[index] = value
+    def __repr__(self):
+        return "deque(" + repr(self._items) + ")"
+
+class _DefaultDict:
+    def __init__(self, default_factory=None, source=None, **kwargs):
+        self.default_factory = default_factory
+        self._data = {}
+        if source is not None:
+            self.update(source)
+        self.update(kwargs)
+    def keys(self):
+        return list(self._data.keys())
+    def items(self):
+        return list(self._data.items())
+    def values(self):
+        return list(self._data.values())
+    def __iter__(self):
+        return iter(self._data)
+    def __len__(self):
+        return len(self._data)
+    def __contains__(self, key):
+        return key in self._data
+    def __getitem__(self, key):
+        if key not in self._data:
+            if self.default_factory is None:
+                raise KeyError(key)
+            self._data[key] = self.default_factory()
+        return self._data[key]
+    def __setitem__(self, key, value):
+        self._data[key] = value
+    def get(self, key, default=None):
+        return self._data.get(key, default)
+    def setdefault(self, key, default=None):
+        return self._data.setdefault(key, default)
+    def update(self, source=None, **kwargs):
+        if source is not None:
+            if hasattr(source, "keys"):
+                for key in source.keys():
+                    self[key] = source[key]
+            else:
+                for key, value in source:
+                    self[key] = value
+        for key, value in kwargs.items():
+            self[key] = value
+    def copy(self):
+        clone = _DefaultDict(self.default_factory)
+        clone.update(self._data)
+        return clone
+    def __repr__(self):
+        return "defaultdict(" + repr(self.default_factory) + ", " + repr(self._data) + ")"
+
+_deque = _Deque
 
 def _clip_text(value, limit=_MAX_TEXT):
     text = str(value)
@@ -224,14 +312,16 @@ def _normalize(value, depth=0, seen=None):
         return "<cycle>"
     seen.add(marker)
     try:
-        if isinstance(value, dict):
+        if isinstance(value, dict) or (
+            hasattr(value, "keys") and hasattr(value, "items")
+        ):
             pairs = sorted(value.items(), key=lambda item: repr(item[0]))[:_MAX_ITEMS]
             return {str(key)[:200]: _normalize(item, depth + 1, seen) for key, item in pairs}
         if isinstance(value, (list, tuple)):
             return [_normalize(item, depth + 1, seen) for item in value[:_MAX_ITEMS]]
         if isinstance(value, (set, frozenset)):
             items = [_normalize(item, depth + 1, seen) for item in list(value)[:_MAX_ITEMS]]
-            return sorted(items, key=lambda item: _json.dumps(item, sort_keys=True, default=str))
+            return sorted(items, key=_canonical)
         return _clip_text(repr(value), 1000)
     finally:
         seen.discard(marker)
@@ -341,18 +431,36 @@ def _encode(value, codec):
     raise ValueError("unsupported output codec")
 
 def _canonical(value):
-    return _json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    if value is None:
+        return "none"
+    if isinstance(value, bool):
+        return "bool:" + str(value)
+    if isinstance(value, (int, float, str)):
+        return type(value).__name__ + ":" + repr(value)
+    if isinstance(value, (list, tuple)):
+        return "[" + ",".join(_canonical(item) for item in value) + "]"
+    if isinstance(value, dict):
+        pairs = sorted((_canonical(key), _canonical(item)) for key, item in value.items())
+        return "{" + ",".join(key + ":" + item for key, item in pairs) + "}"
+    return type(value).__name__ + ":" + repr(value)
+
+def _counts(values):
+    result = {}
+    for value in values:
+        key = _canonical(value)
+        result[key] = result.get(key, 0) + 1
+    return result
 
 def _compare(actual, expected, comparator):
     if comparator == "deepEqual":
         return actual == expected
     if comparator == "unordered":
-        return isinstance(actual, list) and isinstance(expected, list) and _Counter(map(_canonical, actual)) == _Counter(map(_canonical, expected))
+        return isinstance(actual, list) and isinstance(expected, list) and _counts(actual) == _counts(expected)
     if comparator == "unorderedNested":
         if not isinstance(actual, list) or not isinstance(expected, list):
             return False
         normalize_group = lambda group: sorted((_canonical(item) for item in group)) if isinstance(group, list) else [_canonical(group)]
-        return _Counter(_canonical(normalize_group(group)) for group in actual) == _Counter(_canonical(normalize_group(group)) for group in expected)
+        return _counts(normalize_group(group) for group in actual) == _counts(normalize_group(group) for group in expected)
     if comparator == "validTopologicalOrder":
         if not isinstance(actual, list) or not isinstance(expected, dict):
             return False
@@ -382,39 +490,181 @@ def _call_entrypoint(namespace, entrypoint, args):
         raise TypeError("verification entrypoint is not callable")
     return target(*args)
 
-_stdout = _BoundedWriter(_MAX_TEXT)
-_stderr = _BoundedWriter(_MAX_TEXT)
+class _Counter(dict):
+    def __init__(self, iterable=None, **kwargs):
+        super().__init__()
+        if iterable is not None:
+            self.update(iterable)
+        self.update(kwargs)
+    def __getitem__(self, key):
+        return self.get(key, 0)
+    def update(self, iterable=None, **kwargs):
+        if iterable is not None:
+            if hasattr(iterable, "items"):
+                for key, value in iterable.items():
+                    self[key] = self.get(key, 0) + value
+            else:
+                for key in iterable:
+                    self[key] = self.get(key, 0) + 1
+        for key, value in kwargs.items():
+            self[key] = self.get(key, 0) + value
+    def most_common(self, count=None):
+        pairs = sorted(self.items(), key=lambda item: item[1], reverse=True)
+        return pairs if count is None else pairs[:count]
+    def elements(self):
+        for key, count in self.items():
+            for _ in range(max(0, count)):
+                yield key
+
+def _bisect_left(values, target, lo=0, hi=None, key=None):
+    if hi is None:
+        hi = len(values)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        value = values[mid] if key is None else key(values[mid])
+        if value < target:
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo
+
+def _bisect_right(values, target, lo=0, hi=None, key=None):
+    if hi is None:
+        hi = len(values)
+    while lo < hi:
+        mid = (lo + hi) // 2
+        value = values[mid] if key is None else key(values[mid])
+        if target < value:
+            hi = mid
+        else:
+            lo = mid + 1
+    return lo
+
+def _insort_left(values, target, lo=0, hi=None, key=None):
+    values.insert(_bisect_left(values, target if key is None else key(target), lo, hi, key), target)
+
+def _insort_right(values, target, lo=0, hi=None, key=None):
+    values.insert(_bisect_right(values, target if key is None else key(target), lo, hi, key), target)
+
+def _memoize(function):
+    cache = {}
+    def wrapped(*args, **kwargs):
+        key = (args, tuple(sorted(kwargs.items())))
+        if key not in cache:
+            cache[key] = function(*args, **kwargs)
+        return cache[key]
+    wrapped.cache_clear = cache.clear
+    return wrapped
+
+def _lru_cache(maxsize=128, typed=False):
+    if callable(maxsize):
+        return _memoize(maxsize)
+    return lambda function: _memoize(function)
+
+def _heapreplace(heap, item):
+    if not heap:
+        raise IndexError("index out of range")
+    smallest = _heapq.heappop(heap)
+    _heapq.heappush(heap, item)
+    return smallest
+
+def _heappushpop(heap, item):
+    if heap and heap[0] < item:
+        smallest = _heapq.heappop(heap)
+        _heapq.heappush(heap, item)
+        return smallest
+    return item
+
+def _nsmallest(count, iterable, key=None):
+    values = sorted(iterable, key=key)
+    return values[:max(0, count)]
+
+def _nlargest(count, iterable, key=None):
+    values = sorted(iterable, key=key, reverse=True)
+    return values[:max(0, count)]
+
+class _TypingAlias:
+    def __getitem__(self, value):
+        return object
+
+class _Module:
+    pass
+
+_collections.Counter = _Counter
+_collections.deque = _Deque
+_collections.defaultdict = _DefaultDict
+_functools.cache = _memoize
+_functools.lru_cache = _lru_cache
+
+_heapq_module = _Module()
+_heapq_module.heapify = _heapq.heapify
+_heapq_module.heappush = _heapq.heappush
+_heapq_module.heappop = _heapq.heappop
+_heapq_module.heapreplace = _heapreplace
+_heapq_module.heappushpop = _heappushpop
+_heapq_module.nsmallest = _nsmallest
+_heapq_module.nlargest = _nlargest
+_sys.modules["heapq"] = _heapq_module
+
+_bisect_module = _Module()
+_bisect_module.bisect_left = _bisect_left
+_bisect_module.bisect_right = _bisect_right
+_bisect_module.bisect = _bisect_right
+_bisect_module.insort_left = _insort_left
+_bisect_module.insort_right = _insort_right
+_bisect_module.insort = _insort_right
+_sys.modules["bisect"] = _bisect_module
+
+_typing_module = _Module()
+_typing_module.List = list
+_typing_module.Dict = dict
+_typing_module.Set = set
+_typing_module.Tuple = tuple
+_typing_module.Deque = list
+_typing_module.DefaultDict = dict
+_typing_module.Optional = _TypingAlias()
+_typing_module.Union = _TypingAlias()
+_typing_module.Any = object
+_sys.modules["typing"] = _typing_module
+
+_blocked_js = _Module()
+_sys.modules["js"] = _blocked_js
+
+def _format_error(error):
+    writer = _io.StringIO()
+    _sys.print_exception(error, writer)
+    return _clip_text(writer.getvalue(), 1200).strip()
+
 _results = []
 _setup_error = None
-_namespace = {"__builtins__": __builtins__, "ListNode": ListNode, "TreeNode": TreeNode}
+_namespace = {"ListNode": ListNode, "TreeNode": TreeNode}
 
-with _contextlib.redirect_stdout(_stdout), _contextlib.redirect_stderr(_stderr):
-    try:
-        exec(compile(_SOURCE, "<learner-solution>", "exec"), _namespace, _namespace)
-    except BaseException as error:
-        _setup_error = _clip_text("".join(_traceback.format_exception_only(type(error), error)), 1200).strip()
-    else:
-        for case in _SPEC["cases"]:
-            actual = None
-            case_error = None
-            passed = False
-            try:
-                args = [_decode(value, codec) for value, codec in zip(case["args"], case["argCodecs"])]
-                raw_actual = _call_entrypoint(_namespace, _SPEC["entrypoint"], args)
-                actual = _encode(raw_actual, case["outputCodec"])
-                passed = bool(_compare(actual, case["expected"], case["comparator"]))
-            except BaseException as error:
-                case_error = _clip_text("".join(_traceback.format_exception_only(type(error), error)), 1200).strip()
-            _results.append({"name": case["name"], "passed": passed, "actual": actual, "error": case_error})
+try:
+    exec(compile(_SOURCE, "<learner-solution>", "exec"), _namespace, _namespace)
+except BaseException as error:
+    _setup_error = _format_error(error)
+else:
+    for case in _SPEC["cases"]:
+        actual = None
+        case_error = None
+        passed = False
+        try:
+            args = [_decode(value, codec) for value, codec in zip(case["args"], case["argCodecs"])]
+            raw_actual = _call_entrypoint(_namespace, _SPEC["entrypoint"], args)
+            actual = _encode(raw_actual, case["outputCodec"])
+            passed = bool(_compare(actual, case["expected"], case["comparator"]))
+        except BaseException as error:
+            case_error = _format_error(error)
+        _results.append({"name": case["name"], "passed": passed, "actual": actual, "error": case_error})
 
 _payload = {
     "ok": _setup_error is None and all(case["passed"] for case in _results),
     "setupError": _setup_error,
     "cases": _results,
-    "stdout": _clip_text(_stdout.getvalue()),
-    "stderr": _clip_text(_stderr.getvalue()),
+    "stdout": "",
+    "stderr": "",
 }
-_json.dumps(_payload, allow_nan=False, ensure_ascii=False)`;
+_RESULT_JSON = _json.dumps(_payload)`;
 }
 
 function randomNonce() {
@@ -432,6 +682,8 @@ export class PythonRunner {
     this.WorkerConstructor = options.Worker ?? globalThis.Worker;
     this.worker = null;
     this.readyPromise = null;
+    this.initializationTimeoutMs =
+      options.initializationTimeoutMs ?? INITIALIZATION_TIMEOUT_MS;
     this.pending = new Map();
     this.queue = Promise.resolve();
     this.disposed = false;
@@ -503,7 +755,7 @@ export class PythonRunner {
       return Promise.reject(new Error("Python worker URL cannot be resolved"));
     const baseUrl = new URL(base);
     const workerUrl = new URL(
-      this.workerUrl ?? "./python-runner.worker.mjs",
+      this.workerUrl ?? DEFAULT_WORKER_PATH,
       baseUrl,
     );
     if (workerUrl.origin !== baseUrl.origin)
@@ -519,16 +771,41 @@ export class PythonRunner {
     worker.addEventListener("message", (event) =>
       this.#onMessage(worker, event.data),
     );
-    worker.addEventListener("error", () =>
-      this.#reset(new Error("Python worker failed")),
-    );
+    worker.addEventListener("error", (event) => {
+      const message =
+        typeof event?.message === "string" && event.message.trim()
+          ? event.message.trim()
+          : "Unknown worker error";
+      const source =
+        typeof event?.filename === "string" && event.filename
+          ? ` (${event.filename.split("/").pop()}:${event.lineno ?? 0}:${event.colno ?? 0})`
+          : "";
+      this.#reset(new Error(`Python worker failed: ${message}${source}`));
+    });
     worker.addEventListener("messageerror", () =>
       this.#reset(new Error("Python worker returned an unreadable message")),
     );
     const nonce = randomNonce();
-    this.readyPromise = new Promise((resolve, reject) =>
-      this.pending.set(nonce, { resolve, reject }),
-    );
+    this.readyPromise = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pending.delete(nonce);
+        const error = new Error(
+          `Python runtime did not start within ${Math.round(this.initializationTimeoutMs / 1000)} seconds`,
+        );
+        this.#reset(error);
+        reject(error);
+      }, this.initializationTimeoutMs);
+      this.pending.set(nonce, {
+        resolve: () => {
+          clearTimeout(timeout);
+          resolve();
+        },
+        reject: (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        },
+      });
+    });
     worker.postMessage({ type: "init", nonce });
     return this.readyPromise;
   }
@@ -591,4 +868,5 @@ export const PYTHON_RUNNER_LIMITS = Object.freeze({
   maxSpecBytes: MAX_SPEC_BYTES,
   maxCases: MAX_CASES,
   executionTimeoutMs: EXECUTION_TIMEOUT_MS,
+  initializationTimeoutMs: INITIALIZATION_TIMEOUT_MS,
 });
