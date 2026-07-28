@@ -56,7 +56,19 @@ test("all 48 Python exercises have authored self-contained challenge metadata", 
   }
 });
 
-test("the shipped catalog maps to 96 samples and 108 hidden checks", () => {
+test("authored input contracts include the boundary cases the bundled judge evaluates", () => {
+  assert.match(
+    PYTHON_CHALLENGES[10006].constraints.join(" "),
+    /Sequence numbers may repeat/,
+  );
+  assert.match(PYTHON_CHALLENGES[1].constraints.join(" "), /Zero or one/);
+  assert.match(PYTHON_CHALLENGES[1].statement, /empty list/);
+  assert.match(PYTHON_CHALLENGES[704].constraints.join(" "), /may be empty/);
+  assert.match(PYTHON_CHALLENGES[200].constraints.join(" "), /may be empty/);
+  assert.match(PYTHON_CHALLENGES[198].constraints.join(" "), /may be empty/);
+});
+
+test("the shipped catalog maps to 96 samples and 108 unshown checks", () => {
   const catalog = [...PYTHON_PROBLEMS, ...ADVANCED_PYTHON_PROBLEMS];
   let sampleCount = 0;
   let hiddenCount = 0;

@@ -8622,6 +8622,704 @@ kbd {
   }
 }
 
+/* Solution review workspace */
+.solution-review-page {
+  display: grid;
+  gap: 1.25rem;
+  max-width: 1180px;
+  padding-bottom: calc(7rem + env(safe-area-inset-bottom));
+}
+
+.solution-review-header {
+  align-items: start;
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: minmax(0, 1.5fr) minmax(260px, 0.7fr);
+}
+
+.solution-review-header > div,
+.solution-review-evidence,
+.solution-review-workspace,
+.solution-review-privacy,
+.solution-review-complete {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+}
+
+.solution-review-header > div {
+  padding: clamp(1.15rem, 3vw, 2rem);
+}
+
+.solution-review-header h1,
+.solution-review-complete h1 {
+  font-size: clamp(2rem, 5vw, 4rem);
+  line-height: 1;
+  margin: 0.6rem 0 0.8rem;
+}
+
+.solution-review-header p,
+.solution-review-complete > p {
+  color: var(--muted);
+  line-height: 1.65;
+  margin: 0;
+  max-width: 70ch;
+}
+
+.solution-review-evidence,
+.solution-review-complete-summary {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  overflow: hidden;
+}
+
+.solution-review-evidence div,
+.solution-review-complete-summary div {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  min-height: 3.25rem;
+  padding: 0.75rem 1rem;
+}
+
+.solution-review-evidence div:last-child,
+.solution-review-complete-summary div:last-child {
+  border-bottom: 0;
+}
+
+.solution-review-evidence dt,
+.solution-review-complete-summary dt {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.solution-review-evidence dd,
+.solution-review-complete-summary dd {
+  font-weight: 700;
+  margin: 0;
+  text-align: right;
+  text-transform: capitalize;
+}
+
+.solution-review-stepper {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.solution-review-stepper li {
+  align-items: center;
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  display: flex;
+  gap: 0.55rem;
+  min-height: 44px;
+  min-width: 0;
+  padding: 0.55rem 0.7rem;
+}
+
+.solution-review-stepper li > span {
+  align-items: center;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  display: inline-flex;
+  flex: 0 0 1.5rem;
+  height: 1.5rem;
+  justify-content: center;
+}
+
+.solution-review-stepper li strong {
+  font-size: 0.75rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.solution-review-stepper li.is-current {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.solution-review-stepper li.is-complete {
+  color: var(--accent);
+}
+
+.solution-review-workspace {
+  min-width: 0;
+  padding: clamp(1rem, 3vw, 2rem);
+}
+
+.solution-review-step-copy small,
+.solution-guide-card > div > span,
+.solution-review-prompt small,
+.solution-review-checklist > small,
+.solution-review-schedule-card > small {
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.solution-review-step-copy h2 {
+  font-size: clamp(1.45rem, 3vw, 2.4rem);
+  margin: 0.35rem 0 1.25rem;
+  outline: none;
+}
+
+.solution-review-form,
+.solution-review-compare,
+.solution-review-teach-back {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.solution-review-form > p,
+.solution-review-note {
+  color: var(--muted);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.solution-review-form > label,
+.solution-review-code-columns > label {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.solution-review-form > label > span,
+.solution-review-code-columns > label > span {
+  font-weight: 750;
+}
+
+.solution-review-form > label > small {
+  color: var(--muted);
+}
+
+.solution-review-form textarea,
+.solution-review-code-columns textarea {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-sizing: border-box;
+  color: var(--text);
+  font: inherit;
+  line-height: 1.5;
+  max-width: 100%;
+  min-height: 7rem;
+  padding: 0.8rem;
+  resize: vertical;
+  width: 100%;
+}
+
+.solution-review-code-columns textarea {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  min-height: 22rem;
+  overflow: auto;
+  white-space: pre;
+}
+
+.solution-guide-card,
+.solution-review-code-compare,
+.solution-review-schedule-preview,
+.solution-review-schedule-card,
+.solution-review-prompt,
+.solution-review-checklist {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  min-width: 0;
+  padding: clamp(1rem, 2vw, 1.4rem);
+}
+
+.solution-guide-card > div:first-child {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  justify-content: space-between;
+}
+
+.solution-guide-card > div:first-child small,
+.solution-review-code-compare .section-head span {
+  color: var(--muted);
+}
+
+.solution-guide-card h3,
+.solution-review-code-compare h3 {
+  font-size: 1rem;
+  margin: 1.15rem 0 0.4rem;
+}
+
+.solution-guide-card p,
+.solution-guide-card li,
+.solution-review-code-lock p,
+.solution-review-schedule-preview p,
+.solution-review-schedule-card p {
+  line-height: 1.55;
+}
+
+.solution-guide-card ol,
+.solution-guide-card ul {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.4rem 0 0;
+  padding-left: 1.25rem;
+}
+
+.solution-guide-facts {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 1rem;
+}
+
+.solution-guide-facts > span,
+.solution-guide-alternatives article {
+  background: color-mix(in srgb, var(--panel) 65%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.8rem;
+}
+
+.solution-guide-facts small {
+  color: var(--muted);
+}
+
+.solution-guide-alternatives {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.solution-guide-alternatives p {
+  color: var(--muted);
+  margin: 0;
+}
+
+.solution-review-code-lock {
+  align-items: center;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: space-between;
+  margin-top: 1rem;
+  padding: 1rem;
+}
+
+.solution-review-code-lock p {
+  color: var(--muted);
+  flex: 1 1 420px;
+  margin: 0;
+}
+
+.solution-review-code-columns {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 1rem;
+  min-width: 0;
+}
+
+.solution-review-copy-row,
+.solution-review-inline-actions,
+.solution-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
+}
+
+.solution-review-code-compare details {
+  margin-top: 1rem;
+}
+
+.solution-review-code-compare summary,
+.solution-review-privacy summary {
+  cursor: pointer;
+  font-weight: 750;
+  min-height: 44px;
+  padding: 0.75rem 0;
+}
+
+.solution-review-diff {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-top: 0.75rem;
+  max-width: 100%;
+  overflow: auto;
+}
+
+.solution-review-diff-summary {
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  min-width: 42rem;
+  padding: 0.65rem;
+}
+
+.solution-review-diff-head,
+.solution-review-diff-row {
+  display: grid;
+  grid-template-columns: 3.5rem 3.5rem minmax(34rem, 1fr);
+  min-width: 42rem;
+}
+
+.solution-review-diff-head {
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.solution-review-diff-head span,
+.solution-review-diff-row > span,
+.solution-review-diff-row code {
+  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  padding: 0.35rem 0.55rem;
+}
+
+.solution-review-diff-row code {
+  white-space: pre;
+}
+
+.solution-review-diff-row.is-add code {
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+
+.solution-review-diff-row.is-remove code {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.solution-review-diff-row.is-omitted code {
+  color: var(--muted);
+}
+
+.solution-review-form fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.solution-review-form legend {
+  font-size: 1rem;
+  font-weight: 800;
+  margin-bottom: 0.75rem;
+}
+
+.solution-review-choice-grid,
+.solution-review-grade-grid {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.solution-review-choice-grid label,
+.solution-review-grade-grid label {
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+  display: flex;
+  gap: 0.7rem;
+  min-height: 44px;
+  padding: 0.8rem;
+}
+
+.solution-review-choice-grid label:has(input:checked),
+.solution-review-grade-grid label:has(input:checked) {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.solution-review-choice-grid input,
+.solution-review-grade-grid input {
+  flex: 0 0 auto;
+  height: 1.1rem;
+  margin-top: 0.12rem;
+  width: 1.1rem;
+}
+
+.solution-review-choice-grid span,
+.solution-review-grade-grid span {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.solution-review-choice-grid small,
+.solution-review-grade-grid small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.solution-review-prompt,
+.solution-review-checklist {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.solution-review-checklist ul {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.solution-review-schedule-preview dl {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 1rem 0 0;
+}
+
+.solution-review-schedule-preview dl div {
+  background: var(--panel);
+  border-radius: 10px;
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.75rem;
+}
+
+.solution-review-schedule-preview dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.solution-review-schedule-preview dd {
+  font-weight: 750;
+  margin: 0;
+  text-transform: capitalize;
+}
+
+.solution-review-footer {
+  align-items: center;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  border-top: 1px solid var(--line);
+  bottom: calc(0.5rem + env(safe-area-inset-bottom));
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  margin: 1.5rem -1rem -1rem;
+  padding: 0.85rem 1rem;
+  position: sticky;
+  z-index: 8;
+}
+
+.solution-review-footer > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: flex-end;
+}
+
+.solution-review-footer button,
+.solution-review-actions button,
+.solution-review-inline-actions button,
+.solution-review-code-lock button,
+.solution-review-copy-row button {
+  min-height: 44px;
+}
+
+.solution-review-privacy {
+  color: var(--muted);
+  padding: 0 1rem;
+}
+
+.solution-review-privacy p {
+  line-height: 1.55;
+  margin: 0 0 1rem;
+}
+
+.solution-review-complete {
+  display: grid;
+  gap: 1.25rem;
+  padding: clamp(1.25rem, 4vw, 3rem);
+}
+
+.solution-review-schedule-card {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.solution-review-schedule-card strong {
+  font-size: clamp(1.3rem, 3vw, 2rem);
+}
+
+.solution-review-schedule-card time {
+  color: var(--accent);
+  font-weight: 800;
+}
+
+.solution-review-complete-summary {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.solution-review-route-warning,
+.solution-review-library {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: clamp(1rem, 3vw, 1.5rem);
+}
+
+.solution-review-route-warning {
+  border-color: var(--warning);
+  color: var(--muted);
+}
+
+.solution-review-library-trust {
+  color: var(--muted);
+  line-height: 1.55;
+  max-width: 78ch;
+}
+
+.solution-review-library-list {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
+.solution-review-library-list > article {
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  display: grid;
+  gap: 0.8rem;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  padding: 0.9rem;
+}
+
+.solution-review-library-list > article > div {
+  display: grid;
+  gap: 0.22rem;
+  min-width: 0;
+}
+
+.solution-review-library-list > article small,
+.solution-review-library-list > article span {
+  color: var(--muted);
+}
+
+.solution-review-library-list > article strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.solution-review-library-status {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 750;
+  padding: 0.35rem 0.6rem;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.solution-review-library-status.is-completed {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.solution-review-library-list button {
+  min-height: 44px;
+}
+
+@media (max-width: 820px) {
+  .solution-review-header,
+  .solution-review-code-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .solution-review-stepper {
+    grid-template-columns: repeat(5, minmax(44px, 1fr));
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .solution-review-stepper li {
+    justify-content: center;
+  }
+
+  .solution-review-stepper li strong {
+    display: none;
+  }
+
+  .solution-review-library-list > article {
+    align-items: stretch;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .solution-review-library-list > article > button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .solution-review-page {
+    gap: 0.85rem;
+    padding-inline: 0.65rem;
+  }
+
+  .solution-review-choice-grid,
+  .solution-review-grade-grid,
+  .solution-guide-facts,
+  .solution-review-schedule-preview dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .solution-review-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .solution-review-footer > button,
+  .solution-review-footer > div,
+  .solution-review-footer > div > button {
+    width: 100%;
+  }
+
+  .solution-review-footer > div {
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .solution-review-page * {
+    scroll-behavior: auto;
+  }
+}
+
+@media (forced-colors: active) {
+  .solution-review-stepper li.is-current,
+  .solution-review-choice-grid label:has(input:checked),
+  .solution-review-grade-grid label:has(input:checked) {
+    outline: 2px solid CanvasText;
+  }
+}
+
 /* Submission work log */
 .records-section-switch {
   display: inline-flex;

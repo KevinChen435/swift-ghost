@@ -50,7 +50,7 @@ test("every shipped Python reference solution passes in the bundled runtime", as
   assert.deepEqual(failures, []);
 });
 
-test("every original transfer variant passes its sample and hidden checks", async () => {
+test("every original transfer variant passes its sample and unshown checks", async () => {
   const failures = [];
   for (const problem of TRANSFER_PROBLEMS) {
     const result = await execute(problem.code, problem.verification);

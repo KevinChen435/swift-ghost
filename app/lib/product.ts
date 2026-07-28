@@ -82,6 +82,10 @@ import {
   normalizeVirtualRoundWorkspace,
   type VirtualRoundWorkspace,
 } from "./virtual-rounds.mjs";
+import {
+  normalizeSolutionReviews,
+  type SolutionReviewRecord,
+} from "./solution-review.mjs";
 
 export { analyzeEdit, correctPositionCount } from "./typing-engine.mjs";
 
@@ -212,6 +216,7 @@ export type AttemptRecord = {
   sessionId?: string;
   assessmentRunId?: string;
   assessmentProbeId?: string;
+  submissionId?: string;
 };
 
 export type Draft = {
@@ -287,11 +292,12 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 23;
+  version: 24;
   attempts: AttemptRecord[];
   submissionLog: SubmissionLog;
   submissionAnnotations: SubmissionAnnotations;
   learningEvents: LearningEvent[];
+  solutionReviews: SolutionReviewRecord[];
   favorites: ItemId[];
   customItems: PracticeItem[];
   customCaseInputs: Partial<Record<ItemId, string>>;
@@ -311,7 +317,8 @@ export type AppState = {
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v23";
+export const STORAGE_KEY = "swift-ghost-state-v24";
+export const TWENTY_THIRD_STORAGE_KEY = "swift-ghost-state-v23";
 export const TWENTY_SECOND_STORAGE_KEY = "swift-ghost-state-v22";
 export const TWENTY_FIRST_STORAGE_KEY = "swift-ghost-state-v21";
 export const TWENTIETH_STORAGE_KEY = "swift-ghost-state-v20";
@@ -334,10 +341,11 @@ export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
-  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
 ];
 export const STATE_STORAGE_KEYS = [
   STORAGE_KEY,
+  TWENTY_THIRD_STORAGE_KEY,
   TWENTY_SECOND_STORAGE_KEY,
   TWENTY_FIRST_STORAGE_KEY,
   TWENTIETH_STORAGE_KEY,
@@ -375,11 +383,12 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 23,
+  version: 24,
   attempts: [],
   submissionLog: createSubmissionLog(),
   submissionAnnotations: {},
   learningEvents: [],
+  solutionReviews: [],
   favorites: [],
   customItems: [],
   customCaseInputs: {},
@@ -1251,6 +1260,10 @@ export function normalizeState(value: unknown): AppState {
           typeof raw.assessmentProbeId === "string"
             ? raw.assessmentProbeId.slice(0, 160)
             : undefined,
+        submissionId:
+          practiceKind === "solving" && typeof raw.submissionId === "string"
+            ? raw.submissionId.slice(0, 160)
+            : undefined,
       };
       attempt.qualification = qualificationFor(attempt);
       return [attempt];
@@ -1515,8 +1528,35 @@ export function normalizeState(value: unknown): AppState {
     Number(value.version) >= 23 ? value.submissionAnnotations : undefined,
     new Set(submissionLog.receipts.map((receipt) => receipt.id)),
   );
+  const sessionHistory = normalizeSessionHistory(value.sessionHistory, validIds);
+  const submissionsById = new Map(
+    submissionLog.receipts.map((receipt) => [receipt.id, receipt]),
+  );
+  const timedSessionIds = new Set(
+    sessionHistory
+      .filter((session) => session.kind === "mock")
+      .map((session) => session.id),
+  );
+  const finishedRoundIds = new Set(
+    virtualRoundWorkspace.history.map((round) => round.id),
+  );
+  const timedAttemptIds = new Set(
+    attempts
+      .filter((attempt) => {
+        if (attempt.sessionId && timedSessionIds.has(attempt.sessionId))
+          return true;
+        const receipt = attempt.submissionId
+          ? submissionsById.get(attempt.submissionId)
+          : undefined;
+        return Boolean(
+          receipt?.context.virtualRoundId &&
+            finishedRoundIds.has(receipt.context.virtualRoundId),
+        );
+      })
+      .map((attempt) => attempt.id),
+  );
   return {
-    version: 23,
+    version: 24,
     attempts,
     submissionLog,
     submissionAnnotations,
@@ -1524,6 +1564,18 @@ export function normalizeState(value: unknown): AppState {
       validItemIds: validIds,
       attemptsById: new Map(attempts.map((attempt) => [attempt.id, attempt])),
     }),
+    solutionReviews: normalizeSolutionReviews(
+      Number(value.version) >= 24 ? value.solutionReviews : undefined,
+      {
+        validItemIds: validIds,
+        attemptsById: new Map(attempts.map((attempt) => [attempt.id, attempt])),
+        submissionIds: new Set(
+          submissionLog.receipts.map((receipt) => receipt.id),
+        ),
+        submissionsById,
+        timedAttemptIds,
+      },
+    ),
     favorites,
     customItems,
     customCaseInputs,
@@ -1538,7 +1590,7 @@ export function normalizeState(value: unknown): AppState {
       finiteNumber(value.lastStage, draft?.stage ?? 1, 1, 5),
     ),
     activeSession,
-    sessionHistory: normalizeSessionHistory(value.sessionHistory, validIds),
+    sessionHistory,
     interviewStudio: normalizeInterviewStudioState(
       Number(value.version) >= 17 ? value.interviewStudio : undefined,
       {

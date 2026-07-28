@@ -136,7 +136,7 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v23"/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v24"/);
   assert.match(product, /TWENTY_FIRST_STORAGE_KEY = "swift-ghost-state-v21"/);
   assert.match(product, /TWENTIETH_STORAGE_KEY = "swift-ghost-state-v20"/);
   assert.match(product, /NINETEENTH_STORAGE_KEY = "swift-ghost-state-v19"/);
@@ -149,7 +149,7 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(product, /TWELFTH_STORAGE_KEY = "swift-ghost-state-v12"/);
   assert.match(product, /PREVIOUS_STORAGE_KEY = "swift-ghost-state-v11"/);
   assert.match(product, /FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2"/);
-  assert.match(product, /version: 23/);
+  assert.match(product, /version: 24/);
   assert.match(product, /swift-ghost-state-v10/);
   assert.match(product, /swift-ghost-state-v9/);
   assert.match(product, /swift-ghost-state-v8/);
@@ -362,7 +362,7 @@ test("ships reload-safe timed mock interviews", async () => {
     new URL("../app/components/ChallengeConsole.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(consoleUi, /Hidden judge details stay out of the interface/);
+  assert.match(consoleUi, /Unshown judge details stay out of the interface/);
   assert.match(app, /role="timer"/);
 });
 

@@ -18,7 +18,7 @@ export const ROUTE_VIEWS = [
   "settings",
 ];
 export const COMMUNITY_TABS = ["recent", "records", "daily", "profile"];
-export const RECORDS_SECTIONS = ["overview", "submissions"];
+export const RECORDS_SECTIONS = ["overview", "submissions", "reviews"];
 export const ROUTE_LANGUAGES = ["python", "swift"];
 
 function sourceParams(input) {
@@ -45,6 +45,15 @@ function cleanHandle(value) {
 function cleanAssessmentId(value) {
   const normalized = typeof value === "string" ? value.trim() : "";
   return /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(normalized)
+    ? normalized
+    : undefined;
+}
+
+function cleanReviewAttemptId(value) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return /^[a-zA-Z0-9](?:[a-zA-Z0-9._:-]{0,158}[a-zA-Z0-9])?$/.test(
+    normalized,
+  )
     ? normalized
     : undefined;
 }
@@ -135,12 +144,17 @@ export function parseRoute(input) {
     view === "assessments"
       ? cleanAssessmentId(params.get("assessment"))
       : undefined;
+  const requestedRecordsSection = params.get("section");
   const recordsSection =
-    view === "records" && params.get("section") === "submissions"
-      ? "submissions"
+    view === "records" && RECORDS_SECTIONS.includes(requestedRecordsSection)
+      ? requestedRecordsSection
       : view === "records"
         ? "overview"
         : undefined;
+  const reviewAttemptId =
+    recordsSection === "reviews"
+      ? cleanReviewAttemptId(params.get("attempt"))
+      : undefined;
   return {
     view,
     language,
@@ -158,6 +172,7 @@ export function parseRoute(input) {
           ...(recordsSection === "submissions"
             ? { submissions: submissionQueryFromParams(params) }
             : {}),
+          ...(reviewAttemptId ? { reviewAttemptId } : {}),
         }
       : {}),
   };
@@ -297,6 +312,11 @@ export function serializeRoute(
       url.searchParams.set("size", String(query.pageSize));
     if (query.selectedId) url.searchParams.set("submission", query.selectedId);
     if (query.compareId) url.searchParams.set("compare", query.compareId);
+  }
+  if (view === "records" && route?.recordsSection === "reviews") {
+    url.searchParams.set("section", "reviews");
+    const reviewAttemptId = cleanReviewAttemptId(route?.reviewAttemptId);
+    if (reviewAttemptId) url.searchParams.set("attempt", reviewAttemptId);
   }
   const assessment =
     view === "assessments" ? cleanAssessmentId(route?.assessment) : undefined;
