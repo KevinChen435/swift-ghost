@@ -23,6 +23,11 @@ import { CommunityPanel } from "./CommunityPanel";
 import { AttemptForensics } from "./AttemptForensics";
 import { LearningAnalytics } from "./LearningAnalytics";
 import { DailyCoach } from "./DailyCoach";
+import { ReadinessAnalytics } from "./ReadinessAnalytics";
+import {
+  PostAttemptDebrief,
+  type DebriefInput,
+} from "./PostAttemptDebrief";
 import {
   createPythonRunner,
   type PythonRunner,
@@ -74,6 +79,7 @@ import {
   EMPTY_STATE,
   EARLIEST_STORAGE_KEY,
   FIRST_STORAGE_KEY,
+  INITIAL_STORAGE_KEY,
   LEGACY_STORAGE_KEY,
   OLDER_STORAGE_KEY,
   OLDEST_STORAGE_KEY,
@@ -116,6 +122,11 @@ import {
   normalizeTimelineSamples,
   type TimelineSample,
 } from "../lib/analytics.mjs";
+import {
+  activityKindFor,
+  upsertLearningEvent,
+  type LearningEvent,
+} from "../lib/learning-state.mjs";
 
 type Result = AttemptRecord & {
   item: PracticeItem;
@@ -1506,7 +1517,7 @@ export default function SwiftGhostApp() {
       if (
         !parsed ||
         typeof parsed !== "object" ||
-        ![2, 3, 4, 5, 6, 7, 8, 9].includes(
+        ![2, 3, 4, 5, 6, 7, 8, 9, 10].includes(
           Number((parsed as { version?: unknown }).version),
         )
       )
@@ -1552,6 +1563,7 @@ export default function SwiftGhostApp() {
     localStorage.removeItem(ORIGINAL_STORAGE_KEY);
     localStorage.removeItem(FIRST_STORAGE_KEY);
     localStorage.removeItem(EARLIEST_STORAGE_KEY);
+    localStorage.removeItem(INITIAL_STORAGE_KEY);
     setState(EMPTY_STATE);
     setSelectedId(BUILTIN_ITEMS[0].itemId);
     setStage(1);
@@ -1595,6 +1607,39 @@ export default function SwiftGhostApp() {
       undefined,
       result.practiceKind,
     );
+  }
+
+  function saveResultDebrief(input: DebriefInput) {
+    if (!result) return;
+    mutateState((current) => {
+      const existing = current.learningEvents.find(
+        (event) => event.attemptId === result.id,
+      );
+      const event: LearningEvent = {
+        id: existing?.id ?? makeId(),
+        attemptId: result.id,
+        itemId: result.itemId,
+        itemRevision: result.itemRevision,
+        practiceKind: result.practiceKind,
+        activityKind: activityKindFor({
+          track: result.item.track,
+          practiceKind: result.practiceKind,
+        }),
+        grade: input.grade,
+        friction: input.friction,
+        confidence: input.confidence,
+        createdAt: existing?.createdAt ?? new Date().toISOString(),
+        ...(input.promptSnapshot
+          ? { promptSnapshot: input.promptSnapshot }
+          : {}),
+        ...(input.response ? { response: input.response } : {}),
+      };
+      return {
+        ...current,
+        learningEvents: upsertLearningEvent(current.learningEvents, event),
+      };
+    });
+    setToast("Debrief saved for your next plan");
   }
 
   return (
@@ -1813,6 +1858,10 @@ export default function SwiftGhostApp() {
           onRetry={handleResultRetry}
           onRandom={() => randomItem()}
           onRecords={() => navigateView("records")}
+          debrief={state.learningEvents.find(
+            (event) => event.attemptId === result.id,
+          )}
+          onSaveDebrief={saveResultDebrief}
           cloud={cloud}
         />
       )}
@@ -3917,6 +3966,7 @@ function RecordsView({
         onToggleUploads={onToggleUploads}
         onRefresh={onCloudRefresh}
       />
+      <ReadinessAnalytics state={state} items={items} dueCount={due.length} />
       <div className="stat-grid">
         <StatCard
           label="Completed passes"
@@ -4426,9 +4476,10 @@ function SettingsView({
           <small>Your data</small>
           <h2>Local profile</h2>
           <p>
-            Export a portable v9 JSON backup with Python, Swift, iOS, sessions,
-            revisioned snippets, local pacing and weak-line analytics, and
-            community preferences—or restore any v2–v8 backup.
+            Export a portable v10 JSON backup with Python, Swift, iOS, sessions,
+            learning debriefs, revisioned snippets, local pacing and weak-line
+            analytics, and
+            community preferences—or restore any v2–v9 backup.
           </p>
         </div>
         <div className="data-actions">
@@ -4684,6 +4735,8 @@ function ResultDialog({
   onRetry,
   onRandom,
   onRecords,
+  debrief,
+  onSaveDebrief,
   cloud,
 }: {
   result: Result;
@@ -4692,6 +4745,8 @@ function ResultDialog({
   onRetry: () => void;
   onRandom: () => void;
   onRecords: () => void;
+  debrief?: LearningEvent;
+  onSaveDebrief: (input: DebriefInput) => void;
   cloud: CloudRuntime;
 }) {
   const eligible = eligibleAttempt(result);
@@ -4864,6 +4919,12 @@ function ResultDialog({
           </span>
         </div>
         <AttemptForensics attempt={result} item={result.item} />
+        <PostAttemptDebrief
+          item={result.item}
+          stage={result.stage}
+          existing={debrief}
+          onSave={onSaveDebrief}
+        />
         {!isSolve && (
           <section className="result-benchmark">
             <span>

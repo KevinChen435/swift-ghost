@@ -1,3 +1,5 @@
+import { applyDebriefToReviewState } from "./learning-state.mjs";
+
 const DAY_MS = 86_400_000;
 const REVIEW_DAYS = [1, 3, 7, 14, 30];
 
@@ -54,8 +56,23 @@ function modeAttempts(attempts, item, activityKind) {
     .sort((a, b) => Date.parse(a.completedAt) - Date.parse(b.completedAt));
 }
 
-function learningState(attempts, item, activityKind, now) {
+function modeEvents(events, item, activityKind) {
+  return events
+    .filter(
+      (event) =>
+        event &&
+        event.itemId === item.itemId &&
+        Number(event.itemRevision ?? 1) ===
+          Number(item.contentRevision ?? 1) &&
+        event.activityKind === activityKind &&
+        !Number.isNaN(Date.parse(event.createdAt ?? "")),
+    )
+    .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+}
+
+function learningState(attempts, events, item, activityKind, now) {
   const relevant = modeAttempts(attempts, item, activityKind);
+  const relevantEvents = modeEvents(events, item, activityKind);
   let level = 0;
   let dueAt = null;
   let lapses = 0;
@@ -72,6 +89,14 @@ function learningState(attempts, item, activityKind, now) {
       dueAt = new Date(Date.parse(attempt.completedAt) + DAY_MS);
     }
   }
+  const lastDebrief = relevantEvents.at(-1) ?? null;
+  const lastAttemptAt = relevant.at(-1)
+    ? Date.parse(relevant.at(-1).completedAt)
+    : 0;
+  ({ level, dueAt, lapses } = applyDebriefToReviewState(
+    { level, dueAt, lapses, lastAttemptAt },
+    lastDebrief,
+  ));
   const due = Boolean(dueAt && dueAt.getTime() <= now.getTime());
   const overdueDays = due
     ? Math.max(0, Math.floor((now.getTime() - dueAt.getTime()) / DAY_MS))
@@ -85,6 +110,7 @@ function learningState(attempts, item, activityKind, now) {
     lapses,
     successes,
     last: relevant.at(-1) ?? null,
+    lastDebrief,
   };
 }
 
@@ -127,6 +153,10 @@ function taskRationale(item, state, activityKind, favorite) {
       : "";
     return `${activityKind === "solve" ? "Independent solve" : "Recall"} evidence is due${late}.`;
   }
+  if (state.lastDebrief?.grade === "again")
+    return `You marked the last retrieval Again because of ${state.lastDebrief.friction}, so this returns quickly.`;
+  if (state.lastDebrief?.grade === "hard")
+    return `The last retrieval felt hard (${state.lastDebrief.friction}); reinforce it before the trace fades.`;
   if (state.last && !successful(state.last, activityKind))
     return "The most recent attempt was incomplete or assisted, so this skill needs a clean retrieval.";
   if (activityKind === "solve" && state.successes === 0)
@@ -139,9 +169,9 @@ function taskRationale(item, state, activityKind, favorite) {
   return "Selected to broaden current-revision interview evidence.";
 }
 
-function candidateFor(item, attempts, favorites, now) {
+function candidateFor(item, attempts, events, favorites, now) {
   const activityKind = activityFor(item);
-  const state = learningState(attempts, item, activityKind, now);
+  const state = learningState(attempts, events, item, activityKind, now);
   const favorite = favorites.has(item.itemId);
   const lane = laneFor(item, state);
   let score = 0;
@@ -152,6 +182,20 @@ function candidateFor(item, attempts, favorites, now) {
   if (activityKind === "solve") score += state.successes ? 55 : 150;
   if (item.pattern === "Python Fluency") score += 85;
   if (activityKind === "concept") score += 35;
+  if (state.lastDebrief?.grade === "again") score += 320;
+  if (state.lastDebrief?.grade === "hard") score += 120;
+  if (
+    state.lastDebrief?.friction === "syntax" &&
+    activityKind === "syntax"
+  )
+    score += 70;
+  if (
+    ["recognition", "invariant", "implementation"].includes(
+      state.lastDebrief?.friction,
+    ) &&
+    activityKind === "solve"
+  )
+    score += 90;
   if (favorite) score += 20;
   if (item.difficulty === "Hard" && state.successes === 0) score -= 90;
   const estimatedMinutes = estimateMinutes(item, activityKind);
@@ -187,7 +231,11 @@ function normalizeInputs(input) {
     ...(Array.isArray(input?.attempts) ? input.attempts : []),
     ...(Array.isArray(input?.solves) ? input.solves : []),
   ];
-  return { items, attempts };
+  const events = [
+    ...(Array.isArray(input?.learningEvents) ? input.learningEvents : []),
+    ...(Array.isArray(input?.reviews) ? input.reviews : []),
+  ];
+  return { items, attempts, events };
 }
 
 function addTask(selected, candidate, budgetMinutes, maxItems) {
@@ -200,7 +248,7 @@ function addTask(selected, candidate, budgetMinutes, maxItems) {
 }
 
 export function buildDailyPlan(input = {}, options = {}) {
-  const { items, attempts } = normalizeInputs(input);
+  const { items, attempts, events } = normalizeInputs(input);
   const now = asDate(options.now ?? input.now);
   const profile = input.profile ?? input.trainingProfile ?? {};
   const budgetMinutes = Math.round(
@@ -218,7 +266,7 @@ export function buildDailyPlan(input = {}, options = {}) {
     Array.isArray(input.favorites) ? input.favorites : [],
   );
   const candidates = items
-    .map((item) => candidateFor(item, attempts, favorites, now))
+    .map((item) => candidateFor(item, attempts, events, favorites, now))
     .sort(
       (a, b) =>
         b.score - a.score ||

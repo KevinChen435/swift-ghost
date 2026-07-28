@@ -48,6 +48,7 @@ export function DailyCoach({
         {
           items,
           attempts: state.attempts,
+          learningEvents: state.learningEvents,
           favorites: state.favorites,
           profile: {
             preferredLanguage: state.settings.preferredLanguage,
@@ -64,6 +65,7 @@ export function DailyCoach({
       items,
       planningDate,
       state.attempts,
+      state.learningEvents,
       state.favorites,
       state.settings.dailyGoalMinutes,
       state.settings.preferredLanguage,
