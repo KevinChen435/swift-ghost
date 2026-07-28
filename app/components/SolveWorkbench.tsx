@@ -14,6 +14,7 @@ import {
 export type SolveWorkbenchProps = {
   problem: ReactNode;
   notebook?: ReactNode;
+  notebookLabel?: string;
   editor: ReactNode;
   tests: ReactNode;
   initialDesktopPercent?: number;
@@ -62,6 +63,7 @@ function desktopPromptTabId(
 export function SolveWorkbench({
   problem,
   notebook,
+  notebookLabel,
   editor,
   tests,
   initialDesktopPercent = 45,
@@ -81,7 +83,7 @@ export function SolveWorkbench({
   const mobilePanes = notebook
     ? [
         ...BASE_MOBILE_PANES,
-        { id: "notes" as const, label: "Notes" },
+        { id: "notes" as const, label: notebookLabel ?? "Notes" },
         ...CODE_MOBILE_PANES,
       ]
     : [...BASE_MOBILE_PANES, ...CODE_MOBILE_PANES];
@@ -374,7 +376,7 @@ export function SolveWorkbench({
                   selectAdjacentDesktopPromptPane(event, "notes")
                 }
               >
-                Notebook
+              {notebookLabel ?? "Notebook"}
               </button>
             </div>
           )}
@@ -432,7 +434,7 @@ export function SolveWorkbench({
                   selectAdjacentDesktopPromptPane(event, "notes")
                 }
               >
-                Notebook
+              {notebookLabel ?? "Notebook"}
               </button>
             </div>
             <div className="solve-workbench-notebook-panel">{notebook}</div>

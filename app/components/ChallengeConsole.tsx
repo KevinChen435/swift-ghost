@@ -37,6 +37,7 @@ export type ChallengeCustomExecutionState = {
 export type ChallengeConsoleProps = {
   practiceKind: PracticeKind;
   isMock: boolean;
+  isStudio?: boolean;
   runnerSourcePresent: boolean;
   checksAreBusy: boolean;
   consoleTab: ChallengeConsoleTab;
@@ -383,6 +384,7 @@ function SubmissionHistory({
 export function ChallengeConsole({
   practiceKind,
   isMock,
+  isStudio = false,
   runnerSourcePresent,
   checksAreBusy,
   consoleTab,
@@ -589,7 +591,7 @@ export function ChallengeConsole({
             Cancel run
           </button>
         )}
-        {isSolving && !isMock ? (
+        {isSolving && (!isMock || isStudio) ? (
           <>
             <button
               className="outline-button"
@@ -633,6 +635,7 @@ export function ChallengeConsole({
         )}
 
         {isMock &&
+          !isStudio &&
           canRecordMock &&
           onRecordMock &&
           verificationState.purpose === "full" &&

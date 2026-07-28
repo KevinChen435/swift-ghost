@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-test("state v16 preserves multi-problem mock notebooks and debriefs", async () => {
+test("state v17 preserves multi-problem mock notebooks and debriefs", async () => {
   const product = await readFile(
     new URL("../app/lib/product.ts", import.meta.url),
     "utf8",
@@ -12,8 +12,9 @@ test("state v16 preserves multi-problem mock notebooks and debriefs", async () =
     "utf8",
   );
 
-  assert.match(product, /export type AppState = \{\s+version: 16;/);
-  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v16"/);
+  assert.match(product, /export type AppState = \{\s+version: 17;/);
+  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v17"/);
+  assert.match(product, /SIXTEENTH_STORAGE_KEY = "swift-ghost-state-v16"/);
   assert.match(product, /FIFTEENTH_STORAGE_KEY = "swift-ghost-state-v15"/);
   assert.match(product, /FOURTEENTH_STORAGE_KEY = "swift-ghost-state-v14"/);
   assert.match(product, /THIRTEENTH_STORAGE_KEY = "swift-ghost-state-v13"/);
@@ -29,7 +30,7 @@ test("state v16 preserves multi-problem mock notebooks and debriefs", async () =
   assert.match(product, /kind === "mock"\s+\? \{/);
   assert.match(product, /mockPreset: \(\["screen", "standard", "stretch"\] as const\)/);
   assert.match(product, /durationMinutes,\s+expiresAt,\s+problemCount/);
-  assert.match(product, /2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16/);
+  assert.match(product, /2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17/);
   assert.match(product, /normalizeMockProblemWorkspace/);
   assert.match(product, /normalizeMockProblemWorkspaces/);
   assert.match(product, /normalizeMockDebrief/);

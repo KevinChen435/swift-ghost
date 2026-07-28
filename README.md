@@ -35,6 +35,9 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - Reload-safe 30-, 45-, and 60-minute mock interviews with an exact one- or two-problem format, one absolute deadline, direct problem-to-problem advancement, and no interim coaching or reference-solution reveal; published prompt examples remain visible
 - A private interview notebook for clarifications, approach, invariant, complexity, edge cases, and final explanation, plus first-write checkpoints for prompt, approach, coding, testing, completion, and explanation
 - History-backed post-mock debriefs for completed, ended, and expired interviews, with both problem workspaces, bounded source snapshots, a five-dimension 0–2 rubric, mistake tags, and reflection prompts
+- A guided Interview Studio for both Python coding and Swift/iOS technical screens, with clarification, approach, implementation, testing, complexity, follow-up, and closing phases
+- Separate mock and coach modes: mock interviews lock hints, while coach-mode hints are progressively revealed and permanently recorded in the local transcript
+- Reload-safe local interview transcripts, Python runner evidence, accepted-submission requirements, authored review criteria, and replayable interview history without automated semantic or pass/fail scoring
 - A self-contained Python Challenge Lab across all 48 exercises, with original task statements, callable contracts, parameters, constraints, public examples, persistent custom JSON cases, keyboard-first runs, and aggregate hidden-suite submissions
 - A Hacker-style solve workbench with resizable Prompt/Notebook and Code panels on desktop, focused Problem/Notes/Code/Tests tabs on mobile, and independently scrolling panes
 - A tabbed Testcases/Custom/Result/Submissions console with safe aggregate judge feedback, cancelable isolated runs, and a structured per-parameter testcase builder with Raw JSON fallback

@@ -31,7 +31,11 @@ test("solve workbench ships accessible split and mobile panel controls", async (
   assert.match(workbench, /event\.key !== "Enter"/);
   assert.match(workbench, /role="tablist"/);
   assert.match(workbench, /notebook\?: ReactNode/);
-  assert.match(workbench, /\{ id: "notes" as const, label: "Notes" \}/);
+  assert.match(workbench, /notebookLabel\?: string/);
+  assert.match(
+    workbench,
+    /\{ id: "notes" as const, label: notebookLabel \?\? "Notes" \}/,
+  );
   assert.match(workbench, /desktopPromptPane/);
   assert.match(workbench, /desktopPromptTabId/);
   assert.match(workbench, /selectDesktopPromptPane/);
