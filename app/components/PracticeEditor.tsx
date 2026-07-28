@@ -29,6 +29,7 @@ export type PracticeEditorProps = {
   errorCount: number;
   linesLeft: number;
   isMock: boolean;
+  readOnly?: boolean;
   reveal: boolean;
   focusMode: boolean;
   copied: boolean;
@@ -79,7 +80,7 @@ export function PracticeEditor(props: PracticeEditorProps) {
               {props.reveal ? "Hide answer" : "Peek"}
             </button>
           )}
-          <button className="restart-action" onClick={props.onRestart}>
+          <button className="restart-action" disabled={props.readOnly} onClick={props.onRestart}>
             Restart
           </button>
           <button className="focus-action" onClick={props.onFocusMode}>
@@ -162,6 +163,7 @@ export function PracticeEditor(props: PracticeEditorProps) {
             fontSize={props.settings.fontSize}
             tabSize={props.settings.tabSize}
             isMock={props.isMock}
+            readOnly={props.readOnly}
             ariaLabel={`Solve ${props.item.title} in Python. Press Escape, then Tab, to leave the editor.`}
             onChange={props.onChange}
             onRunExamples={props.onRunExamples}

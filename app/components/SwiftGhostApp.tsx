@@ -33,6 +33,12 @@ import {
 import { ReadinessAnalytics } from "./ReadinessAnalytics";
 import { AssessmentCenter } from "./AssessmentCenter";
 import {
+  VirtualRounds,
+  type ActiveVirtualRound,
+  type VirtualRoundPreset as VirtualRoundPresetView,
+  type VirtualRoundReport as VirtualRoundReportView,
+} from "./VirtualRounds";
+import {
   TransferLab,
   type TransferTotals,
   type TransferVariant,
@@ -200,6 +206,27 @@ import {
   selectConceptCheckIndex,
   supportsConceptPractice,
 } from "../lib/concept-practice.mjs";
+import {
+  VIRTUAL_ROUND_POINTS_PER_PROBLEM,
+  VIRTUAL_ROUND_LIMITS,
+  VIRTUAL_ROUND_PRESETS,
+  archiveVirtualRound,
+  deriveVirtualRoundProblemScore,
+  deriveVirtualRoundReport,
+  deriveVirtualRoundScore,
+  expireVirtualRound,
+  finishVirtualRound,
+  openVirtualRoundProblem,
+  requestVirtualRoundSubmission,
+  selectVirtualRoundItems,
+  settleVirtualRoundSubmission,
+  startVirtualRound,
+  toggleVirtualRoundFlag,
+  updateVirtualRoundSource,
+  virtualRoundProblemStatus,
+  virtualRoundRemainingMs,
+  type ActiveVirtualRoundRun,
+} from "../lib/virtual-rounds.mjs";
 import {
   MOCK_INTERVIEW_PROBLEM_COUNTS,
   MOCK_INTERVIEW_PRESETS,
@@ -386,6 +413,7 @@ function freshDraft(
   practiceKind: PracticeKind = "typing",
   initialValue = "",
   assessment?: { runId: string; probeId: string },
+  virtualRoundId?: string,
 ): Draft {
   return {
     itemId,
@@ -409,6 +437,7 @@ function freshDraft(
     sessionId,
     assessmentRunId: assessment?.runId,
     assessmentProbeId: assessment?.probeId,
+    virtualRoundId,
   };
 }
 
@@ -668,6 +697,11 @@ export default function SwiftGhostApp() {
   const importRef = useRef<HTMLInputElement>(null);
   const expireMockInterviewRef = useRef<(sessionId: string) => void>(() => {});
   expireMockInterviewRef.current = expireMockInterview;
+  const expireVirtualRoundRef = useRef<(roundId: string) => void>(() => {});
+  expireVirtualRoundRef.current = expireActiveVirtualRound;
+  const blockVirtualRoundNavigationRef = useRef<() => boolean>(() => false);
+  blockVirtualRoundNavigationRef.current = blockVirtualRoundNavigation;
+  const restoringBlockedHistoryRef = useRef(false);
 
   const allItems = useMemo(
     () => [
@@ -750,6 +784,18 @@ export default function SwiftGhostApp() {
   useEffect(() => {
     if (!ready) return;
     function onPopState() {
+      if (restoringBlockedHistoryRef.current) {
+        restoringBlockedHistoryRef.current = false;
+        return;
+      }
+      if (blockVirtualRoundNavigationRef.current()) {
+        restoringBlockedHistoryRef.current = true;
+        window.history.forward();
+        window.setTimeout(() => {
+          restoringBlockedHistoryRef.current = false;
+        }, 1000);
+        return;
+      }
       const route = parseRoute(window.location.href);
       const routed = resolveRouteItem(allItems, route);
       const activeItem =
@@ -835,6 +881,17 @@ export default function SwiftGhostApp() {
       return;
     expireMockInterviewRef.current(session.id);
   }, [ready, now, state.activeSession]);
+  useEffect(() => {
+    const round = state.virtualRoundWorkspace.active;
+    if (
+      !ready ||
+      !round ||
+      round.status !== "active" ||
+      virtualRoundRemainingMs(round, now) !== 0
+    )
+      return;
+    expireVirtualRoundRef.current(round.id);
+  }, [ready, now, state.virtualRoundWorkspace.active]);
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(""), 2600);
@@ -1258,6 +1315,118 @@ export default function SwiftGhostApp() {
     }),
     [transferVariants],
   );
+  const virtualRoundEligibleItems = useMemo(
+    () =>
+      curriculumItems.filter(
+        (candidate) =>
+          candidate.track === "interview" &&
+          candidate.language === "python" &&
+          Boolean(candidate.verification),
+      ),
+    [curriculumItems],
+  );
+  const virtualRoundPresets = useMemo<VirtualRoundPresetView[]>(
+    () =>
+      VIRTUAL_ROUND_PRESETS.map((preset) => {
+        const available = virtualRoundEligibleItems.length >= preset.problemCount;
+        return {
+          ...preset,
+          maxScore: preset.problemCount * VIRTUAL_ROUND_POINTS_PER_PROBLEM,
+          available,
+          disabledReason: available
+            ? undefined
+            : `This build needs ${preset.problemCount} runnable Python interview problems; ${virtualRoundEligibleItems.length} are available.`,
+          detail:
+            preset.id === "sprint"
+              ? "A compact pacing reset."
+              : preset.id === "standard"
+                ? "Closest to a multi-question phone screen rehearsal."
+                : "Best after the shorter formats feel controlled.",
+        };
+      }),
+    [virtualRoundEligibleItems.length],
+  );
+  const activeVirtualRoundView = useMemo<ActiveVirtualRound | null>(() => {
+    const run = state.virtualRoundWorkspace.active;
+    if (!run) return null;
+    const aggregate = deriveVirtualRoundScore(run);
+    return {
+      id: run.id,
+      title: run.title,
+      status: run.status,
+      ...aggregate,
+      currentProblemId: run.currentProblemId,
+      announcement:
+        run.status === "finalizing"
+          ? "An on-time submission is still being judged. The report will lock when it settles."
+          : undefined,
+      problems: run.problems.map((problem, index) => ({
+        id: problem.itemId,
+        index,
+        identityRevealed: Boolean(problem.openedAt),
+        title: problem.openedAt ? problem.title : undefined,
+        status: virtualRoundProblemStatus(problem),
+        score: deriveVirtualRoundProblemScore(problem),
+        maxScore: VIRTUAL_ROUND_POINTS_PER_PROBLEM,
+        submissionCount: problem.submissions.filter(
+          (submission) => submission.status !== "pending",
+        ).length,
+        flagged: problem.flagged,
+      })),
+    };
+  }, [state.virtualRoundWorkspace.active]);
+  const virtualRoundReports = useMemo<VirtualRoundReportView[]>(
+    () =>
+      [...state.virtualRoundWorkspace.history]
+        .reverse()
+        .flatMap((run) => {
+          const report = deriveVirtualRoundReport(run);
+          if (!report) return [];
+          return [{
+            id: report.id,
+            title: report.title,
+            completedAt: report.completedAt,
+            score: report.score,
+            maxScore: report.maxScore,
+            acceptedCount: report.acceptedCount,
+            problemCount: report.problemCount,
+            elapsed: formatDuration(report.elapsedMs),
+            penalty: report.penaltyMs
+              ? `${formatDuration(report.penaltyMs)} contest penalty`
+              : "No solved-problem penalty",
+            archived: report.status === "archived",
+            problems: report.problems.map((problem) => ({
+              id: `${report.id}-${problem.id}`,
+              index: problem.index,
+              title: problem.title,
+              pattern: problem.pattern,
+              difficulty: problem.difficulty,
+              revision: `item ${problem.itemRevision} / judge ${problem.verificationRevision}`,
+              status: problem.status,
+              score: problem.score,
+              maxScore: problem.maxScore,
+              submissionCount: problem.submissionCount,
+              submissions: problem.submissions.map((submission) => ({
+                id: submission.id,
+                elapsed: formatDuration(submission.elapsedMs),
+                verdict: submission.status
+                  .split("-")
+                  .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+                  .join(" "),
+                score: submission.score,
+                maxScore: VIRTUAL_ROUND_POINTS_PER_PROBLEM,
+                note:
+                  submission.status === "judge-error"
+                    ? "Local judging was interrupted; no points were inferred."
+                    : submission.total > 0
+                      ? `${submission.passed} of ${submission.total} checks passed.`
+                      : undefined,
+              })),
+            })),
+          }];
+        }),
+    [state.virtualRoundWorkspace.history],
+  );
   const todayMinutes = practicedMinutesToday(state);
   const dailyPercent = Math.min(
     100,
@@ -1278,6 +1447,7 @@ export default function SwiftGhostApp() {
   }
 
   function navigateView(nextView: View) {
+    if (blockVirtualRoundNavigation()) return;
     setView(nextView);
     setAssessmentRouteId(undefined);
     setResult(null);
@@ -1374,7 +1544,7 @@ export default function SwiftGhostApp() {
 
   function recordAbandon(current: AppState) {
     const active = current.draft;
-    const synchronized =
+    const mockSynchronized =
       current.activeSession?.kind === "mock" &&
       active?.sessionId === current.activeSession.id
         ? {
@@ -1382,6 +1552,20 @@ export default function SwiftGhostApp() {
             activeSession: withMockDraftSnapshot(current.activeSession, active),
           }
         : current;
+    const synchronized =
+      active?.virtualRoundId &&
+      mockSynchronized.virtualRoundWorkspace.active?.id === active.virtualRoundId
+        ? {
+            ...mockSynchronized,
+            virtualRoundWorkspace: updateVirtualRoundSource(
+              mockSynchronized.virtualRoundWorkspace,
+              active.virtualRoundId,
+              active.itemId,
+              active.value,
+            ),
+          }
+        : mockSynchronized;
+    if (active?.virtualRoundId) return { ...synchronized, draft: null };
     if (!active?.startedAt || active.value.length < 5) return synchronized;
     const activeItem = [...BUILTIN_ITEMS, ...synchronized.customItems].find(
       (candidate) => candidate.itemId === active.itemId,
@@ -1402,7 +1586,9 @@ export default function SwiftGhostApp() {
     sessionId?: string,
     nextPracticeKind?: PracticeKind,
     assessment?: { runId: string; probeId: string },
+    virtualRoundId?: string,
   ) {
+    if (!virtualRoundId && blockVirtualRoundNavigation()) return;
     const chosenPracticeKind = coercePracticeKind(next, nextPracticeKind);
     const chosenStage =
       chosenPracticeKind === "solving"
@@ -1419,7 +1605,8 @@ export default function SwiftGhostApp() {
         current.draft.itemRevision === next.contentRevision &&
         current.draft.sessionId === sessionId &&
         current.draft.assessmentRunId === assessment?.runId &&
-        current.draft.assessmentProbeId === assessment?.probeId;
+        current.draft.assessmentProbeId === assessment?.probeId &&
+        current.draft.virtualRoundId === virtualRoundId;
       const abandoned = resuming ? current : recordAbandon(current);
       const base =
         next.transfer
@@ -1443,11 +1630,17 @@ export default function SwiftGhostApp() {
               (workspace) => workspace.itemId === next.itemId,
             )?.source
           : undefined;
+      const virtualRoundSource =
+        virtualRoundId && base.virtualRoundWorkspace.active?.id === virtualRoundId
+          ? base.virtualRoundWorkspace.active.problems.find(
+              (problem) => problem.itemId === next.itemId,
+            )?.source
+          : undefined;
       return {
         ...base,
         draft: resuming
           ? current.draft
-          : challengeDate || sessionId || assessment
+          : challengeDate || sessionId || assessment || virtualRoundId
             ? freshDraft(
                 next.itemId,
                 chosenStage,
@@ -1456,9 +1649,10 @@ export default function SwiftGhostApp() {
                 sessionId,
                 chosenPracticeKind,
                 chosenPracticeKind === "solving"
-                  ? (mockWorkspaceSource ?? next.starterCode ?? "")
+                  ? (virtualRoundSource ?? mockWorkspaceSource ?? next.starterCode ?? "")
                   : "",
                 assessment,
+                virtualRoundId,
               )
             : null,
         lastItemId: next.itemId,
@@ -1592,6 +1786,14 @@ export default function SwiftGhostApp() {
   }
 
   function updateDraft(next: Draft) {
+    if (
+      next.virtualRoundId &&
+      new TextEncoder().encode(next.value).byteLength >
+        VIRTUAL_ROUND_LIMITS.maxSourceBytes
+    ) {
+      setToast("Round source limit reached · shorten the solution to keep editing");
+      return;
+    }
     const live = currentMetrics(next, item.code);
     let timeline = next.timeline;
     if (next.startedAt && live.wpm > 0) {
@@ -1625,9 +1827,20 @@ export default function SwiftGhostApp() {
           );
         }
       }
+      const virtualRoundWorkspace =
+        nextDraft.virtualRoundId &&
+        current.virtualRoundWorkspace.active?.id === nextDraft.virtualRoundId
+          ? updateVirtualRoundSource(
+              current.virtualRoundWorkspace,
+              nextDraft.virtualRoundId,
+              nextDraft.itemId,
+              nextDraft.value,
+            )
+          : current.virtualRoundWorkspace;
       return {
         ...current,
         activeSession,
+        virtualRoundWorkspace,
         draft: nextDraft,
         lastItemId: selectedId,
         lastStage: stage,
@@ -2245,6 +2458,7 @@ export default function SwiftGhostApp() {
   function resetAttempt() {
     mutateState((current) => {
       const sessionId = current.draft?.sessionId;
+      const virtualRoundId = current.draft?.virtualRoundId;
       const assessment =
         current.draft?.assessmentRunId && current.draft.assessmentProbeId
           ? {
@@ -2253,29 +2467,39 @@ export default function SwiftGhostApp() {
             }
           : undefined;
       const base = recordAbandon(current);
+      const roundProblem =
+        virtualRoundId && base.virtualRoundWorkspace.active?.id === virtualRoundId
+          ? base.virtualRoundWorkspace.active.problems.find(
+              (problem) => problem.itemId === selectedId,
+            )
+          : undefined;
+      const initialValue =
+        practiceKind === "solving"
+          ? (roundProblem?.starterSource ?? item.starterCode ?? "")
+          : "";
+      const virtualRoundWorkspace =
+        virtualRoundId && roundProblem
+          ? updateVirtualRoundSource(
+              base.virtualRoundWorkspace,
+              virtualRoundId,
+              selectedId,
+              initialValue,
+            )
+          : base.virtualRoundWorkspace;
       return {
         ...base,
-        draft: sessionId
-          ? freshDraft(
-              selectedId,
-              stage,
-              item.contentRevision,
-              undefined,
-              sessionId,
-              practiceKind,
-              practiceKind === "solving" ? (item.starterCode ?? "") : "",
-              assessment,
-            )
-          : freshDraft(
-              selectedId,
-              stage,
-              item.contentRevision,
-              undefined,
-              undefined,
-              practiceKind,
-              practiceKind === "solving" ? (item.starterCode ?? "") : "",
-              assessment,
-            ),
+        virtualRoundWorkspace,
+        draft: freshDraft(
+          selectedId,
+          stage,
+          item.contentRevision,
+          undefined,
+          sessionId,
+          practiceKind,
+          initialValue,
+          assessment,
+          virtualRoundId,
+        ),
       };
     });
     setReveal(false);
@@ -2327,6 +2551,7 @@ export default function SwiftGhostApp() {
   }
 
   function selectAssessment(assessmentId?: string) {
+    if (blockVirtualRoundNavigation()) return;
     setView("assessments");
     setAssessmentRouteId(assessmentId);
     setResult(null);
@@ -2350,6 +2575,288 @@ export default function SwiftGhostApp() {
     setToast(
       "Cold prompt opened · pattern hidden · hints permanently mark this attempt assisted",
     );
+  }
+
+  function openVirtualRounds() {
+    selectAssessment("virtual-rounds");
+  }
+
+  function openVirtualRoundItem(roundId: string, itemId: string) {
+    const run = stateRef.current.virtualRoundWorkspace.active;
+    if (!run || run.id !== roundId || run.status !== "active") {
+      openVirtualRounds();
+      return;
+    }
+    const snapshot = run.problems.find((problem) => problem.itemId === itemId);
+    const candidate = allItems.find(
+      (entry) =>
+        entry.itemId === itemId &&
+        entry.contentRevision === snapshot?.itemRevision &&
+        (entry.verification?.revision ?? 1) === snapshot?.verificationRevision,
+    );
+    if (!snapshot || !candidate?.verification) {
+      setToast("This frozen round problem is unavailable in the current build");
+      return;
+    }
+    mutateState((current) => ({
+      ...current,
+      virtualRoundWorkspace: openVirtualRoundProblem(
+        current.virtualRoundWorkspace,
+        roundId,
+        itemId,
+        { now: new Date().toISOString() },
+      ),
+    }));
+    openItem(
+      candidate,
+      5,
+      undefined,
+      undefined,
+      "solving",
+      undefined,
+      roundId,
+    );
+  }
+
+  function resumeSavedDraft() {
+    const live = stateRef.current.draft;
+    if (!live) return;
+    if (live.virtualRoundId) {
+      openVirtualRoundItem(live.virtualRoundId, live.itemId);
+      return;
+    }
+    const candidate = allItems.find(
+      (entry) =>
+        entry.itemId === live.itemId &&
+        entry.contentRevision === live.itemRevision,
+    );
+    if (!candidate) {
+      setToast("This saved draft is unavailable in the current build");
+      return;
+    }
+    const assessment =
+      live.assessmentRunId && live.assessmentProbeId
+        ? { runId: live.assessmentRunId, probeId: live.assessmentProbeId }
+        : undefined;
+    openItem(
+      candidate,
+      live.stage,
+      live.challengeDate,
+      live.sessionId,
+      live.practiceKind,
+      assessment,
+    );
+  }
+
+  function startVirtualRoundPreset(presetId: string) {
+    const preset = VIRTUAL_ROUND_PRESETS.find((entry) => entry.id === presetId);
+    if (!preset) {
+      setToast("That round format is unavailable");
+      return;
+    }
+    const existing = stateRef.current.virtualRoundWorkspace.active;
+    if (existing) {
+      setToast("Finish the active round before starting another");
+      openVirtualRoundItem(existing.id, existing.currentProblemId);
+      return;
+    }
+    const candidates = virtualRoundEligibleItems.map((candidate) => {
+      const itemAttempts = stateRef.current.attempts.filter(
+        (attempt) =>
+          attempt.itemId === candidate.itemId &&
+          attempt.itemRevision === candidate.contentRevision,
+      );
+      return {
+        item: candidate,
+        itemId: candidate.itemId,
+        pattern: candidate.pattern,
+        difficulty: candidate.difficulty,
+        independentSolves: itemAttempts.filter(
+          (attempt) =>
+            attempt.practiceKind === "solving" &&
+            attempt.outcome === "completed" &&
+            attempt.qualification === "solved",
+        ).length,
+        lastAttemptAt: itemAttempts
+          .map((attempt) => attempt.completedAt)
+          .sort()
+          .at(-1),
+      };
+    });
+    const selected = selectVirtualRoundItems(candidates, preset.problemCount);
+    if (selected.length !== preset.problemCount) {
+      setToast(`This format needs ${preset.problemCount} runnable Python problems`);
+      return;
+    }
+    const runId = `virtual-round-${makeId()}`;
+    const startedAt = new Date().toISOString();
+    const snapshots = selected.map(({ item: candidate }) => ({
+      itemId: candidate.itemId,
+      itemRevision: candidate.contentRevision,
+      verificationRevision: candidate.verification?.revision ?? 1,
+      title: candidate.title,
+      pattern: candidate.pattern,
+      difficulty: candidate.difficulty,
+      starterSource: candidate.starterCode ?? "",
+      source: candidate.starterCode ?? "",
+    }));
+    const next = commitStateImmediately((current) => ({
+      ...current,
+      virtualRoundWorkspace: startVirtualRound(
+        current.virtualRoundWorkspace,
+        presetId,
+        snapshots,
+        { id: runId, now: startedAt },
+      ),
+    }));
+    const active = next.virtualRoundWorkspace.active;
+    if (active) openVirtualRoundItem(active.id, active.currentProblemId);
+    setToast(`${preset.title} started · ${preset.durationMinutes} minutes on one local clock`);
+  }
+
+  function resumeVirtualRound(roundId: string) {
+    const active = stateRef.current.virtualRoundWorkspace.active;
+    if (!active || active.id !== roundId) {
+      openVirtualRounds();
+      return;
+    }
+    openVirtualRoundItem(roundId, active.currentProblemId);
+  }
+
+  function flagVirtualRoundProblem(roundId: string, itemId: string) {
+    mutateState((current) => ({
+      ...current,
+      virtualRoundWorkspace: toggleVirtualRoundFlag(
+        current.virtualRoundWorkspace,
+        roundId,
+        itemId,
+      ),
+    }));
+  }
+
+  function finishActiveVirtualRound(roundId: string, outcome: "submitted" | "expired" = "submitted") {
+    const next = commitStateImmediately((current) => {
+      const virtualRoundWorkspace = finishVirtualRound(
+        current.virtualRoundWorkspace,
+        roundId,
+        { now: new Date().toISOString(), outcome },
+      );
+      return {
+        ...current,
+        virtualRoundWorkspace,
+        draft:
+          !virtualRoundWorkspace.active && current.draft?.virtualRoundId === roundId
+            ? null
+            : current.draft,
+      };
+    });
+    if (next.virtualRoundWorkspace.active?.status === "finalizing") {
+      setToast("Clock locked · waiting for the on-time submission to settle");
+      return;
+    }
+    openVirtualRounds();
+    setToast(outcome === "expired" ? "Time expired · local report locked" : "Virtual round finished · local report locked");
+  }
+
+  function expireActiveVirtualRound(roundId: string) {
+    const active = stateRef.current.virtualRoundWorkspace.active;
+    if (!active || active.id !== roundId) return;
+    const next = commitStateImmediately((current) => {
+      const virtualRoundWorkspace = expireVirtualRound(
+        current.virtualRoundWorkspace,
+        { now: new Date().toISOString() },
+      );
+      return {
+        ...current,
+        virtualRoundWorkspace,
+        draft:
+          !virtualRoundWorkspace.active && current.draft?.virtualRoundId === roundId
+            ? null
+            : current.draft,
+      };
+    });
+    if (!next.virtualRoundWorkspace.active) {
+      openVirtualRounds();
+      setToast("Time expired · local report locked");
+    }
+  }
+
+  function requestActiveVirtualRoundSubmission(input: {
+    roundId: string;
+    itemId: string;
+    submissionId: string;
+    requestedAt: string;
+    source: string;
+  }) {
+    try {
+      commitStateImmediately((current) => ({
+        ...current,
+        virtualRoundWorkspace: requestVirtualRoundSubmission(
+          current.virtualRoundWorkspace,
+          input.roundId,
+          input.itemId,
+          {
+            id: input.submissionId,
+            requestedAt: input.requestedAt,
+            source: input.source,
+          },
+        ),
+      }));
+      return true;
+    } catch (error) {
+      if (error instanceof Error && /deadline passed/i.test(error.message)) {
+        expireActiveVirtualRound(input.roundId);
+      } else {
+        setToast(error instanceof Error ? error.message : "Submission could not be queued");
+      }
+      return false;
+    }
+  }
+
+  function settleActiveVirtualRoundSubmission(submission: SubmissionRecord) {
+    const roundId = submission.virtualRoundId;
+    if (!roundId) return;
+    const next = commitStateImmediately((current) => {
+      const virtualRoundWorkspace = settleVirtualRoundSubmission(
+        current.virtualRoundWorkspace,
+        roundId,
+        submission.id,
+        {
+          judgedAt: new Date().toISOString(),
+          status: submission.status,
+          durationMs: submission.durationMs,
+          passed: submission.passed,
+          total: submission.total,
+        },
+      );
+      return {
+        ...current,
+        virtualRoundWorkspace,
+        submissionHistory: appendSubmissionHistory(
+          current.submissionHistory,
+          submission,
+        ),
+        draft:
+          !virtualRoundWorkspace.active && current.draft?.virtualRoundId === roundId
+            ? null
+            : current.draft,
+      };
+    });
+    if (!next.virtualRoundWorkspace.active) {
+      openVirtualRounds();
+      setToast("Round report locked after the final on-time judgment");
+    }
+  }
+
+  function archiveVirtualRoundReport(roundId: string) {
+    mutateState((current) => ({
+      ...current,
+      virtualRoundWorkspace: archiveVirtualRound(
+        current.virtualRoundWorkspace,
+        roundId,
+      ),
+    }));
+    setToast("Virtual round report archived");
   }
 
   function startAssessmentProgram(programId: string) {
@@ -2627,6 +3134,24 @@ export default function SwiftGhostApp() {
         STUDY_PLAN_LIMITS.maxItemsPerCollection,
       ),
     });
+  }
+
+  function commitStateImmediately(updater: (current: AppState) => AppState) {
+    const next = updater(stateRef.current);
+    stateRef.current = next;
+    setState(next);
+    saveState(next);
+    return next;
+  }
+
+  function blockVirtualRoundNavigation() {
+    const active = stateRef.current.virtualRoundWorkspace.active;
+    const pending = active?.problems.some((problem) =>
+      problem.submissions.some((submission) => submission.status === "pending"),
+    );
+    if (!active || !pending) return false;
+    setToast("Local judging is still running · stay here until the verdict is saved");
+    return true;
   }
 
   function useSolveHint(level: 1 | 2 | 3) {
@@ -3970,6 +4495,7 @@ export default function SwiftGhostApp() {
           cloudStatus={cloud.status}
           cloudDaily={cloud.dailyChallenge}
           onOpen={openItem}
+          onResumeDraft={resumeSavedDraft}
           onReview={() => randomItem("due")}
           onBrowse={() => navigateView("library")}
           onCreate={() => setCustomEditor("new")}
@@ -4039,6 +4565,7 @@ export default function SwiftGhostApp() {
           errorKeys={draft.keyErrors}
           now={now}
           activeSession={state.activeSession}
+          virtualRound={state.virtualRoundWorkspace.active}
           interviewStudio={
             state.interviewStudio.active?.format === "python-coding" &&
             state.interviewStudio.active.id === state.activeSession?.id
@@ -4082,6 +4609,11 @@ export default function SwiftGhostApp() {
             })
           }
           onSubmissionSettled={recordSubmission}
+          onVirtualRoundSubmissionRequested={requestActiveVirtualRoundSubmission}
+          onVirtualRoundSubmissionSettled={settleActiveVirtualRoundSubmission}
+          onVirtualRoundOpenProblem={openVirtualRoundItem}
+          onVirtualRoundToggleFlag={flagVirtualRoundProblem}
+          onVirtualRoundFinish={finishActiveVirtualRound}
           onRestoreSubmission={restoreSubmissionSource}
           onCustomCaseChange={updateCustomCaseInput}
           onCustomTestcasesChange={updateCustomTestcases}
@@ -4104,6 +4636,10 @@ export default function SwiftGhostApp() {
           onBrowse={() => navigateView("library")}
           onRandom={() => randomItem()}
           onSession={() => {
+            if (draft.virtualRoundId) {
+              openVirtualRounds();
+              return;
+            }
             if (item.transfer) {
               openTransferLab();
               return;
@@ -4151,7 +4687,26 @@ export default function SwiftGhostApp() {
           />
         </main>
       )}
-      {view === "assessments" && assessmentRouteId !== "transfer-lab" && (
+      {view === "assessments" && assessmentRouteId === "virtual-rounds" && (
+        <VirtualRounds
+          presets={virtualRoundPresets}
+          activeRound={activeVirtualRoundView}
+          history={virtualRoundReports}
+          remainingMs={virtualRoundRemainingMs(
+            state.virtualRoundWorkspace.active,
+            now,
+          )}
+          onStart={startVirtualRoundPreset}
+          onResume={resumeVirtualRound}
+          onOpenProblem={openVirtualRoundItem}
+          onToggleFlag={flagVirtualRoundProblem}
+          onFinish={finishActiveVirtualRound}
+          onArchive={archiveVirtualRoundReport}
+        />
+      )}
+      {view === "assessments" &&
+        assessmentRouteId !== "transfer-lab" &&
+        assessmentRouteId !== "virtual-rounds" && (
         <AssessmentCenter
           workspace={state.assessments}
           items={curriculumItems}
@@ -4160,6 +4715,11 @@ export default function SwiftGhostApp() {
             unseen: transferTotals.unseen,
             due: transferTotals.due,
             proven: transferTotals.proven,
+          }}
+          virtualRoundSummary={{
+            eligible: virtualRoundEligibleItems.length,
+            active: Boolean(state.virtualRoundWorkspace.active),
+            finished: state.virtualRoundWorkspace.history.length,
           }}
           selectedAssessment={assessmentRouteId}
           activeDraft={state.draft}
@@ -4173,6 +4733,7 @@ export default function SwiftGhostApp() {
           onCreatePlan={createPlanFromAssessment}
           onArchive={archiveAssessmentReport}
           onOpenTransferLab={openTransferLab}
+          onOpenVirtualRounds={openVirtualRounds}
         />
       )}
       {view === "library" && (
@@ -4292,6 +4853,7 @@ function TodayView({
   cloudStatus,
   cloudDaily,
   onOpen,
+  onResumeDraft,
   onReview,
   onBrowse,
   onCreate,
@@ -4313,6 +4875,7 @@ function TodayView({
     sessionId?: string,
     practiceKind?: PracticeKind,
   ) => void;
+  onResumeDraft: () => void;
   onReview: () => void;
   onBrowse: () => void;
   onCreate: () => void;
@@ -4507,15 +5070,7 @@ function TodayView({
             </p>
             <button
               className="outline-button"
-              onClick={() =>
-                onOpen(
-                  draftItem,
-                  state.draft?.stage,
-                  undefined,
-                  state.draft?.sessionId,
-                  state.draft?.practiceKind,
-                )
-              }
+              onClick={onResumeDraft}
             >
               Resume exactly where you left off →
             </button>
@@ -4612,6 +5167,7 @@ type PracticeProps = {
   errorKeys: Record<string, number>;
   now: number;
   activeSession: TrainingSession | null;
+  virtualRound: ActiveVirtualRoundRun | null;
   interviewStudio: InterviewStudioSession | null;
   onOpenItem: (
     item: PracticeItem,
@@ -4629,6 +5185,17 @@ type PracticeProps = {
   onTestRun: () => void;
   onSubmissionRun: () => void;
   onSubmissionSettled: (submission: SubmissionRecord) => void;
+  onVirtualRoundSubmissionRequested: (input: {
+    roundId: string;
+    itemId: string;
+    submissionId: string;
+    requestedAt: string;
+    source: string;
+  }) => boolean;
+  onVirtualRoundSubmissionSettled: (submission: SubmissionRecord) => void;
+  onVirtualRoundOpenProblem: (roundId: string, itemId: string) => void;
+  onVirtualRoundToggleFlag: (roundId: string, itemId: string) => void;
+  onVirtualRoundFinish: (roundId: string) => void;
   onRestoreSubmission: (submission: SubmissionRecord) => void;
   onCustomCaseChange: (value: string) => void;
   onCustomTestcasesChange: (collection: CustomTestcaseCollection) => void;
@@ -4719,8 +5286,14 @@ function PracticeView(props: PracticeProps) {
   const isAssessment = Boolean(
     props.draft.assessmentRunId && props.draft.assessmentProbeId,
   );
+  const activeVirtualRound =
+    props.draft.virtualRoundId &&
+    props.virtualRound?.id === props.draft.virtualRoundId
+      ? props.virtualRound
+      : null;
+  const isVirtualRound = Boolean(activeVirtualRound);
   const isTransfer = Boolean(props.item.transfer);
-  const isLocked = isMock || isAssessment;
+  const isLocked = isMock || isAssessment || isVirtualRound;
   const activeStudio =
     props.interviewStudio?.format === "python-coding" &&
     props.interviewStudio.id === props.draft.sessionId
@@ -4735,6 +5308,12 @@ function PracticeView(props: PracticeProps) {
         (workspace) => workspace.itemId === props.item.itemId,
       )
     : undefined;
+  const virtualRoundRemaining = activeVirtualRound
+    ? virtualRoundRemainingMs(activeVirtualRound, props.now)
+    : null;
+  const currentVirtualRoundProblem = activeVirtualRound?.problems.find(
+    (problem) => problem.itemId === props.item.itemId,
+  );
   const acceptedStudioSubmission = activeStudio
     ? props.state.submissionHistory
         .slice()
@@ -4814,7 +5393,8 @@ function PracticeView(props: PracticeProps) {
     visibleVerificationState.status === "loading" ||
     visibleVerificationState.status === "running" ||
     visibleCustomExecutionState.status === "loading" ||
-    visibleCustomExecutionState.status === "running";
+    visibleCustomExecutionState.status === "running" ||
+    activeVirtualRound?.status === "finalizing";
   async function copyPracticeLink() {
     const url = window.location.href;
     let didCopy = false;
@@ -4839,6 +5419,25 @@ function PracticeView(props: PracticeProps) {
   }
 
   function cancelPythonRun() {
+    const pendingRoundSubmission = activeVirtualRound?.problems
+      .find((problem) => problem.itemId === props.item.itemId)
+      ?.submissions.find((submission) => submission.status === "pending");
+    if (pendingRoundSubmission && props.item.verification) {
+      props.onVirtualRoundSubmissionSettled({
+        id: pendingRoundSubmission.id,
+        itemId: props.item.itemId,
+        itemRevision: props.item.contentRevision,
+        verificationRevision: props.item.verification.revision ?? 1,
+        submittedAt: pendingRoundSubmission.requestedAt,
+        status: "judge-error",
+        durationMs: 0,
+        passed: 0,
+        total: 0,
+        source: runnerSource,
+        origin: "round",
+        virtualRoundId: activeVirtualRound?.id,
+      });
+    }
     verificationRunId.current += 1;
     customExecutionRunId.current += 1;
     runnerGeneration.current += 1;
@@ -4855,10 +5454,13 @@ function PracticeView(props: PracticeProps) {
   ) {
     if (!props.item.verification || !runnerSource.trim()) return;
     if (isMock && mockRemainingMs === 0) return;
+    if (
+      activeVirtualRound &&
+      (activeVirtualRound.status !== "active" || virtualRoundRemaining === 0)
+    )
+      return;
     if (runnerBusy.current) return;
     if (isMock) props.onMockCheckpoint("firstTest");
-    runnerBusy.current = true;
-    setRunnerActive(true);
     const sourceToVerify = runnerSource;
     const runs = props.draft.testRuns + 1;
     const submissions =
@@ -4874,10 +5476,29 @@ function PracticeView(props: PracticeProps) {
             verificationRevision: props.item.verification.revision ?? 1,
             submittedAt: new Date().toISOString(),
             source: sourceToVerify,
-            origin: isMock ? ("mock" as const) : ("practice" as const),
+            origin: isVirtualRound
+              ? ("round" as const)
+              : isMock
+                ? ("mock" as const)
+                : ("practice" as const),
             sessionId: props.draft.sessionId,
+            virtualRoundId: props.draft.virtualRoundId,
           }
         : null;
+    if (
+      activeVirtualRound &&
+      submissionRequest &&
+      !props.onVirtualRoundSubmissionRequested({
+        roundId: activeVirtualRound.id,
+        itemId: props.item.itemId,
+        submissionId: submissionRequest.id,
+        requestedAt: submissionRequest.submittedAt,
+        source: sourceToVerify,
+      })
+    )
+      return;
+    runnerBusy.current = true;
+    setRunnerActive(true);
     const verificationStartedAt = performance.now();
     setConsoleTab("output");
     setMobileWorkspacePane("tests");
@@ -4920,17 +5541,21 @@ function PracticeView(props: PracticeProps) {
         );
       }
       if (submissionRequest) {
-        props.onSubmissionSettled({
+        const settledSubmission: SubmissionRecord = {
           ...submissionRequest,
           status: classifySubmissionResult(result),
           durationMs: result.durationMs,
           passed: passedCount,
           total: result.cases.length,
-        });
+        };
+        if (isVirtualRound)
+          props.onVirtualRoundSubmissionSettled(settledSubmission);
+        else props.onSubmissionSettled(settledSubmission);
       }
       if (
         isRecordableChallengeResult(result, purpose, isMock) &&
-        !isStudio
+        !isStudio &&
+        !isVirtualRound
       ) {
         props.onSolveComplete(
           sourceToVerify,
@@ -4943,7 +5568,7 @@ function PracticeView(props: PracticeProps) {
     } catch (error) {
       if (disposed.current || runId !== verificationRunId.current) return;
       if (submissionRequest) {
-        props.onSubmissionSettled({
+        const settledSubmission: SubmissionRecord = {
           ...submissionRequest,
           status:
             error instanceof Error &&
@@ -4953,7 +5578,10 @@ function PracticeView(props: PracticeProps) {
           durationMs: Math.max(0, performance.now() - verificationStartedAt),
           passed: 0,
           total: 0,
-        });
+        };
+        if (isVirtualRound)
+          props.onVirtualRoundSubmissionSettled(settledSubmission);
+        else props.onSubmissionSettled(settledSubmission);
       }
       if (activeStudio) {
         props.onInterviewRunnerEvidence(
@@ -5225,12 +5853,14 @@ function PracticeView(props: PracticeProps) {
     <main
       id="main-content"
       tabIndex={-1}
-      className={`practice-layout ${props.practiceKind === "solving" ? "is-solving" : ""}`}
+      className={`practice-layout ${props.practiceKind === "solving" ? "is-solving" : ""}${isVirtualRound ? " is-virtual-round" : ""}`}
     >
       <aside className="problem-rail">
         <div className="rail-head">
           <span className="eyebrow">
-            {isAssessment
+            {isVirtualRound
+              ? "Virtual round"
+              : isAssessment
               ? "Calibration checkpoint"
               : props.activeSession?.studyPlanId
               ? "Study plan focus block"
@@ -5239,14 +5869,90 @@ function PracticeView(props: PracticeProps) {
                 : "Problem queue"}
           </span>
           <span className="count-badge">
-            {isAssessment
+            {isVirtualRound && activeVirtualRound
+              ? `${deriveVirtualRoundScore(activeVirtualRound).score}/${deriveVirtualRoundScore(activeVirtualRound).maxScore}`
+              : isAssessment
               ? "Locked"
               : props.activeSession
               ? `${props.activeSession.currentIndex + 1}/${props.activeSession.entries.length}`
               : props.items.length}
           </span>
         </div>
-        {isTransfer ? (
+        {isVirtualRound && activeVirtualRound ? (
+          <div className="virtual-round-practice-rail">
+            <div className="virtual-round-practice-clock" role="timer" aria-live="off">
+              <span>{activeVirtualRound.status === "finalizing" ? "Finalizing" : "Time left"}</span>
+              <strong>
+                {activeVirtualRound.status === "finalizing"
+                  ? "Judging"
+                  : formatMockClock(virtualRoundRemaining ?? 0)}
+              </strong>
+            </div>
+            <p>
+              Switch between runs. While the local judge is working, you can
+              still flag problems; switching resumes after the verdict is saved.
+            </p>
+            <ol>
+              {activeVirtualRound.problems.map((problem, index) => {
+                const score = deriveVirtualRoundProblemScore(problem);
+                const status = virtualRoundProblemStatus(problem);
+                const switchingDisabled =
+                  checksAreBusy || activeVirtualRound.status !== "active";
+                const flagDisabled = activeVirtualRound.status !== "active";
+                return (
+                  <li
+                    className={`${status}${problem.itemId === props.item.itemId ? " current" : ""}`}
+                    key={problem.itemId}
+                  >
+                    <button
+                      type="button"
+                      disabled={switchingDisabled}
+                      aria-current={problem.itemId === props.item.itemId ? "step" : undefined}
+                      onClick={() =>
+                        props.onVirtualRoundOpenProblem(
+                          activeVirtualRound.id,
+                          problem.itemId,
+                        )
+                      }
+                    >
+                      <span>{index + 1}</span>
+                      <span>
+                        <strong>{problem.openedAt ? problem.title : `Problem ${index + 1}`}</strong>
+                        <small>{status} · {score}/{VIRTUAL_ROUND_POINTS_PER_PROBLEM}</small>
+                      </span>
+                    </button>
+                    <button
+                      className="virtual-round-practice-flag"
+                      type="button"
+                      disabled={flagDisabled}
+                      aria-pressed={problem.flagged}
+                      aria-label={`${problem.flagged ? "Remove flag from" : "Flag"} problem ${index + 1}`}
+                      onClick={() =>
+                        props.onVirtualRoundToggleFlag(
+                          activeVirtualRound.id,
+                          problem.itemId,
+                        )
+                      }
+                    >
+                      {problem.flagged ? "Flagged" : "Flag"}
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+            <small>
+              Device-local practice · not proctored · no global rank or readiness claim
+            </small>
+            <button
+              className="danger-button"
+              type="button"
+              disabled={checksAreBusy || activeVirtualRound.status !== "active"}
+              onClick={() => props.onVirtualRoundFinish(activeVirtualRound.id)}
+            >
+              {checksAreBusy ? "Wait for local judge" : "Finish and lock score"}
+            </button>
+          </div>
+        ) : isTransfer ? (
           <div className="assessment-practice-rail transfer-practice-rail">
             <span className="eyebrow">Local transfer rehearsal</span>
             <strong>Identity opened. Pattern still hidden.</strong>
@@ -5385,10 +6091,61 @@ function PracticeView(props: PracticeProps) {
       </aside>
       <section className="practice-main">
         <nav
-          className="mobile-practice-controls"
+          className={`mobile-practice-controls${isVirtualRound ? " virtual-round-mobile-controls" : ""}`}
           aria-label="Practice problem controls"
         >
-          {isTransfer ? (
+          {isVirtualRound && activeVirtualRound ? (
+            <>
+              <span className="virtual-round-mobile-status">
+                Round {activeVirtualRound.problems.findIndex(
+                  (problem) => problem.itemId === props.item.itemId,
+                ) + 1}/{activeVirtualRound.problems.length} · {formatMockClock(
+                  virtualRoundRemaining ?? 0,
+                )}
+              </span>
+              <label>
+                <span className="visually-hidden">Switch round problem</span>
+                <select
+                  value={props.item.itemId}
+                  disabled={checksAreBusy || activeVirtualRound.status !== "active"}
+                  aria-label="Switch round problem"
+                  onChange={(event) =>
+                    props.onVirtualRoundOpenProblem(
+                      activeVirtualRound.id,
+                      event.target.value,
+                    )
+                  }
+                >
+                  {activeVirtualRound.problems.map((problem, index) => (
+                    <option value={problem.itemId} key={problem.itemId}>
+                      {problem.openedAt ? problem.title : `Problem ${index + 1}`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                disabled={activeVirtualRound.status !== "active"}
+                aria-pressed={currentVirtualRoundProblem?.flagged ?? false}
+                onClick={() =>
+                  currentVirtualRoundProblem &&
+                  props.onVirtualRoundToggleFlag(
+                    activeVirtualRound.id,
+                    currentVirtualRoundProblem.itemId,
+                  )
+                }
+              >
+                {currentVirtualRoundProblem?.flagged ? "Flagged" : "Flag"}
+              </button>
+              <button
+                type="button"
+                disabled={checksAreBusy || activeVirtualRound.status !== "active"}
+                onClick={() => props.onVirtualRoundFinish(activeVirtualRound.id)}
+              >
+                Finish
+              </button>
+            </>
+          ) : isTransfer ? (
             <span>Local transfer rehearsal · pattern hidden</span>
           ) : isAssessment ? (
             <span>Assessment checkpoint · pattern hidden</span>
@@ -5462,8 +6219,8 @@ function PracticeView(props: PracticeProps) {
               </select>
             </label>
           )}
-          <button onClick={resetPractice}>Restart</button>
-          {!props.activeSession && !isAssessment && !isTransfer && (
+          {!isVirtualRound && <button onClick={resetPractice}>Restart</button>}
+          {!props.activeSession && !isAssessment && !isTransfer && !isVirtualRound && (
             <button onClick={props.onRandom}>Random</button>
           )}
         </nav>
@@ -5515,7 +6272,7 @@ function PracticeView(props: PracticeProps) {
             <p>{props.item.summary}</p>
           </div>
           <div className="problem-actions">
-            {!isTransfer && (
+            {!isTransfer && !isVirtualRound && (
               <button
                 className={favorite ? "favorite active" : "favorite"}
                 onClick={props.onFavorite}
@@ -5538,11 +6295,17 @@ function PracticeView(props: PracticeProps) {
         </div>
         {isLocked ? (
           <div className="mock-policy" role="status">
-            <span>{isAssessment ? "Assessment mode locked" : "Interview mode locked"}</span>
+            <span>
+              {isVirtualRound
+                ? "Virtual round mode locked"
+                : isAssessment
+                  ? "Assessment mode locked"
+                  : "Interview mode locked"}
+            </span>
             <strong>Solve from the prompt and executable feedback only.</strong>
             <small>
               Pattern guidance, hints, the reference solution, and prior
-              submissions stay out of this view until the checkpoint ends.
+              submissions stay out of this view until the timed work ends.
               Sample outputs remain part of the prompt.
             </small>
           </div>
@@ -5742,15 +6505,23 @@ function PracticeView(props: PracticeProps) {
                 )}
                 <div className="solve-brief">
                   <span className="eyebrow">
-                    {isTransfer ? "Cold transfer workspace" : "Verified solve workspace"}
+                    {isVirtualRound
+                      ? "Timed virtual-round workspace"
+                      : isTransfer
+                        ? "Cold transfer workspace"
+                        : "Verified solve workspace"}
                   </span>
                   <strong>
-                    {isTransfer
+                    {isVirtualRound
+                      ? "Triage, implement, submit, and switch when the clock says to."
+                      : isTransfer
                       ? "Commit to an approach, pass every local check, then compare."
                       : "Pass every local check, then submit."}
                   </strong>
                   <p>
-                    {isTransfer
+                    {isVirtualRound
+                      ? "Examples support iteration. Only Submit changes the local round score."
+                      : isTransfer
                       ? "Examples help you iterate. Pattern and contrast stay hidden until attempt evidence exists."
                       : "Examples help you iterate. Only a complete accepted judge run records solving evidence."}
                   </p>
@@ -5764,6 +6535,16 @@ function PracticeView(props: PracticeProps) {
                     <p>
                       Sample outputs stay in the prompt. Hints and submission
                       history remain out of the interview view.
+                    </p>
+                  </section>
+                )}
+                {isVirtualRound && (
+                  <section className="mock-rules virtual-round-rules">
+                    <span className="eyebrow">Virtual round contract</span>
+                    <strong>One clock, any problem order, explicit local scoring.</strong>
+                    <p>
+                      Submit uses the full local judge. A request made on time may
+                      finish judging after the deadline; the report waits for it.
                     </p>
                   </section>
                 )}
@@ -5781,6 +6562,7 @@ function PracticeView(props: PracticeProps) {
                 errorCount={errorCount}
                 linesLeft={linesLeft}
                 isMock={isLocked}
+                readOnly={activeVirtualRound?.status === "finalizing"}
                 reveal={props.reveal}
                 focusMode={props.focusMode}
                 copied={copied}
@@ -5803,7 +6585,7 @@ function PracticeView(props: PracticeProps) {
               <ChallengeConsole
                 practiceKind={props.practiceKind}
                 isMock={isLocked}
-                isStudio={isStudio || isAssessment}
+                isStudio={isStudio || isAssessment || isVirtualRound}
                 runnerSourcePresent={Boolean(runnerSource.trim())}
                 checksAreBusy={checksAreBusy}
                 consoleTab={consoleTab}
@@ -6031,6 +6813,7 @@ function PracticeView(props: PracticeProps) {
             errorCount={errorCount}
             linesLeft={linesLeft}
             isMock={isLocked}
+            readOnly={activeVirtualRound?.status === "finalizing"}
             reveal={props.reveal}
             focusMode={props.focusMode}
             copied={copied}
@@ -6052,7 +6835,7 @@ function PracticeView(props: PracticeProps) {
           <ChallengeConsole
             practiceKind={props.practiceKind}
             isMock={isLocked}
-            isStudio={isStudio || isAssessment}
+            isStudio={isStudio || isAssessment || isVirtualRound}
             runnerSourcePresent={Boolean(runnerSource.trim())}
             checksAreBusy={checksAreBusy}
             consoleTab={consoleTab}
@@ -7706,11 +8489,12 @@ function SettingsView({
           <small>Your data</small>
           <h2>Local profile</h2>
           <p>
-            Export a portable v21 JSON backup with Python, Swift, iOS, assessments, plans, sessions,
+            Export a portable v22 JSON backup with Python, Swift, iOS, assessments, plans, sessions,
             learning debriefs, revisioned snippets, local pacing and weak-line
             analytics, community preferences, structured custom testcases, and
             local submission snapshots, mock notebooks and debriefs, Interview
-            Studio transcripts and criteria, transfer evidence, or restore any v2-v20 backup.
+            Studio transcripts and criteria, transfer evidence, virtual-round reports,
+            or restore any v2-v21 backup.
           </p>
         </div>
         <div className="data-actions">

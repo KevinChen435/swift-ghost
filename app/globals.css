@@ -333,6 +333,12 @@ textarea:focus-visible {
 .practice-layout.is-solving .problem-rail {
   display: none;
 }
+.practice-layout.is-solving.is-virtual-round {
+  grid-template-columns: 260px minmax(0, 1fr);
+}
+.practice-layout.is-solving.is-virtual-round .problem-rail {
+  display: block;
+}
 .practice-layout.is-solving .practice-main {
   min-height: calc(100dvh - 74px);
   padding: 20px clamp(16px, 2.5vw, 36px) 30px;
@@ -6631,6 +6637,9 @@ kbd {
   .practice-layout {
     grid-template-columns: 215px minmax(0, 1fr);
   }
+  .practice-layout.is-solving.is-virtual-round {
+    grid-template-columns: 215px minmax(0, 1fr);
+  }
   .problem-rail {
     padding: 20px 12px;
   }
@@ -6742,7 +6751,13 @@ kbd {
   .practice-layout {
     display: block;
   }
+  .practice-layout.is-solving.is-virtual-round {
+    display: block;
+  }
   .problem-rail {
+    display: none;
+  }
+  .practice-layout.is-solving.is-virtual-round .problem-rail {
     display: none;
   }
   .practice-main {
@@ -6783,6 +6798,20 @@ kbd {
   .mobile-practice-controls button {
     padding: 0 10px;
     cursor: pointer;
+  }
+  .mobile-practice-controls.virtual-round-mobile-controls {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  .virtual-round-mobile-status {
+    grid-column: 1 / -1;
+    font: 700 0.68rem var(--font-code);
+  }
+  .virtual-round-mobile-controls label {
+    min-width: 0;
+  }
+  .virtual-round-mobile-controls button {
+    min-width: 52px;
+    padding-inline: 8px;
   }
   .mobile-practice-controls > span {
     align-self: center;
@@ -8012,6 +8041,560 @@ kbd {
   }
   .assessment-records-summary > div:nth-child(2) {
     text-align: left;
+  }
+}
+
+/* Virtual rounds */
+.virtual-rounds-page {
+  display: grid;
+  gap: 24px;
+}
+.virtual-rounds-heading {
+  align-items: end;
+}
+.virtual-rounds-heading > div:first-child {
+  max-width: 780px;
+}
+.virtual-rounds-heading h1 {
+  max-width: 17ch;
+}
+.virtual-round-trust-card {
+  display: grid;
+  gap: 7px;
+  max-width: 360px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, var(--border));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--warning) 7%, var(--panel));
+}
+.virtual-round-trust-card strong {
+  color: var(--warning);
+  font-size: 0.78rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.virtual-round-trust-card p,
+.virtual-round-section-heading p,
+.virtual-round-empty p,
+.virtual-round-preset p,
+.virtual-round-report-heading p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.virtual-round-disclosure,
+.virtual-round-presets,
+.virtual-round-active,
+.virtual-round-empty,
+.virtual-round-history {
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: var(--shadow-soft);
+}
+.virtual-round-disclosure {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.7fr) minmax(0, 1.3fr);
+  gap: 28px;
+  padding: 22px 24px;
+  border-color: color-mix(in srgb, var(--warning) 32%, var(--border));
+  background: color-mix(in srgb, var(--warning) 4%, var(--panel));
+}
+.virtual-round-disclosure h2,
+.virtual-round-section-heading h2,
+.virtual-round-preset h3,
+.virtual-round-empty h2,
+.virtual-round-report h3,
+.virtual-round-report h4,
+.virtual-round-report h5 {
+  margin: 0;
+}
+.virtual-round-disclosure ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.virtual-round-presets,
+.virtual-round-active,
+.virtual-round-empty,
+.virtual-round-history {
+  padding: 24px;
+}
+.virtual-round-section-heading,
+.virtual-round-preset-topline,
+.virtual-round-report-heading,
+.virtual-round-report-problem-heading,
+.virtual-round-actions,
+.virtual-round-report-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+.virtual-round-section-heading {
+  align-items: start;
+  margin-bottom: 18px;
+}
+.virtual-round-section-heading > span,
+.virtual-round-preset-topline,
+.virtual-round-report-problem-heading > div > span,
+.virtual-round-report-actions > span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+.virtual-round-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+.virtual-round-preset {
+  display: grid;
+  align-content: start;
+  gap: 13px;
+  min-width: 0;
+  padding: 19px;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: var(--bg);
+}
+.virtual-round-preset.is-unavailable {
+  opacity: 0.72;
+}
+.virtual-round-preset-topline span:first-child {
+  color: var(--accent);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.virtual-round-preset-stats,
+.virtual-round-scoreboard,
+.virtual-round-report-stats,
+.virtual-round-problem-evidence {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+.virtual-round-preset-stats > div,
+.virtual-round-scoreboard > div,
+.virtual-round-report-stats > div,
+.virtual-round-problem-evidence > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel-bright) 54%, transparent);
+}
+.virtual-round-preset-stats dt,
+.virtual-round-scoreboard dt,
+.virtual-round-report-stats dt,
+.virtual-round-problem-evidence dt {
+  color: var(--muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.virtual-round-preset-stats dd,
+.virtual-round-scoreboard dd,
+.virtual-round-report-stats dd,
+.virtual-round-problem-evidence dd {
+  overflow-wrap: anywhere;
+  margin: 0;
+  color: var(--text);
+  font-weight: 750;
+}
+.virtual-round-preset-detail,
+.virtual-round-disabled-reason {
+  font-size: 0.78rem;
+}
+.virtual-round-preset .primary-button {
+  align-self: end;
+  width: 100%;
+  min-height: 44px;
+  margin-top: auto;
+}
+.virtual-round-clock {
+  display: grid;
+  min-width: 168px;
+  gap: 4px;
+  padding: 14px 18px;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg));
+  text-align: right;
+}
+.virtual-round-clock span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.virtual-round-clock strong {
+  color: var(--accent);
+  font: 800 1.45rem var(--font-code);
+  font-variant-numeric: tabular-nums;
+}
+.virtual-round-announcement {
+  margin: 0 0 14px;
+  color: var(--accent);
+}
+.virtual-round-scoreboard {
+  margin-bottom: 16px;
+}
+.virtual-round-actions {
+  justify-content: flex-start;
+  margin: 0 0 18px;
+}
+.virtual-round-actions button {
+  min-height: 44px;
+}
+.virtual-round-navigator ol,
+.virtual-round-report-problems,
+.virtual-round-timeline ol {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.virtual-round-navigator li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--bg);
+}
+.virtual-round-navigator li.is-current {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.virtual-round-navigator li.accepted {
+  border-color: color-mix(in srgb, var(--success) 58%, var(--border));
+}
+.virtual-round-navigator li.is-flagged {
+  background: color-mix(in srgb, var(--warning) 5%, var(--bg));
+}
+.virtual-round-problem-open,
+.virtual-round-flag-button {
+  min-height: 58px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.virtual-round-problem-open:disabled,
+.virtual-round-flag-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.64;
+}
+.virtual-round-problem-open {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  padding: 10px 14px;
+  text-align: left;
+}
+.virtual-round-problem-number {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--panel-bright);
+  color: var(--accent);
+  font: 800 0.82rem var(--font-code);
+}
+.virtual-round-problem-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.virtual-round-problem-copy strong,
+.virtual-round-problem-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.virtual-round-problem-copy small {
+  color: var(--muted);
+}
+.virtual-round-flag-button {
+  min-width: 72px;
+  padding: 8px 10px;
+  border-left: 1px solid var(--border-soft);
+  color: var(--warning);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+.virtual-round-empty {
+  display: grid;
+  gap: 9px;
+  place-items: start;
+  border-style: dashed;
+}
+.virtual-round-history-list {
+  display: grid;
+  gap: 16px;
+}
+.virtual-round-report {
+  display: grid;
+  gap: 18px;
+  padding: 20px;
+  border: 1px solid var(--border-soft);
+  border-radius: 15px;
+  background: var(--bg);
+}
+.virtual-round-report.is-archived {
+  opacity: 0.78;
+}
+.virtual-round-report-score {
+  display: grid;
+  gap: 3px;
+  text-align: right;
+}
+.virtual-round-report-score strong {
+  color: var(--accent);
+  font: 800 1.3rem var(--font-code);
+}
+.virtual-round-report-score span,
+.virtual-round-history-empty {
+  color: var(--muted);
+}
+.virtual-round-report-problem {
+  display: grid;
+  gap: 14px;
+  padding: 17px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--panel);
+}
+.virtual-round-report-problem-heading > div {
+  display: grid;
+  gap: 4px;
+}
+.virtual-round-report-problem-heading > strong {
+  color: var(--accent);
+  font: 800 1rem var(--font-code);
+}
+.virtual-round-problem-evidence {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.virtual-round-timeline {
+  display: grid;
+  gap: 10px;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+.virtual-round-timeline h5 {
+  margin: 0;
+}
+.virtual-round-timeline table {
+  width: 100%;
+  min-width: 560px;
+  border-spacing: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: var(--bg);
+  font-size: 0.76rem;
+}
+.virtual-round-timeline th,
+.virtual-round-timeline td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  text-align: left;
+  vertical-align: top;
+}
+.virtual-round-timeline th {
+  color: var(--muted);
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.virtual-round-timeline tbody tr:last-child td {
+  border-bottom: 0;
+}
+.virtual-round-timeline td:last-child {
+  color: var(--muted);
+}
+.virtual-round-report-actions {
+  justify-content: flex-end;
+}
+.virtual-round-practice-rail {
+  display: grid;
+  gap: 13px;
+  padding: 14px;
+}
+.virtual-round-practice-clock {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg));
+}
+.virtual-round-practice-clock span,
+.virtual-round-practice-rail > small {
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+.virtual-round-practice-clock strong {
+  color: var(--accent);
+  font: 800 1.2rem var(--font-code);
+  font-variant-numeric: tabular-nums;
+}
+.virtual-round-practice-rail > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+.virtual-round-practice-rail ol {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.virtual-round-practice-rail li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.virtual-round-practice-rail li.current {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.virtual-round-practice-rail li.accepted {
+  border-color: color-mix(in srgb, var(--success) 56%, var(--border));
+}
+.virtual-round-practice-rail li > button {
+  min-width: 0;
+  min-height: 48px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.virtual-round-practice-rail li > button:first-child {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 8px 9px;
+  text-align: left;
+}
+.virtual-round-practice-rail li > button:first-child > span:first-child {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--panel-bright);
+  color: var(--accent);
+  font: 800 0.7rem var(--font-code);
+}
+.virtual-round-practice-rail li > button:first-child > span:last-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.virtual-round-practice-rail li strong,
+.virtual-round-practice-rail li small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.virtual-round-practice-rail li small {
+  color: var(--muted);
+  text-transform: capitalize;
+}
+.virtual-round-practice-flag {
+  min-width: 62px !important;
+  width: auto;
+  padding: 6px 8px;
+  border-left: 1px solid var(--border-soft) !important;
+  color: var(--warning) !important;
+  font-size: 0.65rem;
+}
+.virtual-round-practice-rail button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+.virtual-round-practice-rail > .danger-button {
+  width: 100%;
+  min-height: 44px;
+}
+.virtual-round-rules {
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
+}
+
+@media (max-width: 980px) {
+  .virtual-round-preset-grid {
+    grid-template-columns: 1fr;
+  }
+  .virtual-round-disclosure {
+    grid-template-columns: 1fr;
+  }
+  .virtual-round-problem-evidence {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .virtual-rounds-heading,
+  .virtual-round-section-heading,
+  .virtual-round-report-heading,
+  .virtual-round-report-problem-heading,
+  .virtual-round-actions,
+  .virtual-round-report-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .virtual-round-trust-card {
+    max-width: none;
+  }
+  .virtual-round-presets,
+  .virtual-round-active,
+  .virtual-round-empty,
+  .virtual-round-history,
+  .virtual-round-disclosure {
+    padding: 17px;
+  }
+  .virtual-round-scoreboard,
+  .virtual-round-report-stats,
+  .virtual-round-problem-evidence {
+    grid-template-columns: 1fr;
+  }
+  .virtual-round-preset-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .virtual-round-clock,
+  .virtual-round-report-score {
+    min-width: 0;
+    text-align: left;
+  }
+  .virtual-round-actions button,
+  .virtual-round-report-actions button {
+    width: 100%;
+  }
+  .virtual-round-problem-copy small {
+    white-space: normal;
+  }
+  .virtual-round-timeline table {
+    min-width: 520px;
   }
 }
 
