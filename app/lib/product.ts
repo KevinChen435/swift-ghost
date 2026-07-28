@@ -53,6 +53,11 @@ import {
   normalizeStudyWorkspace,
   type StudyWorkspace,
 } from "./study-plans.mjs";
+import {
+  createAssessmentWorkspace,
+  normalizeAssessmentWorkspace,
+  type AssessmentWorkspace,
+} from "./assessments.mjs";
 
 export { analyzeEdit, correctPositionCount } from "./typing-engine.mjs";
 
@@ -94,6 +99,7 @@ export type View =
   | "plans"
   | "practice"
   | "sessions"
+  | "assessments"
   | "library"
   | "records"
   | "settings";
@@ -177,6 +183,8 @@ export type AttemptRecord = {
   verification?: VerificationSummary;
   challengeDate?: string;
   sessionId?: string;
+  assessmentRunId?: string;
+  assessmentProbeId?: string;
 };
 
 export type Draft = {
@@ -201,6 +209,8 @@ export type Draft = {
   conceptCommittedResponse?: string;
   challengeDate?: string;
   sessionId?: string;
+  assessmentRunId?: string;
+  assessmentProbeId?: string;
 };
 
 export type TrainingSession = {
@@ -249,7 +259,7 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 18;
+  version: 19;
   attempts: AttemptRecord[];
   submissionHistory: SubmissionRecord[];
   learningEvents: LearningEvent[];
@@ -264,11 +274,13 @@ export type AppState = {
   activeSession: TrainingSession | null;
   sessionHistory: SessionHistoryRecord[];
   interviewStudio: InterviewStudioState;
+  assessments: AssessmentWorkspace;
   studyWorkspace: StudyWorkspace;
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v18";
+export const STORAGE_KEY = "swift-ghost-state-v19";
+export const EIGHTEENTH_STORAGE_KEY = "swift-ghost-state-v18";
 export const SEVENTEENTH_STORAGE_KEY = "swift-ghost-state-v17";
 export const SIXTEENTH_STORAGE_KEY = "swift-ghost-state-v16";
 export const FIFTEENTH_STORAGE_KEY = "swift-ghost-state-v15";
@@ -286,10 +298,11 @@ export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
-  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
 ];
 export const STATE_STORAGE_KEYS = [
   STORAGE_KEY,
+  EIGHTEENTH_STORAGE_KEY,
   SEVENTEENTH_STORAGE_KEY,
   SIXTEENTH_STORAGE_KEY,
   FIFTEENTH_STORAGE_KEY,
@@ -322,7 +335,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 18,
+  version: 19,
   attempts: [],
   submissionHistory: [],
   learningEvents: [],
@@ -337,6 +350,7 @@ export const EMPTY_STATE: AppState = {
   activeSession: null,
   sessionHistory: [],
   interviewStudio: { active: null, history: [] },
+  assessments: createAssessmentWorkspace(),
   studyWorkspace: createStudyWorkspace("1970-01-01T00:00:00.000Z"),
   cloud: { communityEnabled: false, uploadedAttemptIds: [] },
 };
@@ -1238,6 +1252,14 @@ export function normalizeState(value: unknown): AppState {
           typeof raw.challengeDate === "string" ? raw.challengeDate : undefined,
         sessionId:
           typeof raw.sessionId === "string" ? raw.sessionId : undefined,
+        assessmentRunId:
+          typeof raw.assessmentRunId === "string"
+            ? raw.assessmentRunId.slice(0, 160)
+            : undefined,
+        assessmentProbeId:
+          typeof raw.assessmentProbeId === "string"
+            ? raw.assessmentProbeId.slice(0, 160)
+            : undefined,
       };
       attempt.qualification = qualificationFor(attempt);
       return [attempt];
@@ -1333,6 +1355,14 @@ export function normalizeState(value: unknown): AppState {
           sessionId:
             typeof rawDraft.sessionId === "string"
               ? rawDraft.sessionId
+              : undefined,
+          assessmentRunId:
+            typeof rawDraft.assessmentRunId === "string"
+              ? rawDraft.assessmentRunId.slice(0, 160)
+              : undefined,
+          assessmentProbeId:
+            typeof rawDraft.assessmentProbeId === "string"
+              ? rawDraft.assessmentProbeId.slice(0, 160)
               : undefined,
         }
       : null;
@@ -1446,7 +1476,7 @@ export function normalizeState(value: unknown): AppState {
     ? { ...draft, sessionId: draftMatchesSession ? draft.sessionId : undefined }
     : null;
   return {
-    version: 18,
+    version: 19,
     attempts,
     submissionHistory: normalizeSubmissionHistory(
       value.submissionHistory,
@@ -1478,6 +1508,9 @@ export function normalizeState(value: unknown): AppState {
         validItemIds: validIds,
         revisions,
       },
+    ),
+    assessments: normalizeAssessmentWorkspace(
+      Number(value.version) >= 19 ? value.assessments : undefined,
     ),
     studyWorkspace: normalizeStudyWorkspace(
       Number(value.version) >= 18 ? value.studyWorkspace : undefined,

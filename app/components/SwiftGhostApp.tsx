@@ -31,6 +31,7 @@ import {
   type StudyPlanSyncStatus,
 } from "./StudyPlans";
 import { ReadinessAnalytics } from "./ReadinessAnalytics";
+import { AssessmentCenter } from "./AssessmentCenter";
 import { ChallengeStatement } from "./ChallengeStatement";
 import { SolveWorkbench, type MobilePane } from "./SolveWorkbench";
 import { MockNotebook } from "./MockNotebook";
@@ -173,6 +174,20 @@ import {
   updateStudyPlan,
 } from "../lib/study-plans.mjs";
 import {
+  archiveAssessment,
+  buildAssessmentStudyPlanSeed,
+  deriveAssessmentReport,
+  finishAssessment,
+  recordAssessmentDebrief,
+  recordAssessmentObjectiveAttempt,
+  recordAssessmentRefresher,
+  resumeAssessment,
+  startAssessment,
+  type AssessmentBlocker,
+  type AssessmentProbe,
+  type AssessmentRubric,
+} from "../lib/assessments.mjs";
+import {
   selectConceptCheckIndex,
   supportsConceptPractice,
 } from "../lib/concept-practice.mjs";
@@ -285,6 +300,7 @@ const NAV: { id: View; label: string; icon: string }[] = [
   { id: "plans", label: "Plans", icon: "◎" },
   { id: "practice", label: "Practice", icon: "⌨" },
   { id: "sessions", label: "Studio", icon: "≡" },
+  { id: "assessments", label: "Assess", icon: "◇" },
   { id: "library", label: "Library", icon: "▦" },
   { id: "records", label: "Records", icon: "↗" },
   { id: "settings", label: "Settings", icon: "⚙" },
@@ -355,6 +371,7 @@ function freshDraft(
   sessionId?: string,
   practiceKind: PracticeKind = "typing",
   initialValue = "",
+  assessment?: { runId: string; probeId: string },
 ): Draft {
   return {
     itemId,
@@ -376,6 +393,8 @@ function freshDraft(
     customCaseInput: "",
     challengeDate,
     sessionId,
+    assessmentRunId: assessment?.runId,
+    assessmentProbeId: assessment?.probeId,
   };
 }
 
@@ -601,6 +620,7 @@ export default function SwiftGhostApp() {
   stateRef.current = state;
   const [ready, setReady] = useState(false);
   const [view, setView] = useState<View>("today");
+  const [assessmentRouteId, setAssessmentRouteId] = useState<string>();
   const [selectedId, setSelectedId] = useState<ItemId>(BUILTIN_ITEMS[0].itemId);
   const [stage, setStage] = useState(1);
   const [reveal, setReveal] = useState(false);
@@ -664,6 +684,7 @@ export default function SwiftGhostApp() {
       stateRef.current = restored;
       setState(restored);
       setView(route.view);
+      setAssessmentRouteId(route.assessment);
       setSelectedId(initialItem.itemId);
       setStage(
         initialPracticeKind === "solving"
@@ -693,6 +714,7 @@ export default function SwiftGhostApp() {
         route.practiceKind,
       );
       setView(route.view);
+      setAssessmentRouteId(route.assessment);
       if (routed) setSelectedId(routed.itemId);
       if (nextPracticeKind === "solving") setStage(5);
       else if (nextPracticeKind === "concept") setStage(route.stage ?? 5);
@@ -966,6 +988,7 @@ export default function SwiftGhostApp() {
         (attempt) =>
           attempt.outcome === "completed" &&
           attempt.practiceKind === "typing" &&
+          !attempt.assessmentRunId &&
           !attempt.itemId.startsWith("custom:") &&
           !known.has(attempt.id),
       )
@@ -1078,6 +1101,7 @@ export default function SwiftGhostApp() {
 
   function navigateView(nextView: View) {
     setView(nextView);
+    setAssessmentRouteId(undefined);
     setResult(null);
     writeRoute({ view: nextView });
   }
@@ -1137,6 +1161,8 @@ export default function SwiftGhostApp() {
       verification,
       challengeDate: active.challengeDate,
       sessionId: active.sessionId,
+      assessmentRunId: active.assessmentRunId,
+      assessmentProbeId: active.assessmentProbeId,
       keyErrors: { ...active.keyErrors },
       lineErrors: { ...active.lineErrors },
     };
@@ -1173,6 +1199,7 @@ export default function SwiftGhostApp() {
     challengeDate?: string,
     sessionId?: string,
     nextPracticeKind?: PracticeKind,
+    assessment?: { runId: string; probeId: string },
   ) {
     const chosenPracticeKind = coercePracticeKind(next, nextPracticeKind);
     const chosenStage =
@@ -1188,7 +1215,9 @@ export default function SwiftGhostApp() {
         current.draft.stage === chosenStage &&
         current.draft.practiceKind === chosenPracticeKind &&
         current.draft.itemRevision === next.contentRevision &&
-        current.draft.sessionId === sessionId;
+        current.draft.sessionId === sessionId &&
+        current.draft.assessmentRunId === assessment?.runId &&
+        current.draft.assessmentProbeId === assessment?.probeId;
       const base = resuming ? current : recordAbandon(current);
       const mockWorkspaceSource =
         sessionId &&
@@ -1202,7 +1231,7 @@ export default function SwiftGhostApp() {
         ...base,
         draft: resuming
           ? current.draft
-          : challengeDate || sessionId
+          : challengeDate || sessionId || assessment
             ? freshDraft(
                 next.itemId,
                 chosenStage,
@@ -1213,6 +1242,7 @@ export default function SwiftGhostApp() {
                 chosenPracticeKind === "solving"
                   ? (mockWorkspaceSource ?? next.starterCode ?? "")
                   : "",
+                assessment,
               )
             : null,
         lastItemId: next.itemId,
@@ -1634,6 +1664,18 @@ export default function SwiftGhostApp() {
             ? null
             : current.draft,
       };
+      if (next.assessmentRunId && next.assessmentProbeId) {
+        committed = {
+          ...committed,
+          assessments: recordAssessmentObjectiveAttempt(
+            current.assessments,
+            next.assessmentRunId,
+            next.assessmentProbeId,
+            attempt,
+            { now: attempt.completedAt },
+          ),
+        };
+      }
       const liveSession = current.activeSession;
       if (liveSession && next.sessionId === liveSession.id) {
         const isStudioSession =
@@ -1685,6 +1727,12 @@ export default function SwiftGhostApp() {
       }
       return committed;
     });
+    if (next.assessmentRunId && next.assessmentProbeId) {
+      setResult(null);
+      selectAssessment(next.assessmentRunId);
+      setToast("Checkpoint saved · add a short debrief before continuing");
+      return;
+    }
     if (session?.kind === "mock") {
       setResult(null);
       const isStudioSession = state.interviewStudio.active?.id === session.id;
@@ -1790,6 +1838,8 @@ export default function SwiftGhostApp() {
       conceptGrade: input.grade,
       conceptCheckIndex: input.checkIndex,
       sessionId: draft.sessionId,
+      assessmentRunId: draft.assessmentRunId,
+      assessmentProbeId: draft.assessmentProbeId,
     };
     attempt.qualification = qualificationFor(attempt);
     const promptSnapshot = item.recallChecks?.[input.checkIndex] ?? item.summary;
@@ -1967,6 +2017,13 @@ export default function SwiftGhostApp() {
   function resetAttempt() {
     mutateState((current) => {
       const sessionId = current.draft?.sessionId;
+      const assessment =
+        current.draft?.assessmentRunId && current.draft.assessmentProbeId
+          ? {
+              runId: current.draft.assessmentRunId,
+              probeId: current.draft.assessmentProbeId,
+            }
+          : undefined;
       const base = recordAbandon(current);
       return {
         ...base,
@@ -1979,6 +2036,7 @@ export default function SwiftGhostApp() {
               sessionId,
               practiceKind,
               practiceKind === "solving" ? (item.starterCode ?? "") : "",
+              assessment,
             )
           : freshDraft(
               selectedId,
@@ -1988,6 +2046,7 @@ export default function SwiftGhostApp() {
               undefined,
               practiceKind,
               practiceKind === "solving" ? (item.starterCode ?? "") : "",
+              assessment,
             ),
       };
     });
@@ -2036,6 +2095,198 @@ export default function SwiftGhostApp() {
   function randomItem(mode: "all" | "due" = "all") {
     const pool = mode === "due" && dueItems.length ? dueItems : allItems;
     openItem(pool[Math.floor(Math.random() * pool.length)]);
+  }
+
+  function selectAssessment(assessmentId?: string) {
+    setView("assessments");
+    setAssessmentRouteId(assessmentId);
+    setResult(null);
+    writeRoute({ view: "assessments", assessment: assessmentId });
+  }
+
+  function startAssessmentProgram(programId: string) {
+    const runId = `assessment-${makeId()}`;
+    mutateState((current) => ({
+      ...current,
+      assessments: startAssessment(current.assessments, programId, {
+        id: runId,
+        now: new Date().toISOString(),
+      }),
+    }));
+    selectAssessment(runId);
+    setToast("Baseline started · complete one short checkpoint at a time");
+  }
+
+  function resumeAssessmentRun(runId: string) {
+    mutateState((current) => ({
+      ...current,
+      assessments: resumeAssessment(current.assessments, runId, {
+        now: new Date().toISOString(),
+      }),
+    }));
+    selectAssessment(runId);
+    setToast("Baseline resumed");
+  }
+
+  function openAssessmentProbe(
+    runId: string,
+    probe: AssessmentProbe,
+    refresher = false,
+  ) {
+    const candidate = allItems.find((entry) => entry.itemId === probe.itemId);
+    if (!candidate) {
+      setToast("This checkpoint is unavailable in the current catalog");
+      return;
+    }
+    const chosenPracticeKind: PracticeKind =
+      candidate.track === "ios" ? "concept" : refresher ? "typing" : "solving";
+    openItem(
+      candidate,
+      chosenPracticeKind === "typing" ? 1 : 5,
+      undefined,
+      undefined,
+      chosenPracticeKind,
+      { runId, probeId: probe.id },
+    );
+    setToast(
+      refresher
+        ? "Refresher opened · this checkpoint will stay labeled assisted"
+        : "Checkpoint started · guidance is locked until the debrief",
+    );
+  }
+
+  function useAssessmentRefresher(runId: string, probe: AssessmentProbe) {
+    mutateState((current) => ({
+      ...current,
+      assessments: recordAssessmentRefresher(
+        current.assessments,
+        runId,
+        probe.id,
+        {
+          kind: probe.lane === "ios-self-assessed" ? "concept-review" : "known-answer",
+          stage: probe.lane === "ios-self-assessed" ? 0 : 1,
+        },
+        { now: new Date().toISOString() },
+      ),
+    }));
+    window.setTimeout(() => openAssessmentProbe(runId, probe, true), 0);
+  }
+
+  function saveAssessmentReflection(
+    runId: string,
+    probeId: string,
+    input: {
+      rubric: AssessmentRubric;
+      blockers: AssessmentBlocker[];
+      note: string;
+    },
+  ) {
+    mutateState((current) => {
+      let assessments = recordAssessmentDebrief(
+        current.assessments,
+        runId,
+        probeId,
+        input,
+        { now: new Date().toISOString() },
+      );
+      const run = assessments.runs.find((candidate) => candidate.id === runId);
+      if (run?.results.every((result) => result.status === "debriefed")) {
+        assessments = finishAssessment(assessments, runId, {
+          now: new Date().toISOString(),
+          outcome: "completed",
+        });
+      }
+      return { ...current, assessments };
+    });
+    selectAssessment(runId);
+    setToast("Debrief saved · evidence updated");
+  }
+
+  function finishAssessmentEarly(runId: string) {
+    mutateState((current) => ({
+      ...current,
+      assessments: finishAssessment(current.assessments, runId, {
+        now: new Date().toISOString(),
+        outcome: "ended",
+      }),
+      draft:
+        current.draft?.assessmentRunId === runId ? null : current.draft,
+    }));
+    selectAssessment(runId);
+    setToast("Baseline ended · partial evidence was preserved");
+  }
+
+  function archiveAssessmentReport(runId: string) {
+    mutateState((current) => ({
+      ...current,
+      assessments: archiveAssessment(current.assessments, runId, {
+        now: new Date().toISOString(),
+      }),
+    }));
+    setToast("Assessment report archived");
+  }
+
+  function createPlanFromAssessment(runId: string) {
+    if (
+      stateRef.current.studyWorkspace.collections.length >=
+        STUDY_PLAN_LIMITS.maxCollections ||
+      stateRef.current.studyWorkspace.plans.length >= STUDY_PLAN_LIMITS.maxPlans
+    ) {
+      setToast("Study plan limit reached · delete an unused plan first");
+      return;
+    }
+    const seed = buildAssessmentStudyPlanSeed(
+      stateRef.current.assessments,
+      { runId },
+    );
+    if (!seed) {
+      setToast("Complete at least one checkpoint before building a plan");
+      return;
+    }
+    const availableIds = new Set(allItems.map((candidate) => candidate.itemId));
+    const itemIds = seed.collection.itemIds.filter(
+      (itemId): itemId is ItemId => availableIds.has(itemId as ItemId),
+    );
+    if (!itemIds.length) {
+      setToast("The assessed items are no longer available in the catalog");
+      return;
+    }
+    const modules = seed.collection.modules
+      .map((module) => ({
+        ...module,
+        itemIds: module.itemIds.filter(
+          (itemId): itemId is ItemId => availableIds.has(itemId as ItemId),
+        ),
+      }))
+      .filter((module) => module.itemIds.length > 0);
+    const collectionId = `assessment-collection-${makeId()}`;
+    mutateState((current) => {
+      const withCollection = createStudyCollection(
+        current.studyWorkspace,
+        {
+          title: seed.collection.title,
+          description: seed.collection.description,
+          outcome: seed.collection.outcome,
+          source: "custom",
+          itemIds,
+          modules,
+        },
+        { id: collectionId, now: new Date().toISOString() },
+      );
+      return {
+        ...current,
+        studyWorkspace: createStudyPlan(
+          withCollection,
+          {
+            collectionId,
+            ...seed.plan,
+          },
+          { now: new Date().toISOString() },
+        ),
+      };
+    });
+    navigateView("plans");
+    setToast("Assessment plan created · your weakest evidence comes first");
   }
 
   function instantiateStudyTemplate(
@@ -3352,6 +3603,9 @@ export default function SwiftGhostApp() {
           onCreate={() => setCustomEditor("new")}
           onSessions={() => navigateView("sessions")}
           onPlans={() => navigateView("plans")}
+          onAssess={() =>
+            selectAssessment(state.assessments.activeRunId ?? "python-reentry")
+          }
           onStartCoach={(entries, budgetMinutes) =>
             startSession(
               {
@@ -3477,9 +3731,13 @@ export default function SwiftGhostApp() {
           onReview={() => randomItem("due")}
           onBrowse={() => navigateView("library")}
           onRandom={() => randomItem()}
-          onSession={() =>
-            navigateView(state.activeSession?.studyPlanId ? "plans" : "sessions")
-          }
+          onSession={() => {
+            if (draft.assessmentRunId) {
+              selectAssessment(draft.assessmentRunId);
+              return;
+            }
+            navigateView(state.activeSession?.studyPlanId ? "plans" : "sessions");
+          }}
           onSkipSession={skipSessionEntry}
           onEndSession={endSession}
         />
@@ -3502,6 +3760,23 @@ export default function SwiftGhostApp() {
           onOpenMockDebrief={setMockReviewSessionId}
         />
       )}
+      {view === "assessments" && (
+        <AssessmentCenter
+          workspace={state.assessments}
+          items={allItems}
+          selectedAssessment={assessmentRouteId}
+          activeDraft={state.draft}
+          onSelect={selectAssessment}
+          onStart={startAssessmentProgram}
+          onResume={resumeAssessmentRun}
+          onOpenProbe={openAssessmentProbe}
+          onUseRefresher={useAssessmentRefresher}
+          onSaveDebrief={saveAssessmentReflection}
+          onFinish={finishAssessmentEarly}
+          onCreatePlan={createPlanFromAssessment}
+          onArchive={archiveAssessmentReport}
+        />
+      )}
       {view === "library" && (
         <LibraryView
           state={state}
@@ -3521,6 +3796,7 @@ export default function SwiftGhostApp() {
           cloud={cloud}
           onOpen={openItem}
           onReview={() => randomItem("due")}
+          onAssess={selectAssessment}
           onToggleUploads={toggleCommunityUploads}
           onCloudRefresh={() =>
             setCloud((current) => ({
@@ -3612,6 +3888,7 @@ function TodayView({
   onCreate,
   onSessions,
   onPlans,
+  onAssess,
   onStartCoach,
   onResumeSession,
 }: {
@@ -3632,6 +3909,7 @@ function TodayView({
   onCreate: () => void;
   onSessions: () => void;
   onPlans: () => void;
+  onAssess: () => void;
   onStartCoach: (
     entries: SessionQueueEntry[],
     budgetMinutes: number,
@@ -3690,6 +3968,10 @@ function TodayView({
   const activePlan = state.studyWorkspace.plans.find(
     (plan) => plan.id === state.studyWorkspace.activePlanId && plan.status === "active",
   );
+  const activeAssessment = state.assessments.runs.find(
+    (run) => run.id === state.assessments.activeRunId,
+  );
+  const latestAssessment = state.assessments.runs.at(-1);
   return (
     <main id="main-content" tabIndex={-1} className="page-container today-page">
       <PageHeading
@@ -3717,6 +3999,27 @@ function TodayView({
           </button>
         </section>
       )}
+      <section className="today-assessment" aria-label="Interview baseline">
+        <div>
+          <span className="eyebrow">
+            {activeAssessment ? "Baseline in progress" : "New · Calibration center"}
+          </span>
+          <h2>
+            {activeAssessment
+              ? "Continue the next short checkpoint."
+              : latestAssessment
+                ? "Recheck what changed since your last baseline."
+                : "Start with evidence before choosing a study queue."}
+          </h2>
+          <p>
+            Separate Python fluency, algorithm selection, and Swift/iOS recall.
+            No global score, no proctoring claim, and no penalty for needing a refresher.
+          </p>
+        </div>
+        <button className="primary-button" onClick={onAssess}>
+          {activeAssessment ? "Resume assessment" : "Open assessment center"} →
+        </button>
+      </section>
       <DailyCoach
         ready={ready}
         state={state}
@@ -4001,6 +4304,10 @@ function PracticeView(props: PracticeProps) {
     props.activeSession?.kind === "mock" &&
       props.draft.sessionId === props.activeSession.id,
   );
+  const isAssessment = Boolean(
+    props.draft.assessmentRunId && props.draft.assessmentProbeId,
+  );
+  const isLocked = isMock || isAssessment;
   const activeStudio =
     props.interviewStudio?.format === "python-coding" &&
     props.interviewStudio.id === props.draft.sessionId
@@ -4511,19 +4818,40 @@ function PracticeView(props: PracticeProps) {
       <aside className="problem-rail">
         <div className="rail-head">
           <span className="eyebrow">
-            {props.activeSession?.studyPlanId
+            {isAssessment
+              ? "Calibration checkpoint"
+              : props.activeSession?.studyPlanId
               ? "Study plan focus block"
               : props.activeSession
                 ? "Active session"
                 : "Problem queue"}
           </span>
           <span className="count-badge">
-            {props.activeSession
+            {isAssessment
+              ? "Locked"
+              : props.activeSession
               ? `${props.activeSession.currentIndex + 1}/${props.activeSession.entries.length}`
               : props.items.length}
           </span>
         </div>
-        {props.activeSession ? (
+        {isAssessment ? (
+          <div className="assessment-practice-rail">
+            <span className="eyebrow">Evidence contract</span>
+            <strong>One prompt. No solution help.</strong>
+            <p>
+              Use the prompt and executable feedback. Pattern recognition and
+              reference material return after you record the checkpoint.
+            </p>
+            <ul>
+              <li>Source stays on this device</li>
+              <li>Assistance remains separately labeled</li>
+              <li>No proctoring or identity claim</li>
+            </ul>
+            <button className="outline-button" onClick={props.onSession}>
+              Back to assessment
+            </button>
+          </div>
+        ) : props.activeSession ? (
           <div className="session-rail">
             <strong>{props.activeSession.name}</strong>
             {props.activeSession.entries.map((entry, index) => {
@@ -4631,7 +4959,9 @@ function PracticeView(props: PracticeProps) {
           className="mobile-practice-controls"
           aria-label="Practice problem controls"
         >
-          {props.activeSession ? (
+          {isAssessment ? (
+            <span>Assessment checkpoint · pattern hidden</span>
+          ) : props.activeSession ? (
             <span>
               Session item {props.activeSession.currentIndex + 1} of{" "}
               {props.activeSession.entries.length}
@@ -4697,7 +5027,7 @@ function PracticeView(props: PracticeProps) {
             </label>
           )}
           <button onClick={resetPractice}>Restart</button>
-          {!props.activeSession && (
+          {!props.activeSession && !isAssessment && (
             <button onClick={props.onRandom}>Random</button>
           )}
         </nav>
@@ -4721,7 +5051,7 @@ function PracticeView(props: PracticeProps) {
                 </span>
               )}
               <div>
-                {!isMock && (
+                {!isLocked && (
                   <button onClick={props.onSkipSession}>Skip item</button>
                 )}
                 <button onClick={props.onEndSession}>
@@ -4740,7 +5070,7 @@ function PracticeView(props: PracticeProps) {
                 {props.item.difficulty}
               </span>
               <span>{laneLabel(props.item)}</span>
-              <span>{isMock ? "Pattern hidden" : props.item.pattern}</span>
+              <span>{isLocked ? "Pattern hidden" : props.item.pattern}</span>
               {props.item.source === "custom" && <span>Device-local</span>}
             </div>
             <h1>{props.item.title}</h1>
@@ -4754,7 +5084,7 @@ function PracticeView(props: PracticeProps) {
             >
               {favorite ? "★" : "☆"}
             </button>
-            {prompt && !isMock && (
+            {prompt && !isLocked && (
               <a
                 className="outline-button"
                 href={prompt}
@@ -4766,14 +5096,14 @@ function PracticeView(props: PracticeProps) {
             )}
           </div>
         </div>
-        {isMock ? (
+        {isLocked ? (
           <div className="mock-policy" role="status">
-            <span>Interview mode locked</span>
+            <span>{isAssessment ? "Assessment mode locked" : "Interview mode locked"}</span>
             <strong>Solve from the prompt and executable feedback only.</strong>
             <small>
-              Pattern guidance, hints, the reference solution, and hidden judge
-              values stay out of the interview view until this mock ends. Sample
-              outputs remain part of the prompt.
+              Pattern guidance, hints, the reference solution, and prior
+              submissions stay out of this view until the checkpoint ends.
+              Sample outputs remain part of the prompt.
             </small>
           </div>
         ) : (
@@ -4905,7 +5235,7 @@ function PracticeView(props: PracticeProps) {
             problem={
               <div className="solve-workbench-problem-content">
                 <ChallengeStatement item={props.item} />
-                {!isMock && (
+                {!isLocked && (
                   <div className="solve-workbench-guidance">
                     <div className="solve-hint-bar">
                       <span>
@@ -4993,7 +5323,7 @@ function PracticeView(props: PracticeProps) {
                 editorLineCount={editorLineCount}
                 errorCount={errorCount}
                 linesLeft={linesLeft}
-                isMock={isMock}
+                isMock={isLocked}
                 reveal={props.reveal}
                 focusMode={props.focusMode}
                 copied={copied}
@@ -5015,8 +5345,8 @@ function PracticeView(props: PracticeProps) {
             tests={
               <ChallengeConsole
                 practiceKind={props.practiceKind}
-                isMock={isMock}
-                isStudio={isStudio}
+                isMock={isLocked}
+                isStudio={isStudio || isAssessment}
                 runnerSourcePresent={Boolean(runnerSource.trim())}
                 checksAreBusy={checksAreBusy}
                 consoleTab={consoleTab}
@@ -5127,7 +5457,7 @@ function PracticeView(props: PracticeProps) {
         {props.practiceKind === "solving" && props.item.verification && (
           <ChallengeStatement item={props.item} />
         )}
-        {!isMock && <div className="insight-grid">
+        {!isLocked && <div className="insight-grid">
           <article>
             <span className="card-icon">⌁</span>
             <div>
@@ -5164,7 +5494,7 @@ function PracticeView(props: PracticeProps) {
             </div>
           </article>
         </div>}
-        {props.practiceKind === "solving" && !isMock && (
+        {props.practiceKind === "solving" && !isLocked && (
           <div className="solve-hint-bar">
             <span>
               <small>Independent solve</small>
@@ -5189,7 +5519,7 @@ function PracticeView(props: PracticeProps) {
             )}
           </div>
         )}
-        {props.practiceKind === "solving" && !isMock && solveHintLevel >= 3 && (
+        {props.practiceKind === "solving" && !isLocked && solveHintLevel >= 3 && (
           <details className="solve-reference" open>
             <summary>Reference solution</summary>
             <pre>{props.item.code}</pre>
@@ -5243,7 +5573,7 @@ function PracticeView(props: PracticeProps) {
             editorLineCount={editorLineCount}
             errorCount={errorCount}
             linesLeft={linesLeft}
-            isMock={isMock}
+            isMock={isLocked}
             reveal={props.reveal}
             focusMode={props.focusMode}
             copied={copied}
@@ -5264,8 +5594,8 @@ function PracticeView(props: PracticeProps) {
         {props.item.verification && (
           <ChallengeConsole
             practiceKind={props.practiceKind}
-            isMock={isMock}
-            isStudio={isStudio}
+            isMock={isLocked}
+            isStudio={isStudio || isAssessment}
             runnerSourcePresent={Boolean(runnerSource.trim())}
             checksAreBusy={checksAreBusy}
             consoleTab={consoleTab}
@@ -5370,14 +5700,16 @@ function PracticeView(props: PracticeProps) {
             }}
           />
         )}
-        {isMock ? (
+        {isLocked ? (
           <section className="mock-rules">
-            <span className="eyebrow">Mock interview contract</span>
-            <strong>Clarify, plan, implement, test, and explain.</strong>
+            <span className="eyebrow">
+              {isAssessment ? "Assessment evidence contract" : "Mock interview contract"}
+            </span>
+            <strong>Recognize, reason, implement, verify, and explain.</strong>
             <p>
               This is local practice evidence, not a proctored score. A clean
-              verified solve records independent evidence; ending or timing out
-              preserves the attempt for review without advancing mastery.
+              verified solve records independent evidence. Swift/iOS answers
+              remain self-assessed and never receive an automated correctness claim.
             </p>
           </section>
         ) : (
@@ -5418,7 +5750,7 @@ function PracticeView(props: PracticeProps) {
           )}
         </div>
         )}
-        {!isMock && props.state.settings.showKeyboard && (
+        {!isLocked && props.state.settings.showKeyboard && (
           <KeyboardGuide errors={props.errorKeys} />
         )}
           </>
@@ -6562,6 +6894,7 @@ function RecordsView({
   cloud,
   onOpen,
   onReview,
+  onAssess,
   onToggleUploads,
   onCloudRefresh,
 }: {
@@ -6576,6 +6909,7 @@ function RecordsView({
     practiceKind?: PracticeKind,
   ) => void;
   onReview: () => void;
+  onAssess: (assessmentId?: string) => void;
   onToggleUploads: (enabled: boolean) => void;
   onCloudRefresh: () => void;
 }) {
@@ -6595,6 +6929,13 @@ function RecordsView({
   const verifiedMocks = mockHistory.filter(
     (session) => session.outcome === "completed" && session.completed > 0,
   );
+  const assessmentReports = state.assessments.runs
+    .map((run) => ({ run, report: deriveAssessmentReport(run) }))
+    .filter(
+      (entry): entry is typeof entry & { report: NonNullable<typeof entry.report> } =>
+        Boolean(entry.report),
+    );
+  const latestAssessmentReport = assessmentReports.at(-1);
   const eligible = attempts.filter(eligibleAttempt);
   const currentEligible = eligible.filter((attempt) =>
     items.some(
@@ -6707,6 +7048,46 @@ function RecordsView({
         onRefresh={onCloudRefresh}
       />
       <ReadinessAnalytics state={state} items={items} dueCount={due.length} />
+      <section className="dashboard-card assessment-records-card">
+        <div className="section-head">
+          <div>
+            <small>Calibration history</small>
+            <h2>Baseline evidence</h2>
+          </div>
+          <span>{assessmentReports.length} saved run{assessmentReports.length === 1 ? "" : "s"}</span>
+        </div>
+        {latestAssessmentReport ? (
+          <div className="assessment-records-summary">
+            <div>
+              <strong>{latestAssessmentReport.report.title}</strong>
+              <p>{latestAssessmentReport.report.disclaimer}</p>
+            </div>
+            <div>
+              <span>
+                {latestAssessmentReport.report.completion.debriefed}/
+                {latestAssessmentReport.report.completion.total}
+              </span>
+              <small>checkpoints reflected</small>
+            </div>
+            <button
+              className="outline-button"
+              onClick={() => onAssess(latestAssessmentReport.run.id)}
+            >
+              Open detailed report →
+            </button>
+          </div>
+        ) : (
+          <div className="assessment-records-empty">
+            <p>
+              No baseline yet. Start with a short Python checkpoint so future
+              practice recommendations have something concrete to work from.
+            </p>
+            <button className="outline-button" onClick={() => onAssess("python-reentry")}>
+              Start a baseline →
+            </button>
+          </div>
+        )}
+      </section>
       <div className="stat-grid">
         <StatCard
           label="Completed passes"
@@ -7233,11 +7614,11 @@ function SettingsView({
           <small>Your data</small>
           <h2>Local profile</h2>
           <p>
-            Export a portable v18 JSON backup with Python, Swift, iOS, plans, sessions,
+            Export a portable v19 JSON backup with Python, Swift, iOS, assessments, plans, sessions,
             learning debriefs, revisioned snippets, local pacing and weak-line
             analytics, community preferences, structured custom testcases, and
             local submission snapshots, mock notebooks and debriefs, Interview
-            Studio transcripts and criteria, or restore any v2-v17 backup.
+            Studio transcripts and criteria, or restore any v2-v18 backup.
           </p>
         </div>
         <div className="data-actions">

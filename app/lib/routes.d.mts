@@ -12,6 +12,7 @@ export type AppRoute = {
   practiceKind?: PracticeKind;
   communityTab?: CommunityTab;
   profile?: string;
+  assessment?: string;
 };
 
 export const ROUTE_VIEWS: View[];

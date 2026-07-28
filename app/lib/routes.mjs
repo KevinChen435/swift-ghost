@@ -3,6 +3,7 @@ export const ROUTE_VIEWS = [
   "plans",
   "practice",
   "sessions",
+  "assessments",
   "library",
   "records",
   "settings",
@@ -27,6 +28,13 @@ function cleanHandle(value) {
   const normalized =
     typeof value === "string" ? value.trim().toLowerCase() : "";
   return /^[a-z0-9](?:[a-z0-9-]{1,22}[a-z0-9])?$/.test(normalized)
+    ? normalized
+    : undefined;
+}
+
+function cleanAssessmentId(value) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(normalized)
     ? normalized
     : undefined;
 }
@@ -70,6 +78,10 @@ export function parseRoute(input) {
     : profile
       ? "profile"
       : undefined;
+  const assessment =
+    view === "assessments"
+      ? cleanAssessmentId(params.get("assessment"))
+      : undefined;
   return {
     view,
     language,
@@ -79,6 +91,7 @@ export function parseRoute(input) {
     practiceKind,
     communityTab,
     profile,
+    assessment,
   };
 }
 
@@ -157,6 +170,9 @@ export function serializeRoute(
     url.searchParams.set("practice", "concept");
   if (view === "records" && COMMUNITY_TABS.includes(route?.communityTab))
     url.searchParams.set("tab", route.communityTab);
+  const assessment =
+    view === "assessments" ? cleanAssessmentId(route?.assessment) : undefined;
+  if (assessment) url.searchParams.set("assessment", assessment);
   const profile = view === "records" ? cleanHandle(route?.profile) : undefined;
   if (profile) url.searchParams.set("profile", profile);
   return `${url.pathname}${url.search}${url.hash}`;

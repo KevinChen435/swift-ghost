@@ -132,7 +132,8 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v18"/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v19"/);
+  assert.match(product, /EIGHTEENTH_STORAGE_KEY = "swift-ghost-state-v18"/);
   assert.match(product, /SEVENTEENTH_STORAGE_KEY = "swift-ghost-state-v17"/);
   assert.match(product, /SIXTEENTH_STORAGE_KEY = "swift-ghost-state-v16"/);
   assert.match(product, /FIFTEENTH_STORAGE_KEY = "swift-ghost-state-v15"/);
@@ -141,7 +142,7 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(product, /TWELFTH_STORAGE_KEY = "swift-ghost-state-v12"/);
   assert.match(product, /PREVIOUS_STORAGE_KEY = "swift-ghost-state-v11"/);
   assert.match(product, /FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2"/);
-  assert.match(product, /version: 18/);
+  assert.match(product, /version: 19/);
   assert.match(product, /swift-ghost-state-v10/);
   assert.match(product, /swift-ghost-state-v9/);
   assert.match(product, /swift-ghost-state-v8/);
@@ -339,7 +340,7 @@ test("ships reload-safe timed mock interviews", async () => {
   assert.match(mockDebrief, /Final source snapshot/);
   assert.match(app, /Interview mode locked/);
   assert.match(app, /<ChallengeStatement item=\{props\.item\}/);
-  assert.match(app, /prompt && !isMock/);
+  assert.match(app, /prompt && !isLocked/);
   const consoleUi = await readFile(
     new URL("../app/components/ChallengeConsole.tsx", import.meta.url),
     "utf8",
@@ -374,4 +375,22 @@ test("ships first-class Swift and iOS concept recall", async () => {
   assert.match(concept, /Optional guided typing/);
   assert.match(concept, /Self-rated recall · not automated correctness/);
   assert.equal((fundamentals.match(/conceptAnswers:/g) ?? []).length, 17);
+});
+
+test("ships resumable assessment navigation without changing refresher mode", async () => {
+  const center = await readFile(
+    new URL("../app/components/AssessmentCenter.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(center, /selectedRun \?\? \(selectedAssessment \? null : activeRun\)/);
+  assert.match(center, /detailRun\.status === "paused"/);
+  assert.match(center, /onResume\(detailRun\.id\)/);
+  assert.match(center, /currentResult\.status === "refreshed"/);
+  const app = await readFile(
+    new URL("../app/components/SwiftGhostApp.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(app, /!attempt\.assessmentRunId/);
+  assert.match(app, /\{!isLocked && \(/);
+  assert.match(app, /modules,/);
 });

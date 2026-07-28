@@ -16,6 +16,38 @@ test("study plans have a first-class reload-safe route", () => {
   );
 });
 
+test("assessments have reload-safe list and detail routes", () => {
+  assert.deepEqual(parseRoute("/?view=assessments&assessment=python-reentry"), {
+    view: "assessments",
+    language: undefined,
+    track: undefined,
+    item: undefined,
+    stage: undefined,
+    practiceKind: undefined,
+    communityTab: undefined,
+    profile: undefined,
+    assessment: "python-reentry",
+  });
+  assert.equal(
+    serializeRoute(
+      { view: "assessments", assessment: "ios-pulse" },
+      "https://example.test/swift-ghost/",
+    ),
+    "/swift-ghost/?view=assessments&assessment=ios-pulse",
+  );
+  assert.equal(
+    parseRoute("/?view=assessments&assessment=../../bad").assessment,
+    undefined,
+  );
+  assert.doesNotMatch(
+    serializeRoute(
+      { view: "library", assessment: "python-reentry" },
+      "https://example.test/",
+    ),
+    /assessment=/,
+  );
+});
+
 const items = [
   {
     itemId: "builtin:1",
@@ -59,6 +91,7 @@ test("parses safe deep links and preserves legacy profile links", () => {
       practiceKind: undefined,
       communityTab: undefined,
       profile: undefined,
+      assessment: undefined,
     },
   );
   assert.deepEqual(parseRoute("/?profile=kevin-swift"), {
@@ -70,6 +103,7 @@ test("parses safe deep links and preserves legacy profile links", () => {
     practiceKind: undefined,
     communityTab: "profile",
     profile: "kevin-swift",
+    assessment: undefined,
   });
 });
 
@@ -85,6 +119,7 @@ test("rejects malformed route dimensions without throwing", () => {
       practiceKind: undefined,
       communityTab: undefined,
       profile: undefined,
+      assessment: undefined,
     },
   );
 });
