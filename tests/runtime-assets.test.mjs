@@ -63,15 +63,16 @@ test("cleanup target validation rejects traversal, wildcards, pinned, and unrela
   }
 });
 
-test("the worker and runner reference only the pinned MicroPython artifacts", async () => {
+test("the worker, runner, and local server support the pinned MicroPython runtime", async () => {
   assert.equal(PINNED_VERSION, "1.28.0-6");
   assert.deepEqual([...REQUIRED_FILES], ["micropython.mjs", "micropython.wasm"]);
   assert.equal(path.basename(destination), `micropython-${PINNED_VERSION}`);
   assert.equal(path.dirname(destination), vendorRoot);
 
-  const [workerSource, runnerSource] = await Promise.all([
+  const [workerSource, runnerSource, startSource] = await Promise.all([
     readFile(new URL("../public/python-runner.worker.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/lib/python-runner.mjs", import.meta.url), "utf8"),
+    readFile(new URL("../scripts/start.mjs", import.meta.url), "utf8"),
   ]);
   assert.match(
     workerSource,
@@ -88,6 +89,7 @@ test("the worker and runner reference only the pinned MicroPython artifacts", as
     new RegExp(`python-runner\\.worker\\.mjs\\?v=${PINNED_VERSION.replaceAll(".", "\\.")}-micropython-1`),
   );
   assert.doesNotMatch(`${workerSource}\n${runnerSource}`, /pyodide/i);
+  assert.match(startSource, /CONTENT_TYPES\["\.wasm"\] = "application\/wasm"/);
 
   for (const artifact of REQUIRED_FILES) {
     const metadata = await stat(path.join(destination, artifact));

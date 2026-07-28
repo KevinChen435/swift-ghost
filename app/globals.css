@@ -2886,10 +2886,124 @@ kbd {
   min-height: 0;
 }
 .solve-workbench-problem-pane {
+  grid-column: 1;
+  grid-row: 1;
   overflow: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   background: var(--bg);
+}
+.solve-workbench-notes-pane {
+  grid-column: 1;
+  grid-row: 1;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  background: var(--bg);
+}
+.solve-workbench-prompt-tabs {
+  position: sticky;
+  z-index: 3;
+  top: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-raised) 96%, transparent);
+  backdrop-filter: blur(12px);
+}
+.solve-workbench-prompt-tabs button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font: 800 11px var(--font-code);
+  cursor: pointer;
+}
+.solve-workbench-prompt-tabs button.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.solve-workbench-prompt-tabs button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.solve-workbench-notebook-panel {
+  padding: 16px;
+}
+.mock-notebook {
+  display: grid;
+  gap: 16px;
+}
+.mock-notebook__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.mock-notebook__heading h3 {
+  margin: 4px 0 0;
+}
+.mock-notebook__heading > small {
+  max-width: 190px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+  text-align: right;
+}
+.mock-notebook__checkpoints {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.mock-notebook__checkpoints legend {
+  padding: 0 6px;
+  color: var(--muted);
+  font: 800 10px var(--font-code);
+  text-transform: uppercase;
+}
+.mock-notebook__checkpoint-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.mock-notebook__checkpoint-actions button[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--success) 46%, var(--border));
+  background: color-mix(in srgb, var(--success) 12%, var(--panel));
+  color: var(--success);
+}
+.mock-notebook__fields {
+  display: grid;
+  gap: 12px;
+}
+.mock-notebook__field {
+  display: grid;
+  gap: 7px;
+}
+.mock-notebook__field > span {
+  color: var(--muted);
+  font: 800 10px var(--font-code);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.mock-notebook__field textarea {
+  width: 100%;
+  min-height: 82px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-raised);
+  color: var(--text);
+  padding: 11px 12px;
+  font: 13px/1.55 var(--font-code);
+}
+.mock-notebook__field textarea:focus {
+  border-color: var(--accent);
+  outline: 3px solid var(--accent-soft);
 }
 .solve-workbench-problem-content {
   display: grid;
@@ -2925,6 +3039,8 @@ kbd {
   line-height: 1.55;
 }
 .solve-workbench-separator {
+  grid-column: 2;
+  grid-row: 1;
   position: relative;
   z-index: 2;
   width: 12px;
@@ -2948,6 +3064,8 @@ kbd {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 .solve-workbench-workspace-pane {
+  grid-column: 3;
+  grid-row: 1;
   display: grid;
   grid-template-rows: minmax(330px, 1fr) minmax(270px, 0.9fr);
   overflow: hidden;
@@ -3236,7 +3354,7 @@ kbd {
     z-index: 14;
     top: 76px;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
     margin-bottom: 9px;
     padding: 5px;
     border: 1px solid var(--border);
@@ -3270,6 +3388,9 @@ kbd {
   .solve-workbench-separator {
     display: none;
   }
+  .solve-workbench-prompt-tabs {
+    display: none;
+  }
   .solve-workbench-pane {
     display: none;
     overflow: visible;
@@ -3298,6 +3419,25 @@ kbd {
     position: sticky;
     bottom: calc(70px + env(safe-area-inset-bottom));
     z-index: 8;
+  }
+}
+
+@media (max-width: 760px) {
+  .mock-notebook__heading {
+    display: grid;
+  }
+  .mock-notebook__heading > small {
+    max-width: none;
+    text-align: left;
+  }
+  .mock-debrief-dialog {
+    padding: 24px 16px;
+  }
+  .mock-debrief-dialog__actions {
+    align-items: stretch;
+  }
+  .mock-debrief-dialog__actions button {
+    width: 100%;
   }
 }
 .challenge-copy > p {
@@ -3493,7 +3633,64 @@ kbd {
   font-size: 9px;
   line-height: 1.7;
 }
+.mock-interview-copy {
+  grid-row: 1 / 3;
+}
+.mock-problem-count {
+  grid-column: 2;
+  margin: 0;
+  padding: 11px 13px;
+  border: 1px solid var(--border-soft);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--bg) 68%, transparent);
+}
+.mock-problem-count legend {
+  padding: 0 6px;
+  color: var(--violet);
+  font: 800 8px var(--font-code);
+  text-transform: uppercase;
+}
+.mock-problem-count > div {
+  display: flex;
+  gap: 7px;
+}
+.mock-problem-count label {
+  position: relative;
+  flex: 1;
+}
+.mock-problem-count input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.mock-problem-count label span {
+  display: grid;
+  min-height: 36px;
+  place-items: center;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  font: 800 9px var(--font-code);
+  cursor: pointer;
+}
+.mock-problem-count input:checked + span {
+  border-color: var(--violet);
+  background: color-mix(in srgb, var(--violet) 13%, var(--panel));
+  color: var(--text);
+}
+.mock-problem-count input:focus-visible + span {
+  outline: 2px solid var(--violet);
+  outline-offset: 2px;
+}
+.mock-problem-count > small {
+  display: block;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 8px;
+}
 .mock-preset-grid {
+  grid-column: 2;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
@@ -4330,6 +4527,158 @@ kbd {
 }
 .debrief-save-row small {
   max-width: none;
+}
+
+.mock-debrief-dialog {
+  width: min(980px, 100%);
+  text-align: left;
+}
+.mock-debrief-dialog > p {
+  max-width: 620px;
+  margin: 0;
+}
+.mock-debrief-dialog__timing {
+  margin-top: 20px;
+}
+.mock-debrief-dialog__evidence {
+  margin: 20px 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-raised);
+}
+.mock-debrief-dialog__problems {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(330px, 100%), 1fr));
+  gap: 12px;
+}
+.mock-debrief-dialog__problems > article {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.mock-debrief-dialog__problems h4 {
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+.mock-debrief-dialog__notebook {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+.mock-debrief-dialog__notebook > div {
+  padding: 9px 10px;
+  border-radius: 7px;
+  background: var(--bg);
+}
+.mock-debrief-dialog__notebook dt {
+  color: var(--faint);
+  font: 800 7px var(--font-code);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.mock-debrief-dialog__notebook dd {
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font: 9px/1.55 var(--font-code);
+  white-space: pre-wrap;
+}
+.mock-debrief-dialog__checkpoints {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.mock-debrief-dialog__checkpoints li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 8px;
+}
+.mock-debrief-dialog__checkpoints strong {
+  color: var(--accent);
+  font: 800 8px var(--font-code);
+}
+.mock-debrief-dialog__source {
+  margin-top: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.mock-debrief-dialog__source summary {
+  padding: 10px;
+  color: var(--muted);
+  font: 800 8px var(--font-code);
+  cursor: pointer;
+}
+.mock-debrief-dialog__source pre {
+  max-height: 320px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text);
+  font: 9px/1.55 var(--font-code);
+  white-space: pre;
+}
+.mock-debrief-dialog__rubric {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+.mock-debrief-dialog__assessment .debrief-friction-grid label {
+  position: relative;
+  min-width: 0;
+}
+.mock-debrief-dialog__assessment .debrief-friction-grid input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.mock-debrief-dialog__assessment .debrief-friction-grid label > span {
+  display: grid;
+  min-height: 36px;
+  place-items: center;
+  padding: 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  font: 800 8px var(--font-code);
+  text-align: center;
+  cursor: pointer;
+}
+.mock-debrief-dialog__assessment .debrief-friction-grid input:checked + span {
+  border-color: var(--violet);
+  background: color-mix(in srgb, var(--violet) 13%, var(--panel));
+  color: var(--text);
+}
+.mock-debrief-dialog__assessment .debrief-friction-grid input:focus-visible + span {
+  outline: 2px solid var(--violet);
+  outline-offset: 2px;
+}
+.mock-debrief-dialog__mistakes {
+  margin-top: 8px !important;
+}
+.mock-debrief-dialog__mistakes .debrief-friction-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.mock-debrief-dialog__reflections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.mock-debrief-dialog__actions {
+  flex-wrap: wrap;
 }
 
 .custom-dialog {
@@ -5204,6 +5553,13 @@ kbd {
   .mock-interview-center {
     grid-template-columns: 1fr;
   }
+  .mock-interview-copy {
+    grid-row: auto;
+  }
+  .mock-problem-count,
+  .mock-preset-grid {
+    grid-column: auto;
+  }
   .mock-prompt-card {
     grid-template-columns: 1fr;
   }
@@ -5911,6 +6267,17 @@ kbd {
   }
   .concept-private {
     white-space: normal;
+  }
+
+  /* These rules intentionally live after the mock debrief base styles. The
+     earlier workbench breakpoint cannot win the cascade against base rules
+     declared later in this file. */
+  .mock-notebook__checkpoint-actions,
+  .mock-debrief-dialog__rubric,
+  .mock-debrief-dialog__mistakes .debrief-friction-grid,
+  .mock-debrief-dialog__reflections,
+  .mock-debrief-dialog__checkpoints {
+    grid-template-columns: 1fr;
   }
 }
 

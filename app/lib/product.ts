@@ -36,6 +36,14 @@ import type {
   SessionStageMode,
   SessionTrack,
 } from "./sessions.mjs";
+import {
+  createMockProblemWorkspace,
+  normalizeMockDebrief,
+  normalizeMockProblemWorkspace,
+  normalizeMockProblemWorkspaces,
+  type MockDebrief,
+  type MockProblemWorkspace,
+} from "./mock-session.mjs";
 
 export { analyzeEdit, correctPositionCount } from "./typing-engine.mjs";
 
@@ -192,8 +200,10 @@ export type TrainingSession = {
   entries: SessionQueueEntry[];
   currentIndex: number;
   mockPreset?: "screen" | "standard" | "stretch";
+  problemCount?: 1 | 2;
   durationMinutes?: number;
   expiresAt?: string;
+  mockProblems?: MockProblemWorkspace[];
 };
 
 export type SessionHistoryRecord = {
@@ -206,6 +216,10 @@ export type SessionHistoryRecord = {
   total: number;
   durationMinutes?: number;
   outcome?: "completed" | "ended" | "expired";
+  mockPreset?: "screen" | "standard" | "stretch";
+  problemCount?: 1 | 2;
+  problems?: MockProblemWorkspace[];
+  debrief?: MockDebrief;
 };
 
 export type CloudPreferences = {
@@ -215,7 +229,7 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 15;
+  version: 16;
   attempts: AttemptRecord[];
   submissionHistory: SubmissionRecord[];
   learningEvents: LearningEvent[];
@@ -232,7 +246,8 @@ export type AppState = {
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v15";
+export const STORAGE_KEY = "swift-ghost-state-v16";
+export const FIFTEENTH_STORAGE_KEY = "swift-ghost-state-v15";
 export const FOURTEENTH_STORAGE_KEY = "swift-ghost-state-v14";
 export const THIRTEENTH_STORAGE_KEY = "swift-ghost-state-v13";
 export const TWELFTH_STORAGE_KEY = "swift-ghost-state-v12";
@@ -247,10 +262,11 @@ export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
-  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
 ];
 export const STATE_STORAGE_KEYS = [
   STORAGE_KEY,
+  FIFTEENTH_STORAGE_KEY,
   FOURTEENTH_STORAGE_KEY,
   THIRTEENTH_STORAGE_KEY,
   TWELFTH_STORAGE_KEY,
@@ -280,7 +296,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 15,
+  version: 16,
   attempts: [],
   submissionHistory: [],
   learningEvents: [],
@@ -578,6 +594,8 @@ function itemIdFromRaw(value: unknown): ItemId | null {
 
 function normalizeActiveSession(
   value: unknown,
+  stateVersion: number,
+  draft: Draft | null,
   activeIds: Set<ItemId>,
   revisions: Map<ItemId, number>,
   tracks: Map<ItemId, PracticeItem["track"]>,
@@ -591,6 +609,7 @@ function normalizeActiveSession(
     !Array.isArray(value.entries)
   )
     return null;
+  const requestedKind = value.kind === "mock" ? "mock" : "practice";
   const sessionTrack: SessionTrack =
     value.track === "interview" || value.track === "ios" ? value.track : "all";
   const sessionLanguage: SessionLanguage =
@@ -690,14 +709,70 @@ function normalizeActiveSession(
   const durationMinutes = Math.round(
     finiteNumber(value.durationMinutes, 0, 0, 180),
   );
-  const kind =
-    value.kind === "mock" &&
-    entries.length === 1 &&
-    entries[0].practiceKind === "solving" &&
-    expiresAt &&
-    durationMinutes >= 1
-      ? "mock"
-      : "practice";
+  const requestedProblemCount =
+    value.problemCount === 1 || value.problemCount === 2
+      ? value.problemCount
+      : stateVersion <= 15 && (entries.length === 1 || entries.length === 2)
+        ? (entries.length as 1 | 2)
+        : null;
+  const validMockEnvelope = Boolean(
+    requestedKind === "mock" &&
+      requestedProblemCount &&
+      entries.length === requestedProblemCount &&
+      entries.every(
+        (entry) =>
+          entry.stage === 5 &&
+          entry.practiceKind === "solving" &&
+          supportsSolving.get(entry.itemId),
+      ) &&
+      sessionTrack === "interview" &&
+      sessionLanguage === "python" &&
+      expiresAt &&
+      durationMinutes >= 1,
+  );
+  if (requestedKind === "mock" && !validMockEnvelope) return null;
+  let mockProblems: MockProblemWorkspace[] | undefined;
+  if (requestedKind === "mock" && requestedProblemCount) {
+    const elapsedLimit = durationMinutes * 60_000;
+    const rawProblems = Array.isArray(value.mockProblems)
+      ? value.mockProblems
+      : [];
+    if (stateVersion >= 16 && rawProblems.length !== entries.length) return null;
+    try {
+      mockProblems = entries.map((entry, index) => {
+        const rawWorkspace = rawProblems[index];
+        const migratedSource =
+          draft !== null &&
+          draft.sessionId === value.id &&
+          draft.itemId === entry.itemId &&
+          draft.itemRevision === entry.itemRevision
+            ? draft.value
+            : "";
+        const workspace =
+          stateVersion >= 16
+            ? normalizeMockProblemWorkspace(rawWorkspace, {
+                maxElapsedMs: elapsedLimit,
+              })
+            : createMockProblemWorkspace(
+                {
+                  itemId: entry.itemId,
+                  itemRevision: entry.itemRevision,
+                  source: migratedSource,
+                },
+                { maxElapsedMs: elapsedLimit },
+              );
+        if (
+          workspace.itemId !== entry.itemId ||
+          workspace.itemRevision !== entry.itemRevision
+        )
+          throw new Error("mock workspace does not match its queue entry");
+        return workspace;
+      });
+    } catch {
+      return null;
+    }
+  }
+  const kind = requestedKind;
   return {
     id: value.id,
     name:
@@ -723,19 +798,51 @@ function normalizeActiveSession(
             : "standard",
           durationMinutes,
           expiresAt,
+          problemCount: requestedProblemCount as 1 | 2,
+          mockProblems,
         }
       : {}),
   };
 }
 
-function normalizeSessionHistory(value: unknown): SessionHistoryRecord[] {
+const MOCK_HISTORY_PAYLOAD_BYTE_LIMIT = 1024 * 1024;
+
+function normalizeSessionHistory(
+  value: unknown,
+  validIds: Set<ItemId>,
+): SessionHistoryRecord[] {
   if (!Array.isArray(value)) return [];
-  return value
+  const records = value
     .flatMap((raw): SessionHistoryRecord[] => {
       if (!isRecord(raw) || typeof raw.id !== "string") return [];
-      const total = Math.round(finiteNumber(raw.total, 1, 1, 20));
       const kind = raw.kind === "mock" ? "mock" : "practice";
+      const rawTotal = Math.round(
+        finiteNumber(raw.total, 1, 1, kind === "mock" ? 2 : 20),
+      );
+      const durationMinutes = Math.round(
+        finiteNumber(raw.durationMinutes, 45, 1, 180),
+      );
+      const problemCount: 1 | 2 =
+        raw.problemCount === 2 || rawTotal === 2 ? 2 : 1;
+      // Mock history has one authoritative queue size. Keeping total and
+      // problemCount aligned prevents a malformed import from claiming that a
+      // two-problem debrief belongs to a one-problem session (or vice versa).
+      const total = kind === "mock" ? problemCount : rawTotal;
       const completed = Math.round(finiteNumber(raw.completed, 0, 0, total));
+      const problems =
+        kind === "mock"
+          ? normalizeMockProblemWorkspaces(raw.problems, {
+              problemCount,
+              maxElapsedMs: durationMinutes * 60_000,
+              validItemIds: [...validIds],
+            })
+          : [];
+      const debrief =
+        kind === "mock" &&
+        problems.length === problemCount &&
+        isRecord(raw.debrief)
+          ? normalizeMockDebrief(raw.debrief)
+          : undefined;
       return [
         {
           id: raw.id,
@@ -758,9 +865,7 @@ function normalizeSessionHistory(value: unknown): SessionHistoryRecord[] {
           total,
           ...(kind === "mock"
             ? {
-                durationMinutes: Math.round(
-                  finiteNumber(raw.durationMinutes, 45, 1, 180),
-                ),
+                durationMinutes,
                 outcome: (["completed", "ended", "expired"] as const).includes(
                   raw.outcome as "completed" | "ended" | "expired",
                 )
@@ -768,12 +873,58 @@ function normalizeSessionHistory(value: unknown): SessionHistoryRecord[] {
                   : completed === total
                     ? "completed"
                     : "ended",
+                mockPreset: (
+                  ["screen", "standard", "stretch"] as const
+                ).includes(raw.mockPreset as "screen" | "standard" | "stretch")
+                  ? (raw.mockPreset as "screen" | "standard" | "stretch")
+                  : "standard",
+                problemCount,
+                problems,
+                ...(debrief ? { debrief } : {}),
               }
             : {}),
         },
       ];
     })
     .slice(-25);
+  const encoder = new TextEncoder();
+  const payloadBytes = () =>
+    records.reduce(
+      (total, record) =>
+        total +
+        (record.kind === "mock"
+          ? encoder.encode(
+              JSON.stringify({
+                problems: record.problems ?? [],
+                debrief: record.debrief,
+              }),
+            ).byteLength
+          : 0),
+      0,
+    );
+  let bytes = payloadBytes();
+  for (
+    let recordIndex = 0;
+    bytes > MOCK_HISTORY_PAYLOAD_BYTE_LIMIT && recordIndex < records.length;
+    recordIndex += 1
+  ) {
+    const record = records[recordIndex];
+    if (record.kind !== "mock" || !record.problems?.length) continue;
+    for (
+      let problemIndex = 0;
+      bytes > MOCK_HISTORY_PAYLOAD_BYTE_LIMIT &&
+      problemIndex < record.problems.length;
+      problemIndex += 1
+    ) {
+      if (!record.problems[problemIndex].source) continue;
+      record.problems[problemIndex] = {
+        ...record.problems[problemIndex],
+        source: "",
+      };
+      bytes = payloadBytes();
+    }
+  }
+  return records;
 }
 
 function normalizeCloudPreferences(value: unknown): CloudPreferences {
@@ -1185,6 +1336,8 @@ export function normalizeState(value: unknown): AppState {
   });
   const activeSession = normalizeActiveSession(
     value.activeSession,
+    Number(value.version),
+    draft,
     activeIds,
     revisions,
     tracks,
@@ -1193,6 +1346,11 @@ export function normalizeState(value: unknown): AppState {
     supportsConcept,
   );
   const activeEntry = activeSession?.entries[activeSession.currentIndex];
+  const rejectedMockSession = Boolean(
+    isRecord(value.activeSession) &&
+      value.activeSession.kind === "mock" &&
+      !activeSession,
+  );
   const draftMatchesSession = Boolean(
     draft?.sessionId &&
     activeSession &&
@@ -1203,11 +1361,11 @@ export function normalizeState(value: unknown): AppState {
     draft.itemRevision === activeEntry.itemRevision &&
     draft.practiceKind === (activeEntry.practiceKind ?? "typing"),
   );
-  const normalizedDraft = draft
+  const normalizedDraft = draft && !rejectedMockSession
     ? { ...draft, sessionId: draftMatchesSession ? draft.sessionId : undefined }
     : null;
   return {
-    version: 15,
+    version: 16,
     attempts,
     submissionHistory: normalizeSubmissionHistory(
       value.submissionHistory,
@@ -1232,7 +1390,7 @@ export function normalizeState(value: unknown): AppState {
       finiteNumber(value.lastStage, draft?.stage ?? 1, 1, 5),
     ),
     activeSession,
-    sessionHistory: normalizeSessionHistory(value.sessionHistory),
+    sessionHistory: normalizeSessionHistory(value.sessionHistory, validIds),
     cloud: normalizeCloudPreferences(value.cloud),
   };
 }

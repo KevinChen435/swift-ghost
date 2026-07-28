@@ -13,6 +13,7 @@ import {
 
 export type SolveWorkbenchProps = {
   problem: ReactNode;
+  notebook?: ReactNode;
   editor: ReactNode;
   tests: ReactNode;
   initialDesktopPercent?: number;
@@ -20,17 +21,19 @@ export type SolveWorkbenchProps = {
   onMobilePaneChange?: (pane: MobilePane) => void;
 };
 
-export type MobilePane = "problem" | "code" | "tests";
+export type MobilePane = "problem" | "notes" | "code" | "tests";
 
 const MIN_PROBLEM_PERCENT = 30;
 const MAX_PROBLEM_PERCENT = 65;
 const KEYBOARD_STEP = 2;
 
-const MOBILE_PANES: ReadonlyArray<{
+const BASE_MOBILE_PANES: ReadonlyArray<{
   id: MobilePane;
   label: string;
 }> = [
   { id: "problem", label: "Problem" },
+];
+const CODE_MOBILE_PANES: ReadonlyArray<{ id: MobilePane; label: string }> = [
   { id: "code", label: "Code" },
   { id: "tests", label: "Tests" },
 ];
@@ -48,8 +51,17 @@ function paneId(prefix: string, pane: MobilePane) {
   return `${prefix}-${pane}-pane`;
 }
 
+function desktopPromptTabId(
+  prefix: string,
+  ownerPane: "problem" | "notes",
+  targetPane: "problem" | "notes",
+) {
+  return `${prefix}-${ownerPane}-view-${targetPane}-tab`;
+}
+
 export function SolveWorkbench({
   problem,
+  notebook,
   editor,
   tests,
   initialDesktopPercent = 45,
@@ -61,7 +73,21 @@ export function SolveWorkbench({
   );
   const [internalMobilePane, setInternalMobilePane] =
     useState<MobilePane>("problem");
-  const mobilePane = controlledMobilePane ?? internalMobilePane;
+  const requestedMobilePane = controlledMobilePane ?? internalMobilePane;
+  const mobilePane =
+    requestedMobilePane === "notes" && !notebook
+      ? "problem"
+      : requestedMobilePane;
+  const mobilePanes = notebook
+    ? [
+        ...BASE_MOBILE_PANES,
+        { id: "notes" as const, label: "Notes" },
+        ...CODE_MOBILE_PANES,
+      ]
+    : [...BASE_MOBILE_PANES, ...CODE_MOBILE_PANES];
+  const [desktopPromptPane, setDesktopPromptPane] = useState<
+    "problem" | "notes"
+  >("problem");
   const idPrefix = `solve-workbench-${useId().replace(/:/g, "")}`;
   const layoutRef = useRef<HTMLDivElement>(null);
   const activePointerId = useRef<number | null>(null);
@@ -72,6 +98,15 @@ export function SolveWorkbench({
   function selectMobilePane(pane: MobilePane) {
     if (controlledMobilePane === undefined) setInternalMobilePane(pane);
     onMobilePaneChange?.(pane);
+  }
+
+  function selectDesktopPromptPane(pane: "problem" | "notes") {
+    setDesktopPromptPane(pane);
+    requestAnimationFrame(() => {
+      document
+        .getElementById(desktopPromptTabId(idPrefix, pane, pane))
+        ?.focus();
+    });
   }
 
   const layoutStyle = {
@@ -88,7 +123,7 @@ export function SolveWorkbench({
   );
 
   useEffect(() => {
-    const query = window.matchMedia("(max-width: 720px)");
+    const query = window.matchMedia("(max-width: 1100px)");
     const updateLayout = () => setIsMobileLayout(query.matches);
     updateLayout();
     query.addEventListener("change", updateLayout);
@@ -202,25 +237,43 @@ export function SolveWorkbench({
     event: KeyboardEvent<HTMLButtonElement>,
     currentPane: MobilePane,
   ) {
-    const currentIndex = MOBILE_PANES.findIndex(
+    const currentIndex = mobilePanes.findIndex(
       (candidate) => candidate.id === currentPane,
     );
     const nextIndex =
       event.key === "Home"
         ? 0
         : event.key === "End"
-          ? MOBILE_PANES.length - 1
+          ? mobilePanes.length - 1
           : event.key === "ArrowRight"
-            ? (currentIndex + 1) % MOBILE_PANES.length
+            ? (currentIndex + 1) % mobilePanes.length
             : event.key === "ArrowLeft"
-              ? (currentIndex - 1 + MOBILE_PANES.length) %
-                MOBILE_PANES.length
+              ? (currentIndex - 1 + mobilePanes.length) % mobilePanes.length
               : -1;
     if (nextIndex < 0) return;
     event.preventDefault();
-    const nextPane = MOBILE_PANES[nextIndex].id;
+    const nextPane = mobilePanes[nextIndex].id;
     selectMobilePane(nextPane);
     document.getElementById(tabId(idPrefix, nextPane))?.focus();
+  }
+
+  function selectAdjacentDesktopPromptPane(
+    event: KeyboardEvent<HTMLButtonElement>,
+    currentPane: "problem" | "notes",
+  ) {
+    const nextPane =
+      event.key === "Home"
+        ? "problem"
+        : event.key === "End"
+          ? "notes"
+          : event.key === "ArrowLeft" || event.key === "ArrowRight"
+            ? currentPane === "problem"
+              ? "notes"
+              : "problem"
+          : null;
+    if (!nextPane) return;
+    event.preventDefault();
+    selectDesktopPromptPane(nextPane);
   }
 
   function paneClassName(pane: MobilePane) {
@@ -243,7 +296,7 @@ export function SolveWorkbench({
         aria-label="Workspace panels"
         aria-orientation="horizontal"
       >
-        {MOBILE_PANES.map(({ id, label }) => (
+        {mobilePanes.map(({ id, label }) => (
           <button
             key={id}
             id={tabId(idPrefix, id)}
@@ -272,13 +325,119 @@ export function SolveWorkbench({
           id={paneId(idPrefix, "problem")}
           className={paneClassName("problem")}
           role="tabpanel"
-          aria-labelledby={tabId(idPrefix, "problem")}
+          aria-labelledby={
+            isMobileLayout
+              ? tabId(idPrefix, "problem")
+              : notebook
+                ? desktopPromptTabId(idPrefix, "problem", "problem")
+                : tabId(idPrefix, "problem")
+          }
           tabIndex={0}
           data-mobile-active={mobilePane === "problem"}
-          hidden={isMobileLayout && mobilePane !== "problem"}
+          hidden={
+            isMobileLayout
+              ? mobilePane !== "problem"
+              : Boolean(notebook && desktopPromptPane !== "problem")
+          }
         >
-          {problem}
+          {notebook && (
+            <div
+              className="solve-workbench-prompt-tabs"
+              role="tablist"
+              aria-label="Interview workspace notes"
+            >
+              <button
+                id={desktopPromptTabId(idPrefix, "problem", "problem")}
+                type="button"
+                role="tab"
+                aria-controls={paneId(idPrefix, "problem")}
+                aria-selected={desktopPromptPane === "problem"}
+                tabIndex={desktopPromptPane === "problem" ? 0 : -1}
+                className={desktopPromptPane === "problem" ? "is-active" : ""}
+                onClick={() => selectDesktopPromptPane("problem")}
+                onKeyDown={(event) =>
+                  selectAdjacentDesktopPromptPane(event, "problem")
+                }
+              >
+                Prompt
+              </button>
+              <button
+                id={desktopPromptTabId(idPrefix, "problem", "notes")}
+                type="button"
+                role="tab"
+                aria-controls={paneId(idPrefix, "notes")}
+                aria-selected={desktopPromptPane === "notes"}
+                tabIndex={desktopPromptPane === "notes" ? 0 : -1}
+                className={desktopPromptPane === "notes" ? "is-active" : ""}
+                onClick={() => selectDesktopPromptPane("notes")}
+                onKeyDown={(event) =>
+                  selectAdjacentDesktopPromptPane(event, "notes")
+                }
+              >
+                Notebook
+              </button>
+            </div>
+          )}
+          <div className="solve-workbench-prompt-panel">{problem}</div>
         </section>
+
+        {notebook && (
+          <section
+            id={paneId(idPrefix, "notes")}
+            className={paneClassName("notes")}
+            role="tabpanel"
+            aria-labelledby={
+              isMobileLayout
+                ? tabId(idPrefix, "notes")
+                : desktopPromptTabId(idPrefix, "notes", "notes")
+            }
+            tabIndex={0}
+            data-mobile-active={mobilePane === "notes"}
+            hidden={
+              isMobileLayout
+                ? mobilePane !== "notes"
+                : desktopPromptPane !== "notes"
+            }
+          >
+            <div
+              className="solve-workbench-prompt-tabs"
+              role="tablist"
+              aria-label="Interview workspace notes"
+            >
+              <button
+                id={desktopPromptTabId(idPrefix, "notes", "problem")}
+                type="button"
+                role="tab"
+                aria-controls={paneId(idPrefix, "problem")}
+                aria-selected={desktopPromptPane === "problem"}
+                tabIndex={desktopPromptPane === "problem" ? 0 : -1}
+                className={desktopPromptPane === "problem" ? "is-active" : ""}
+                onClick={() => selectDesktopPromptPane("problem")}
+                onKeyDown={(event) =>
+                  selectAdjacentDesktopPromptPane(event, "problem")
+                }
+              >
+                Prompt
+              </button>
+              <button
+                id={desktopPromptTabId(idPrefix, "notes", "notes")}
+                type="button"
+                role="tab"
+                aria-controls={paneId(idPrefix, "notes")}
+                aria-selected={desktopPromptPane === "notes"}
+                tabIndex={desktopPromptPane === "notes" ? 0 : -1}
+                className={desktopPromptPane === "notes" ? "is-active" : ""}
+                onClick={() => selectDesktopPromptPane("notes")}
+                onKeyDown={(event) =>
+                  selectAdjacentDesktopPromptPane(event, "notes")
+                }
+              >
+                Notebook
+              </button>
+            </div>
+            <div className="solve-workbench-notebook-panel">{notebook}</div>
+          </section>
+        )}
 
         <div
           className="solve-workbench-separator"

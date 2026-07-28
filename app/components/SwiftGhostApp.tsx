@@ -26,6 +26,8 @@ import { DailyCoach } from "./DailyCoach";
 import { ReadinessAnalytics } from "./ReadinessAnalytics";
 import { ChallengeStatement } from "./ChallengeStatement";
 import { SolveWorkbench, type MobilePane } from "./SolveWorkbench";
+import { MockNotebook } from "./MockNotebook";
+import { MockDebriefDialog } from "./MockDebriefDialog";
 import { PracticeEditor } from "./PracticeEditor";
 import { ChallengeConsole } from "./ChallengeConsole";
 import {
@@ -37,6 +39,7 @@ import {
   type DebriefInput,
 } from "./PostAttemptDebrief";
 import {
+  PYTHON_RUNNER_LIMITS,
   createPythonRunner,
   type PythonRunner,
   type PythonVerificationResult,
@@ -117,6 +120,7 @@ import {
   type PracticeKind,
   type Settings,
   type SubmissionRecord,
+  type SessionHistoryRecord,
   type Theme,
   type TrainingSession,
   type View,
@@ -148,14 +152,28 @@ import {
   supportsConceptPractice,
 } from "../lib/concept-practice.mjs";
 import {
+  MOCK_INTERVIEW_PROBLEM_COUNTS,
   MOCK_INTERVIEW_PRESETS,
   formatMockClock,
   mockInterviewEndsAt,
   mockInterviewRemainingMs,
   mockInterviewPreset,
-  selectMockInterviewItem,
+  selectMockInterviewItems,
+  type MockInterviewProblemCount,
   type MockInterviewPresetId,
 } from "../lib/mock-interview.mjs";
+import {
+  MOCK_NOTEBOOK_FIELDS,
+  createMockDebrief,
+  createMockProblemWorkspace,
+  normalizeMockProblemWorkspace,
+  recordMockCheckpoint,
+  updateMockDebrief,
+  updateMockNotebook,
+  type MockCheckpointKind,
+  type MockDebrief,
+  type MockNotebook as MockNotebookValue,
+} from "../lib/mock-session.mjs";
 import {
   challengeVerificationForPurpose,
   classifySubmissionResult,
@@ -327,21 +345,81 @@ function sessionHistoryRecord(
   session: TrainingSession,
   entries: SessionQueueEntry[],
   outcome: "completed" | "ended" | "expired",
-) {
+  completedAt = new Date().toISOString(),
+): SessionHistoryRecord {
   return {
     id: session.id,
     name: session.name,
     kind: session.kind,
     startedAt: session.createdAt,
-    completedAt: new Date().toISOString(),
+    completedAt,
     completed: entries.filter((entry) => entry.status === "completed").length,
     total: entries.length,
     ...(session.kind === "mock"
       ? {
           durationMinutes: session.durationMinutes,
           outcome,
+          mockPreset: session.mockPreset,
+          problemCount: session.problemCount,
+          problems: session.mockProblems ?? [],
         }
       : {}),
+  };
+}
+
+function mockElapsedMs(session: TrainingSession, at = Date.now()) {
+  const startedAt = Date.parse(session.createdAt);
+  const limit = Math.max(1, session.durationMinutes ?? 45) * 60_000;
+  if (!Number.isFinite(startedAt)) return 0;
+  return Math.max(0, Math.min(limit, Math.round(at - startedAt)));
+}
+
+function withMockDraftSnapshot(
+  session: TrainingSession,
+  draft: Draft | null,
+): TrainingSession {
+  if (
+    session.kind !== "mock" ||
+    !draft ||
+    draft.sessionId !== session.id ||
+    !session.mockProblems
+  )
+    return session;
+  const maxElapsedMs = Math.max(1, session.durationMinutes ?? 45) * 60_000;
+  return {
+    ...session,
+    mockProblems: session.mockProblems.map((workspace) =>
+      workspace.itemId === draft.itemId &&
+      workspace.itemRevision === draft.itemRevision
+        ? normalizeMockProblemWorkspace(
+            { ...workspace, source: draft.value },
+            { maxElapsedMs },
+          )
+        : workspace,
+    ),
+  };
+}
+
+function withMockCheckpoint(
+  session: TrainingSession,
+  itemId: ItemId,
+  kind: MockCheckpointKind,
+  at = Date.now(),
+): TrainingSession {
+  if (session.kind !== "mock" || !session.mockProblems) return session;
+  const maxElapsedMs = Math.max(1, session.durationMinutes ?? 45) * 60_000;
+  return {
+    ...session,
+    mockProblems: session.mockProblems.map((workspace) =>
+      workspace.itemId === itemId
+        ? recordMockCheckpoint(
+            workspace,
+            kind,
+            mockElapsedMs(session, at),
+            maxElapsedMs,
+          )
+        : workspace,
+    ),
   };
 }
 
@@ -415,6 +493,9 @@ export default function SwiftGhostApp() {
   const [stage, setStage] = useState(1);
   const [reveal, setReveal] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
+  const [mockReviewSessionId, setMockReviewSessionId] = useState<string | null>(
+    null,
+  );
   const [now, setNow] = useState(0);
   const [toast, setToast] = useState("");
   const [focusMode, setFocusMode] = useState(false);
@@ -796,15 +877,23 @@ export default function SwiftGhostApp() {
 
   function recordAbandon(current: AppState) {
     const active = current.draft;
-    if (!active?.startedAt || active.value.length < 5) return current;
-    const activeItem = [...BUILTIN_ITEMS, ...current.customItems].find(
+    const synchronized =
+      current.activeSession?.kind === "mock" &&
+      active?.sessionId === current.activeSession.id
+        ? {
+            ...current,
+            activeSession: withMockDraftSnapshot(current.activeSession, active),
+          }
+        : current;
+    if (!active?.startedAt || active.value.length < 5) return synchronized;
+    const activeItem = [...BUILTIN_ITEMS, ...synchronized.customItems].find(
       (candidate) => candidate.itemId === active.itemId,
     );
-    if (!activeItem) return { ...current, draft: null };
-    const attempt = createAttempt(active, activeItem, "abandoned", current);
+    if (!activeItem) return { ...synchronized, draft: null };
+    const attempt = createAttempt(active, activeItem, "abandoned", synchronized);
     return {
-      ...current,
-      attempts: [...current.attempts, attempt].slice(-1000),
+      ...synchronized,
+      attempts: [...synchronized.attempts, attempt].slice(-1000),
       draft: null,
     };
   }
@@ -832,6 +921,14 @@ export default function SwiftGhostApp() {
         current.draft.itemRevision === next.contentRevision &&
         current.draft.sessionId === sessionId;
       const base = resuming ? current : recordAbandon(current);
+      const mockWorkspaceSource =
+        sessionId &&
+        base.activeSession?.kind === "mock" &&
+        base.activeSession.id === sessionId
+          ? base.activeSession.mockProblems?.find(
+              (workspace) => workspace.itemId === next.itemId,
+            )?.source
+          : undefined;
       return {
         ...base,
         draft: resuming
@@ -845,7 +942,7 @@ export default function SwiftGhostApp() {
                 sessionId,
                 chosenPracticeKind,
                 chosenPracticeKind === "solving"
-                  ? (next.starterCode ?? "")
+                  ? (mockWorkspaceSource ?? next.starterCode ?? "")
                   : "",
               )
             : null,
@@ -997,12 +1094,115 @@ export default function SwiftGhostApp() {
         timeline = normalizeTimelineSamples([...timeline, sample]);
       }
     }
-    mutateState((current) => ({
-      ...current,
-      draft: { ...next, timeline },
-      lastItemId: selectedId,
-      lastStage: stage,
-    }));
+    mutateState((current) => {
+      const nextDraft = { ...next, timeline };
+      let activeSession = current.activeSession;
+      if (
+        activeSession?.kind === "mock" &&
+        nextDraft.sessionId === activeSession.id
+      ) {
+        activeSession = withMockDraftSnapshot(activeSession, nextDraft);
+        if (nextDraft.value !== (item.starterCode ?? "")) {
+          activeSession = withMockCheckpoint(
+            activeSession,
+            nextDraft.itemId,
+            "codingStarted",
+          );
+        }
+      }
+      return {
+        ...current,
+        activeSession,
+        draft: nextDraft,
+        lastItemId: selectedId,
+        lastStage: stage,
+      };
+    });
+  }
+
+  function updateActiveMockNotebook(nextNotebook: MockNotebookValue) {
+    const liveSession = stateRef.current.activeSession;
+    const liveDraft = stateRef.current.draft;
+    const liveWorkspace =
+      liveSession?.kind === "mock" &&
+      liveDraft?.sessionId === liveSession.id
+        ? liveSession.mockProblems?.find(
+            (workspace) => workspace.itemId === liveDraft.itemId,
+          )
+        : undefined;
+    if (!liveSession || !liveDraft || !liveWorkspace) return;
+    const changedField = MOCK_NOTEBOOK_FIELDS.find(
+      (field) => nextNotebook[field] !== liveWorkspace.notebook[field],
+    );
+    if (!changedField) return;
+    let validatedNotebook: MockNotebookValue;
+    try {
+      validatedNotebook = updateMockNotebook(
+        liveWorkspace.notebook,
+        changedField,
+        nextNotebook[changedField],
+      );
+    } catch {
+      setToast("Notebook limit reached · shorten this section to keep writing");
+      return;
+    }
+    mutateState((current) => {
+      const session = current.activeSession;
+      const activeDraft = current.draft;
+      if (
+        session?.kind !== "mock" ||
+        !activeDraft ||
+        activeDraft.sessionId !== session.id ||
+        !session.mockProblems
+      )
+        return current;
+      const maxElapsedMs = Math.max(1, session.durationMinutes ?? 45) * 60_000;
+      const mockProblems = session.mockProblems.map((workspace) => {
+        if (workspace.itemId !== activeDraft.itemId) return workspace;
+        let updated = normalizeMockProblemWorkspace(
+          {
+            ...workspace,
+            notebook: validatedNotebook,
+            source: activeDraft.value,
+          },
+          { maxElapsedMs },
+        );
+        if (
+          !workspace.notebook.finalExplanation.trim() &&
+          updated.notebook.finalExplanation.trim()
+        ) {
+          updated = recordMockCheckpoint(
+            updated,
+            "explanationReady",
+            mockElapsedMs(session),
+            maxElapsedMs,
+          );
+        }
+        return updated;
+      });
+      return { ...current, activeSession: { ...session, mockProblems } };
+    });
+  }
+
+  function recordActiveMockCheckpoint(kind: MockCheckpointKind) {
+    mutateState((current) => {
+      const session = current.activeSession;
+      const activeDraft = current.draft;
+      if (
+        session?.kind !== "mock" ||
+        !activeDraft ||
+        activeDraft.sessionId !== session.id
+      )
+        return current;
+      return {
+        ...current,
+        activeSession: withMockCheckpoint(
+          withMockDraftSnapshot(session, activeDraft),
+          activeDraft.itemId,
+          kind,
+        ),
+      };
+    });
   }
 
   function updateCustomCaseInput(customCaseInput: string) {
@@ -1107,20 +1307,32 @@ export default function SwiftGhostApp() {
     let sessionComplete = false;
     const session = state.activeSession;
     if (session && next.sessionId === session.id) {
-      const entries = session.entries.map((entry, index) =>
-        index === session.currentIndex
+      const completedSession =
+        session.kind === "mock"
+          ? withMockCheckpoint(
+              withMockDraftSnapshot(session, next),
+              next.itemId,
+              "codeCompleted",
+            )
+          : session;
+      const entries = completedSession.entries.map((entry, index) =>
+        index === completedSession.currentIndex
           ? { ...entry, status: "completed" as const, attemptId: attempt.id }
           : entry,
       );
       const nextIndex = entries.findIndex(
         (entry, index) =>
-          index > session.currentIndex && entry.status === "pending",
+          index > completedSession.currentIndex && entry.status === "pending",
       );
       if (nextIndex >= 0) {
         const nextEntry = entries[nextIndex];
         projected = {
           ...projected,
-          activeSession: { ...session, entries, currentIndex: nextIndex },
+          activeSession: {
+            ...completedSession,
+            entries,
+            currentIndex: nextIndex,
+          },
         };
         sessionNext = {
           itemId: nextEntry.itemId,
@@ -1134,7 +1346,7 @@ export default function SwiftGhostApp() {
           activeSession: null,
           sessionHistory: [
             ...projected.sessionHistory,
-            sessionHistoryRecord(session, entries, "completed"),
+            sessionHistoryRecord(completedSession, entries, "completed"),
           ].slice(-25),
         };
       }
@@ -1155,21 +1367,29 @@ export default function SwiftGhostApp() {
       };
       const liveSession = current.activeSession;
       if (liveSession && next.sessionId === liveSession.id) {
-        const entries = liveSession.entries.map((entry, index) =>
-          index === liveSession.currentIndex
+        const completedSession =
+          liveSession.kind === "mock"
+            ? withMockCheckpoint(
+                withMockDraftSnapshot(liveSession, next),
+                next.itemId,
+                "codeCompleted",
+              )
+            : liveSession;
+        const entries = completedSession.entries.map((entry, index) =>
+          index === completedSession.currentIndex
             ? { ...entry, status: "completed" as const, attemptId: attempt.id }
             : entry,
         );
         const nextIndex = entries.findIndex(
           (entry, index) =>
-            index > liveSession.currentIndex && entry.status === "pending",
+            index > completedSession.currentIndex && entry.status === "pending",
         );
         committed =
           nextIndex >= 0
             ? {
                 ...committed,
                 activeSession: {
-                  ...liveSession,
+                  ...completedSession,
                   entries,
                   currentIndex: nextIndex,
                 },
@@ -1179,12 +1399,39 @@ export default function SwiftGhostApp() {
                 activeSession: null,
                 sessionHistory: [
                   ...committed.sessionHistory,
-                  sessionHistoryRecord(liveSession, entries, "completed"),
+                  sessionHistoryRecord(completedSession, entries, "completed"),
                 ].slice(-25),
               };
       }
       return committed;
     });
+    if (session?.kind === "mock") {
+      setResult(null);
+      if (sessionNext) {
+        const nextItem = allItems.find(
+          (candidate) => candidate.itemId === sessionNext?.itemId,
+        );
+        if (nextItem) {
+          window.setTimeout(
+            () =>
+              openItem(
+                nextItem,
+                sessionNext?.stage,
+                undefined,
+                session.id,
+                sessionNext?.practiceKind,
+              ),
+            0,
+          );
+          setToast("Problem saved · continuing the same interview clock");
+          return;
+        }
+      }
+      setMockReviewSessionId(session.id);
+      navigateView("sessions");
+      setToast("Mock complete · your debrief is ready");
+      return;
+    }
     setResult({
       ...attempt,
       item,
@@ -1192,7 +1439,6 @@ export default function SwiftGhostApp() {
       nextReview: reviewDueAt(projected, selectedId),
       sessionNext,
       sessionComplete,
-      mockInterview: session?.kind === "mock",
     });
   }
 
@@ -1281,6 +1527,14 @@ export default function SwiftGhostApp() {
   }
 
   function handleValueChange(proposed: string) {
+    if (
+      draft.practiceKind === "solving" &&
+      new TextEncoder().encode(proposed).byteLength >
+        PYTHON_RUNNER_LIMITS.maxSourceBytes
+    ) {
+      setToast("Editor limit reached · keep the solution under 48 KB");
+      return;
+    }
     const edit = analyzeEdit(draft.value, proposed, item.code);
     const startedAt = draft.startedAt ?? Date.now();
     if (draft.practiceKind === "solving") {
@@ -1603,7 +1857,10 @@ export default function SwiftGhostApp() {
     setToast(`${entries.length}-item session started`);
   }
 
-  function startMockInterview(presetId: MockInterviewPresetId) {
+  function startMockInterview(
+    presetId: MockInterviewPresetId,
+    problemCount: MockInterviewProblemCount,
+  ) {
     if (
       state.activeSession &&
       !window.confirm(
@@ -1612,13 +1869,16 @@ export default function SwiftGhostApp() {
     )
       return;
     const preset = mockInterviewPreset(presetId);
-    const candidate = selectMockInterviewItem(
+    const candidates = selectMockInterviewItems(
       allItems,
       state.attempts,
       preset.id,
+      problemCount,
     );
-    if (!candidate) {
-      setToast("No verified Python problem matches this mock preset");
+    if (candidates.length !== problemCount) {
+      setToast(
+        `Could not find ${problemCount} distinct verified Python problem${problemCount === 1 ? "" : "s"} for this preset`,
+      );
       return;
     }
     const startedAt = new Date().toISOString();
@@ -1627,15 +1887,28 @@ export default function SwiftGhostApp() {
       setToast("The mock timer could not start");
       return;
     }
-    const entry: SessionQueueEntry = {
+    const entries: SessionQueueEntry[] = candidates.map((candidate) => ({
       itemId: candidate.itemId,
       itemRevision: candidate.contentRevision,
       stage: 5,
       status: "pending",
       practiceKind: "solving",
-      estimatedMinutes: preset.durationMinutes,
+      estimatedMinutes: Math.max(
+        1,
+        Math.round(preset.durationMinutes / problemCount),
+      ),
       rationale: "Cold verified solve · guidance stays hidden until the mock ends.",
-    };
+    }));
+    const mockProblems = candidates.map((candidate) =>
+      createMockProblemWorkspace(
+        {
+          itemId: candidate.itemId,
+          itemRevision: candidate.contentRevision,
+          source: candidate.starterCode ?? "",
+        },
+        { maxElapsedMs: preset.durationMinutes * 60_000 },
+      ),
+    );
     const session: TrainingSession = {
       id: makeId(),
       name: preset.label,
@@ -1645,11 +1918,13 @@ export default function SwiftGhostApp() {
       language: "python",
       stageMode: "recall",
       createdAt: startedAt,
-      entries: [entry],
+      entries,
       currentIndex: 0,
       mockPreset: preset.id,
+      problemCount,
       durationMinutes: preset.durationMinutes,
       expiresAt,
+      mockProblems,
     };
     mutateState((current) => {
       const base = recordAbandon(current);
@@ -1666,8 +1941,10 @@ export default function SwiftGhostApp() {
         draft: null,
       };
     });
-    openItem(candidate, 5, undefined, session.id, "solving");
-    setToast(`${preset.durationMinutes}-minute mock started · guidance locked`);
+    openItem(candidates[0], 5, undefined, session.id, "solving");
+    setToast(
+      `${preset.durationMinutes}-minute mock started · ${problemCount} problem${problemCount === 1 ? "" : "s"} · guidance locked`,
+    );
   }
 
   function expireMockInterview(sessionId: string) {
@@ -1681,17 +1958,22 @@ export default function SwiftGhostApp() {
         current.draft?.sessionId === sessionId
           ? recordAbandon(current)
           : current;
+      const archived =
+        base.activeSession?.id === sessionId && base.activeSession.kind === "mock"
+          ? base.activeSession
+          : active;
       return {
         ...base,
         draft: null,
         activeSession: null,
         sessionHistory: [
           ...base.sessionHistory,
-          sessionHistoryRecord(active, active.entries, "expired"),
+          sessionHistoryRecord(archived, archived.entries, "expired"),
         ].slice(-25),
       };
     });
     setResult(null);
+    setMockReviewSessionId(sessionId);
     setFocusMode(false);
     navigateView("sessions");
     setToast("Time is up · the mock workspace is now locked");
@@ -1717,6 +1999,10 @@ export default function SwiftGhostApp() {
   function skipSessionEntry() {
     const session = state.activeSession;
     if (!session) return;
+    if (session.kind === "mock") {
+      setToast("Mock problems cannot be skipped during an active interview");
+      return;
+    }
     const entries = session.entries.map((entry, index) =>
       index === session.currentIndex
         ? { ...entry, status: "skipped" as const }
@@ -1777,16 +2063,19 @@ export default function SwiftGhostApp() {
         current.draft?.sessionId === session.id
           ? recordAbandon(current)
           : current;
+      const archived =
+        base.activeSession?.id === session.id ? base.activeSession : session;
       return {
         ...base,
         activeSession: null,
         sessionHistory: [
           ...base.sessionHistory,
-          sessionHistoryRecord(session, session.entries, "ended"),
+          sessionHistoryRecord(archived, archived.entries, "ended"),
         ].slice(-25),
       };
     });
     setResult(null);
+    if (session.kind === "mock") setMockReviewSessionId(session.id);
     navigateView("sessions");
     setFocusMode(false);
     setToast(session.kind === "mock" ? "Mock ended · review saved" : "Session ended");
@@ -1952,6 +2241,7 @@ export default function SwiftGhostApp() {
     const file = event.target.files?.[0];
     if (!file) return;
     try {
+      if (file.size > 5 * 1024 * 1024) throw new Error("backup too large");
       const parsed = JSON.parse(await file.text()) as unknown;
       const restored = normalizeState(parsed);
       if (
@@ -2081,6 +2371,58 @@ export default function SwiftGhostApp() {
     });
     setToast("Debrief saved for your next plan");
   }
+
+  function updateMockHistoryDebrief(
+    sessionId: string,
+    debrief: MockDebrief,
+  ) {
+    let boundedDebrief: MockDebrief;
+    try {
+      boundedDebrief = createMockDebrief(debrief);
+    } catch {
+      setToast("Debrief limit reached · shorten this response to keep writing");
+      return;
+    }
+    mutateState((current) => ({
+      ...current,
+      sessionHistory: current.sessionHistory.map((session) =>
+        session.id === sessionId && session.kind === "mock"
+          ? { ...session, debrief: boundedDebrief }
+          : session,
+      ),
+    }));
+  }
+
+  function finishMockHistoryDebrief(
+    sessionId: string,
+    debrief: MockDebrief,
+  ) {
+    const completed = updateMockDebrief(debrief, {
+      completedAt: new Date().toISOString(),
+    });
+    updateMockHistoryDebrief(sessionId, completed);
+    setMockReviewSessionId(null);
+    setToast("Mock debrief saved locally");
+  }
+
+  const mockReviewRecord = mockReviewSessionId
+    ? state.sessionHistory.find(
+        (session) =>
+          session.id === mockReviewSessionId && session.kind === "mock",
+      )
+    : undefined;
+  const mockReviewProblems = (mockReviewRecord?.problems ?? []).map(
+    (workspace, index) => ({
+      title: `Problem ${index + 1}: ${
+        allItems.find((candidate) => candidate.itemId === workspace.itemId)
+          ?.title ?? workspace.itemId
+      }`,
+      notebook: workspace.notebook,
+      checkpoints: workspace.checkpoints,
+      source: workspace.source,
+    }),
+  );
+  const firstMockReviewProblem = mockReviewProblems[0];
 
   return (
     <div className={`app-shell ${focusMode ? "is-focus" : ""}`}>
@@ -2236,6 +2578,8 @@ export default function SwiftGhostApp() {
           onCustomCaseChange={updateCustomCaseInput}
           onCustomTestcasesChange={updateCustomTestcases}
           onUseHint={() => updateDraft({ ...draft, peeks: draft.peeks + 1 })}
+          onMockNotebookChange={updateActiveMockNotebook}
+          onMockCheckpoint={recordActiveMockCheckpoint}
           onSolveComplete={finishSolve}
           onConceptChange={updateConceptResponse}
           onConceptReveal={revealConceptAnswer}
@@ -2261,6 +2605,7 @@ export default function SwiftGhostApp() {
           onResume={resumeSession}
           onSkip={skipSessionEntry}
           onEnd={endSession}
+          onOpenMockDebrief={setMockReviewSessionId}
         />
       )}
       {view === "library" && (
@@ -2308,7 +2653,7 @@ export default function SwiftGhostApp() {
         accept="application/json"
         onChange={importProgress}
       />
-      {result && (
+      {result && !result.mockInterview && (
         <ResultDialog
           key={result.id}
           result={result}
@@ -2322,6 +2667,27 @@ export default function SwiftGhostApp() {
           )}
           onSaveDebrief={saveResultDebrief}
           cloud={cloud}
+        />
+      )}
+      {mockReviewRecord && firstMockReviewProblem && (
+        <MockDebriefDialog
+          key={mockReviewRecord.id}
+          outcome={mockReviewRecord.outcome ?? "ended"}
+          startedAt={mockReviewRecord.startedAt}
+          endedAt={mockReviewRecord.completedAt}
+          durationMinutes={mockReviewRecord.durationMinutes ?? 45}
+          notebook={firstMockReviewProblem.notebook}
+          checkpoints={firstMockReviewProblem.checkpoints}
+          problems={mockReviewProblems}
+          value={mockReviewRecord.debrief ?? createMockDebrief()}
+          title={`${mockReviewRecord.name} debrief`}
+          onChange={(next) =>
+            updateMockHistoryDebrief(mockReviewRecord.id, next)
+          }
+          onSave={(next) =>
+            finishMockHistoryDebrief(mockReviewRecord.id, next)
+          }
+          onClose={() => setMockReviewSessionId(null)}
         />
       )}
       {customEditor && (
@@ -2640,6 +3006,8 @@ type PracticeProps = {
   onCustomCaseChange: (value: string) => void;
   onCustomTestcasesChange: (collection: CustomTestcaseCollection) => void;
   onUseHint: () => void;
+  onMockNotebookChange: (notebook: MockNotebookValue) => void;
+  onMockCheckpoint: (kind: MockCheckpointKind) => void;
   onSolveComplete: (
     source: string,
     result: PythonVerificationResult,
@@ -2690,6 +3058,7 @@ function PracticeView(props: PracticeProps) {
   const pythonRunner = useRef<PythonRunner | null>(null);
   const verificationRunId = useRef(0);
   const customExecutionRunId = useRef(0);
+  const runnerGeneration = useRef(0);
   const inspectedSubmissionIds = useRef(new Set<string>());
   const runnerBusy = useRef(false);
   const disposed = useRef(false);
@@ -2712,6 +3081,11 @@ function PracticeView(props: PracticeProps) {
   const mockRemainingMs = isMock
     ? (mockInterviewRemainingMs(props.activeSession, props.now) ?? 0)
     : null;
+  const mockWorkspace = isMock
+    ? props.activeSession?.mockProblems?.find(
+        (workspace) => workspace.itemId === props.item.itemId,
+      )
+    : undefined;
 
   useEffect(() => {
     disposed.current = false;
@@ -2719,6 +3093,7 @@ function PracticeView(props: PracticeProps) {
       disposed.current = true;
       verificationRunId.current += 1;
       customExecutionRunId.current += 1;
+      runnerGeneration.current += 1;
       pythonRunner.current?.dispose();
     };
   }, []);
@@ -2807,6 +3182,7 @@ function PracticeView(props: PracticeProps) {
   function cancelPythonRun() {
     verificationRunId.current += 1;
     customExecutionRunId.current += 1;
+    runnerGeneration.current += 1;
     runnerBusy.current = false;
     pythonRunner.current?.dispose();
     pythonRunner.current = null;
@@ -2819,7 +3195,9 @@ function PracticeView(props: PracticeProps) {
     purpose: "examples" | "submit" | "full" = "full",
   ) {
     if (!props.item.verification || !runnerSource.trim()) return;
+    if (isMock && mockRemainingMs === 0) return;
     if (runnerBusy.current) return;
+    if (isMock) props.onMockCheckpoint("firstTest");
     runnerBusy.current = true;
     setRunnerActive(true);
     const sourceToVerify = runnerSource;
@@ -2827,6 +3205,7 @@ function PracticeView(props: PracticeProps) {
     const submissions =
       props.draft.submissions + (purpose === "submit" ? 1 : 0);
     const runId = ++verificationRunId.current;
+    const generation = ++runnerGeneration.current;
     const submissionRequest =
       purpose === "submit" || (isMock && purpose === "full")
         ? {
@@ -2912,8 +3291,10 @@ function PracticeView(props: PracticeProps) {
             : "Python checks could not run.",
       });
     } finally {
-      runnerBusy.current = false;
-      if (!disposed.current) setRunnerActive(false);
+      if (generation === runnerGeneration.current) {
+        runnerBusy.current = false;
+        if (!disposed.current) setRunnerActive(false);
+      }
     }
   }
 
@@ -2958,6 +3339,7 @@ function PracticeView(props: PracticeProps) {
     runnerBusy.current = true;
     setRunnerActive(true);
     const runId = ++customExecutionRunId.current;
+    const generation = ++runnerGeneration.current;
     setConsoleTab("custom");
     setMobileWorkspacePane("tests");
     props.onTestRun();
@@ -2990,8 +3372,10 @@ function PracticeView(props: PracticeProps) {
           error instanceof Error ? error.message : "Custom testcase could not run",
       });
     } finally {
-      runnerBusy.current = false;
-      if (!disposed.current) setRunnerActive(false);
+      if (generation === runnerGeneration.current) {
+        runnerBusy.current = false;
+        if (!disposed.current) setRunnerActive(false);
+      }
     }
   }
 
@@ -3486,6 +3870,26 @@ function PracticeView(props: PracticeProps) {
           <SolveWorkbench
             mobilePane={mobileWorkspacePane}
             onMobilePaneChange={setMobileWorkspacePane}
+            notebook={
+              isMock && mockWorkspace ? (
+                <MockNotebook
+                  notebook={mockWorkspace.notebook}
+                  promptReady={
+                    mockWorkspace.checkpoints.promptAcknowledged !== undefined
+                  }
+                  approachReady={
+                    mockWorkspace.checkpoints.approachReady !== undefined
+                  }
+                  onAcknowledgePrompt={() =>
+                    props.onMockCheckpoint("promptAcknowledged")
+                  }
+                  onAcknowledgeApproach={() =>
+                    props.onMockCheckpoint("approachReady")
+                  }
+                  onChange={props.onMockNotebookChange}
+                />
+              ) : undefined
+            }
             problem={
               <div className="solve-workbench-problem-content">
                 <ChallengeStatement item={props.item} />
@@ -4011,6 +4415,7 @@ function SessionsView({
   onResume,
   onSkip,
   onEnd,
+  onOpenMockDebrief,
 }: {
   state: AppState;
   items: PracticeItem[];
@@ -4018,11 +4423,15 @@ function SessionsView({
     options: SessionBuildOptions,
     entries?: SessionQueueEntry[],
   ) => void;
-  onStartMock: (preset: MockInterviewPresetId) => void;
+  onStartMock: (
+    preset: MockInterviewPresetId,
+    problemCount: MockInterviewProblemCount,
+  ) => void;
   now: number;
   onResume: () => void;
   onSkip: () => void;
   onEnd: () => void;
+  onOpenMockDebrief: (sessionId: string) => void;
 }) {
   const [name, setName] = useState("Focused interview set");
   const [count, setCount] = useState(5);
@@ -4034,6 +4443,8 @@ function SessionsView({
   const [pattern, setPattern] = useState<string>("All");
   const [difficulty, setDifficulty] = useState<string>("All");
   const [stageMode, setStageMode] = useState<SessionStageMode>("recommended");
+  const [mockProblemCount, setMockProblemCount] =
+    useState<MockInterviewProblemCount>(1);
   const signals = useMemo(
     () =>
       Object.fromEntries(
@@ -4088,13 +4499,35 @@ function SessionsView({
       <section className="mock-interview-center">
         <div className="mock-interview-copy">
           <span className="eyebrow">Interview simulator</span>
-          <h2>One cold problem. A real countdown. No in-app answer reveal.</h2>
+          <h2>One or two cold problems. One clock. No in-app answer reveal.</h2>
           <p>
             Each preset chooses under-practiced verified Python work. The timer
             survives reloads, pattern guidance stays hidden, and only a clean
             executable pass counts as independent solve evidence.
           </p>
         </div>
+        <fieldset className="mock-problem-count">
+          <legend>Interview length</legend>
+          <div>
+            {MOCK_INTERVIEW_PROBLEM_COUNTS.map((option) => (
+              <label key={option}>
+                <input
+                  type="radio"
+                  name="mock-problem-count"
+                  value={option}
+                  checked={mockProblemCount === option}
+                  onChange={() => setMockProblemCount(option)}
+                />
+                <span>
+                  {option} problem{option === 1 ? "" : "s"}
+                </span>
+              </label>
+            ))}
+          </div>
+          <small>
+            Two-problem mocks keep the same absolute deadline between problems.
+          </small>
+        </fieldset>
         <div className="mock-preset-grid">
           {MOCK_INTERVIEW_PRESETS.map((preset) => (
             <article key={preset.id}>
@@ -4103,7 +4536,7 @@ function SessionsView({
               <small>{preset.note}</small>
               <button
                 className="primary-button"
-                onClick={() => onStartMock(preset.id)}
+                onClick={() => onStartMock(preset.id, mockProblemCount)}
               >
                 Start mock →
               </button>
@@ -4415,13 +4848,20 @@ function SessionsView({
                       {` · ${formatDate(session.completedAt)}`}
                     </small>
                   </span>
-                  <b>
-                    {session.kind === "mock"
-                      ? session.completed
-                        ? "Verified"
-                        : "Review"
-                      : `${session.completed}/${session.total}`}
-                  </b>
+                  {session.kind === "mock" &&
+                  session.problems?.length === session.problemCount ? (
+                    <button
+                      className="outline-button"
+                      type="button"
+                      onClick={() => onOpenMockDebrief(session.id)}
+                    >
+                      {session.debrief?.completedAt
+                        ? "Open debrief"
+                        : "Debrief mock"}
+                    </button>
+                  ) : (
+                    <b>{`${session.completed}/${session.total}`}</b>
+                  )}
                 </article>
               ))}
           </div>
@@ -5533,10 +5973,11 @@ function SettingsView({
           <small>Your data</small>
           <h2>Local profile</h2>
           <p>
-            Export a portable v15 JSON backup with Python, Swift, iOS, sessions,
+            Export a portable v16 JSON backup with Python, Swift, iOS, sessions,
             learning debriefs, revisioned snippets, local pacing and weak-line
             analytics, community preferences, structured custom testcases, and
-            local submission snapshots, or restore any v2-v15 backup.
+            local submission snapshots, mock notebooks and debriefs, or restore
+            any v2-v16 backup.
           </p>
         </div>
         <div className="data-actions">
