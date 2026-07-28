@@ -12,8 +12,9 @@ test("state v17 preserves multi-problem mock notebooks and debriefs", async () =
     "utf8",
   );
 
-  assert.match(product, /export type AppState = \{\s+version: 18;/);
-  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v18"/);
+  assert.match(product, /export type AppState = \{\s+version: 19;/);
+  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v19"/);
+  assert.match(product, /EIGHTEENTH_STORAGE_KEY = "swift-ghost-state-v18"/);
   assert.match(product, /SEVENTEENTH_STORAGE_KEY = "swift-ghost-state-v17"/);
   assert.match(product, /SIXTEENTH_STORAGE_KEY = "swift-ghost-state-v16"/);
   assert.match(product, /FIFTEENTH_STORAGE_KEY = "swift-ghost-state-v15"/);
