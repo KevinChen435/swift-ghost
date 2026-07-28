@@ -146,6 +146,7 @@ export type Draft = {
 export type TrainingSession = {
   id: string;
   name: string;
+  kind: "practice" | "mock";
   source: SessionSource;
   track: SessionTrack;
   language: SessionLanguage;
@@ -153,15 +154,21 @@ export type TrainingSession = {
   createdAt: string;
   entries: SessionQueueEntry[];
   currentIndex: number;
+  mockPreset?: "screen" | "standard" | "stretch";
+  durationMinutes?: number;
+  expiresAt?: string;
 };
 
 export type SessionHistoryRecord = {
   id: string;
   name: string;
+  kind: "practice" | "mock";
   startedAt: string;
   completedAt: string;
   completed: number;
   total: number;
+  durationMinutes?: number;
+  outcome?: "completed" | "ended" | "expired";
 };
 
 export type CloudPreferences = {
@@ -171,7 +178,7 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 11;
+  version: 12;
   attempts: AttemptRecord[];
   learningEvents: LearningEvent[];
   favorites: ItemId[];
@@ -185,15 +192,16 @@ export type AppState = {
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v11";
-export const PREVIOUS_STORAGE_KEY = "swift-ghost-state-v10";
-export const LEGACY_STORAGE_KEY = "swift-ghost-state-v9";
-export const OLDER_STORAGE_KEY = "swift-ghost-state-v8";
-export const OLDEST_STORAGE_KEY = "swift-ghost-state-v7";
-export const ORIGINAL_STORAGE_KEY = "swift-ghost-state-v6";
-export const FIRST_STORAGE_KEY = "swift-ghost-state-v5";
-export const EARLIEST_STORAGE_KEY = "swift-ghost-state-v4";
-export const INITIAL_STORAGE_KEY = "swift-ghost-state-v3";
+export const STORAGE_KEY = "swift-ghost-state-v12";
+export const PREVIOUS_STORAGE_KEY = "swift-ghost-state-v11";
+export const LEGACY_STORAGE_KEY = "swift-ghost-state-v10";
+export const OLDER_STORAGE_KEY = "swift-ghost-state-v9";
+export const OLDEST_STORAGE_KEY = "swift-ghost-state-v8";
+export const ORIGINAL_STORAGE_KEY = "swift-ghost-state-v7";
+export const FIRST_STORAGE_KEY = "swift-ghost-state-v6";
+export const EARLIEST_STORAGE_KEY = "swift-ghost-state-v5";
+export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
+export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -210,7 +218,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 11,
+  version: 12,
   attempts: [],
   learningEvents: [],
   favorites: [],
@@ -548,25 +556,54 @@ function normalizeActiveSession(
     "favorites",
     "custom",
   ];
+  const createdAt =
+    typeof value.createdAt === "string" &&
+    !Number.isNaN(Date.parse(value.createdAt))
+      ? value.createdAt
+      : new Date(0).toISOString();
+  const expiresAt =
+    typeof value.expiresAt === "string" &&
+    !Number.isNaN(Date.parse(value.expiresAt))
+      ? value.expiresAt
+      : undefined;
+  const durationMinutes = Math.round(
+    finiteNumber(value.durationMinutes, 0, 0, 180),
+  );
+  const kind =
+    value.kind === "mock" &&
+    entries.length === 1 &&
+    entries[0].practiceKind === "solving" &&
+    expiresAt &&
+    durationMinutes >= 1
+      ? "mock"
+      : "practice";
   return {
     id: value.id,
     name:
       typeof value.name === "string" && value.name.trim()
         ? value.name.trim().slice(0, 80)
         : "Practice session",
+    kind,
     source: sources.includes(value.source as SessionSource)
       ? (value.source as SessionSource)
       : "mixed",
     track: sessionTrack,
     language: sessionLanguage,
     stageMode: value.stageMode === "recall" ? "recall" : "recommended",
-    createdAt:
-      typeof value.createdAt === "string" &&
-      !Number.isNaN(Date.parse(value.createdAt))
-        ? value.createdAt
-        : new Date(0).toISOString(),
+    createdAt,
     entries,
     currentIndex,
+    ...(kind === "mock"
+      ? {
+          mockPreset: (["screen", "standard", "stretch"] as const).includes(
+            value.mockPreset as "screen" | "standard" | "stretch",
+          )
+            ? (value.mockPreset as "screen" | "standard" | "stretch")
+            : "standard",
+          durationMinutes,
+          expiresAt,
+        }
+      : {}),
   };
 }
 
@@ -576,6 +613,8 @@ function normalizeSessionHistory(value: unknown): SessionHistoryRecord[] {
     .flatMap((raw): SessionHistoryRecord[] => {
       if (!isRecord(raw) || typeof raw.id !== "string") return [];
       const total = Math.round(finiteNumber(raw.total, 1, 1, 20));
+      const kind = raw.kind === "mock" ? "mock" : "practice";
+      const completed = Math.round(finiteNumber(raw.completed, 0, 0, total));
       return [
         {
           id: raw.id,
@@ -583,6 +622,7 @@ function normalizeSessionHistory(value: unknown): SessionHistoryRecord[] {
             typeof raw.name === "string" && raw.name.trim()
               ? raw.name.trim().slice(0, 80)
               : "Practice session",
+          kind,
           startedAt:
             typeof raw.startedAt === "string" &&
             !Number.isNaN(Date.parse(raw.startedAt))
@@ -593,8 +633,22 @@ function normalizeSessionHistory(value: unknown): SessionHistoryRecord[] {
             !Number.isNaN(Date.parse(raw.completedAt))
               ? raw.completedAt
               : new Date(0).toISOString(),
-          completed: Math.round(finiteNumber(raw.completed, 0, 0, total)),
+          completed,
           total,
+          ...(kind === "mock"
+            ? {
+                durationMinutes: Math.round(
+                  finiteNumber(raw.durationMinutes, 45, 1, 180),
+                ),
+                outcome: (["completed", "ended", "expired"] as const).includes(
+                  raw.outcome as "completed" | "ended" | "expired",
+                )
+                  ? (raw.outcome as "completed" | "ended" | "expired")
+                  : completed === total
+                    ? "completed"
+                    : "ended",
+              }
+            : {}),
         },
       ];
     })
@@ -929,7 +983,7 @@ export function normalizeState(value: unknown): AppState {
     ? { ...draft, sessionId: draftMatchesSession ? draft.sessionId : undefined }
     : null;
   return {
-    version: 11,
+    version: 12,
     attempts,
     learningEvents: normalizeLearningEvents(value.learningEvents, {
       validItemIds: validIds,
@@ -965,6 +1019,7 @@ export function loadState(): AppState {
       FIRST_STORAGE_KEY,
       EARLIEST_STORAGE_KEY,
       INITIAL_STORAGE_KEY,
+      SECOND_VERSION_STORAGE_KEY,
       FIRST_VERSION_STORAGE_KEY,
     ]) {
       const stored = localStorage.getItem(key);
@@ -988,7 +1043,7 @@ function hasSupportedStateVersion(
 ): value is Record<string, unknown> {
   return (
     isRecord(value) &&
-    [2, 3, 4, 5, 6, 7, 8, 9, 10, 11].includes(Number(value.version))
+    [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(Number(value.version))
   );
 }
 

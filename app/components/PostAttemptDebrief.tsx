@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { KeyboardEvent, useState } from "react";
 import type { PracticeItem } from "../lib/items";
 import type {
   FrictionCategory,
@@ -75,8 +75,45 @@ export function PostAttemptDebrief({
     setSaved(true);
   }
 
+  function moveChoice<T extends string>(
+    event: KeyboardEvent<HTMLButtonElement>,
+    index: number,
+    options: Array<{ id: T }>,
+    choose: (value: T) => void,
+  ) {
+    if (
+      event.key !== "ArrowLeft" &&
+      event.key !== "ArrowRight" &&
+      event.key !== "ArrowUp" &&
+      event.key !== "ArrowDown"
+    )
+      return;
+    event.preventDefault();
+    const direction =
+      event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
+    const nextIndex = (index + direction + options.length) % options.length;
+    choose(options[nextIndex].id);
+    const buttons =
+      event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+        '[role="radio"]',
+      );
+    buttons?.[nextIndex]?.focus();
+    setSaved(false);
+  }
+
+  function handleShortcut(event: KeyboardEvent<HTMLElement>) {
+    if (!(event.metaKey || event.ctrlKey) || event.key !== "Enter") return;
+    if (!grade || !friction) return;
+    event.preventDefault();
+    save();
+  }
+
   return (
-    <section className="post-attempt-debrief" aria-labelledby="debrief-title">
+    <section
+      className="post-attempt-debrief"
+      aria-labelledby="debrief-title"
+      onKeyDown={handleShortcut}
+    >
       <div className="debrief-heading">
         <div>
           <span className="eyebrow">30-second debrief</span>
@@ -87,17 +124,26 @@ export function PostAttemptDebrief({
 
       <fieldset>
         <legend>How did retrieval feel?</legend>
-        <div className="debrief-grade-grid">
-          {GRADES.map((option) => (
+        <div
+          className="debrief-grade-grid"
+          role="radiogroup"
+          aria-label="Retrieval grade"
+        >
+          {GRADES.map((option, index) => (
             <button
               type="button"
               key={option.id}
+              role="radio"
+              aria-checked={grade === option.id}
+              tabIndex={grade === option.id || (!grade && index === 0) ? 0 : -1}
               className={grade === option.id ? "active" : ""}
-              aria-pressed={grade === option.id}
               onClick={() => {
                 setGrade(option.id);
                 setSaved(false);
               }}
+              onKeyDown={(event) =>
+                moveChoice(event, index, GRADES, setGrade)
+              }
             >
               <strong>{option.label}</strong>
               <small>{option.note}</small>
@@ -108,17 +154,28 @@ export function PostAttemptDebrief({
 
       <fieldset>
         <legend>Where was the friction?</legend>
-        <div className="debrief-friction-grid">
-          {FRICTIONS.map((option) => (
+        <div
+          className="debrief-friction-grid"
+          role="radiogroup"
+          aria-label="Friction area"
+        >
+          {FRICTIONS.map((option, index) => (
             <button
               type="button"
               key={option.id}
+              role="radio"
+              aria-checked={friction === option.id}
+              tabIndex={
+                friction === option.id || (!friction && index === 0) ? 0 : -1
+              }
               className={friction === option.id ? "active" : ""}
-              aria-pressed={friction === option.id}
               onClick={() => {
                 setFriction(option.id);
                 setSaved(false);
               }}
+              onKeyDown={(event) =>
+                moveChoice(event, index, FRICTIONS, setFriction)
+              }
             >
               {option.label}
             </button>
@@ -175,6 +232,7 @@ export function PostAttemptDebrief({
             ? "The Daily Coach will use this on your next plan."
             : "Choose a retrieval grade and one friction area, or continue without saving."}
         </small>
+        <small>⌘/Ctrl + Enter saves once both choices are selected.</small>
       </div>
     </section>
   );

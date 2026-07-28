@@ -90,6 +90,7 @@ import {
   OLDEST_STORAGE_KEY,
   ORIGINAL_STORAGE_KEY,
   PREVIOUS_STORAGE_KEY,
+  SECOND_VERSION_STORAGE_KEY,
   STAGES,
   STORAGE_KEY,
   activeStreak,
@@ -136,6 +137,15 @@ import {
   selectConceptCheckIndex,
   supportsConceptPractice,
 } from "../lib/concept-practice.mjs";
+import {
+  MOCK_INTERVIEW_PRESETS,
+  formatMockClock,
+  mockInterviewEndsAt,
+  mockInterviewRemainingMs,
+  mockInterviewPreset,
+  selectMockInterviewItem,
+  type MockInterviewPresetId,
+} from "../lib/mock-interview.mjs";
 
 type Result = AttemptRecord & {
   item: PracticeItem;
@@ -147,6 +157,7 @@ type Result = AttemptRecord & {
     practiceKind: PracticeKind;
   };
   sessionComplete?: boolean;
+  mockInterview?: boolean;
 };
 type Sort = "recommended" | "number" | "title" | "difficulty";
 type SessionBuildOptions = {
@@ -292,6 +303,41 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+function formatMockEntrypoint(item: PracticeItem) {
+  const entrypoint = item.verification?.entrypoint;
+  if (!entrypoint) return "Implement the requested Python function.";
+  if (entrypoint.kind === "method") {
+    return `Implement ${entrypoint.className}.${entrypoint.name}(...)`;
+  }
+  return `Implement ${entrypoint.name}(...)`;
+}
+
+function formatMockArgs(args: readonly unknown[]) {
+  return args.map((arg) => JSON.stringify(arg)).join(", ");
+}
+
+function sessionHistoryRecord(
+  session: TrainingSession,
+  entries: SessionQueueEntry[],
+  outcome: "completed" | "ended" | "expired",
+) {
+  return {
+    id: session.id,
+    name: session.name,
+    kind: session.kind,
+    startedAt: session.createdAt,
+    completedAt: new Date().toISOString(),
+    completed: entries.filter((entry) => entry.status === "completed").length,
+    total: entries.length,
+    ...(session.kind === "mock"
+      ? {
+          durationMinutes: session.durationMinutes,
+          outcome,
+        }
+      : {}),
+  };
+}
+
 function formatDay(value: Date) {
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
@@ -376,6 +422,8 @@ export default function SwiftGhostApp() {
     refresh: 0,
   });
   const importRef = useRef<HTMLInputElement>(null);
+  const expireMockInterviewRef = useRef<(sessionId: string) => void>(() => {});
+  expireMockInterviewRef.current = expireMockInterview;
 
   const allItems = useMemo(
     () => [
@@ -461,6 +509,17 @@ export default function SwiftGhostApp() {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
+  useEffect(() => {
+    const session = state.activeSession;
+    if (
+      !ready ||
+      !session ||
+      session.kind !== "mock" ||
+      mockInterviewRemainingMs(session, now) !== 0
+    )
+      return;
+    expireMockInterviewRef.current(session.id);
+  }, [ready, now, state.activeSession]);
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(""), 2600);
@@ -961,15 +1020,7 @@ export default function SwiftGhostApp() {
           activeSession: null,
           sessionHistory: [
             ...projected.sessionHistory,
-            {
-              id: session.id,
-              name: session.name,
-              startedAt: session.createdAt,
-              completedAt: new Date().toISOString(),
-              completed: entries.filter((entry) => entry.status === "completed")
-                .length,
-              total: entries.length,
-            },
+            sessionHistoryRecord(session, entries, "completed"),
           ].slice(-25),
         };
       }
@@ -982,6 +1033,7 @@ export default function SwiftGhostApp() {
       nextReview: reviewDueAt(projected, selectedId),
       sessionNext,
       sessionComplete,
+      mockInterview: session?.kind === "mock",
     });
   }
 
@@ -1145,6 +1197,15 @@ export default function SwiftGhostApp() {
     verificationResult: PythonVerificationResult,
     runs: number,
   ) {
+    const activeMock =
+      state.activeSession?.kind === "mock" &&
+      draft.sessionId === state.activeSession.id
+        ? state.activeSession
+        : null;
+    if (activeMock && mockInterviewRemainingMs(activeMock, Date.now()) === 0) {
+      expireMockInterview(activeMock.id);
+      return;
+    }
     if (
       practiceKind !== "solving" ||
       !item.verification ||
@@ -1338,6 +1399,7 @@ export default function SwiftGhostApp() {
     const session: TrainingSession = {
       id: makeId(),
       name: options.name.trim() || "Practice session",
+      kind: "practice",
       source: options.source,
       track: options.track,
       language: options.language,
@@ -1352,16 +1414,7 @@ export default function SwiftGhostApp() {
       const sessionHistory = previous
         ? [
             ...base.sessionHistory,
-            {
-              id: previous.id,
-              name: previous.name,
-              startedAt: previous.createdAt,
-              completedAt: new Date().toISOString(),
-              completed: previous.entries.filter(
-                (entry) => entry.status === "completed",
-              ).length,
-              total: previous.entries.length,
-            },
+            sessionHistoryRecord(previous, previous.entries, "ended"),
           ].slice(-25)
         : base.sessionHistory;
       return { ...base, activeSession: session, sessionHistory, draft: null };
@@ -1378,6 +1431,100 @@ export default function SwiftGhostApp() {
         entries[0].practiceKind ?? "typing",
       );
     setToast(`${entries.length}-item session started`);
+  }
+
+  function startMockInterview(presetId: MockInterviewPresetId) {
+    if (
+      state.activeSession &&
+      !window.confirm(
+        "Replace the active session with this timed mock? Completed work will stay in session history.",
+      )
+    )
+      return;
+    const preset = mockInterviewPreset(presetId);
+    const candidate = selectMockInterviewItem(
+      allItems,
+      state.attempts,
+      preset.id,
+    );
+    if (!candidate) {
+      setToast("No verified Python problem matches this mock preset");
+      return;
+    }
+    const startedAt = new Date().toISOString();
+    const expiresAt = mockInterviewEndsAt(startedAt, preset.durationMinutes);
+    if (!expiresAt) {
+      setToast("The mock timer could not start");
+      return;
+    }
+    const entry: SessionQueueEntry = {
+      itemId: candidate.itemId,
+      itemRevision: candidate.contentRevision,
+      stage: 5,
+      status: "pending",
+      practiceKind: "solving",
+      estimatedMinutes: preset.durationMinutes,
+      rationale: "Cold verified solve · guidance stays hidden until the mock ends.",
+    };
+    const session: TrainingSession = {
+      id: makeId(),
+      name: preset.label,
+      kind: "mock",
+      source: "mixed",
+      track: "interview",
+      language: "python",
+      stageMode: "recall",
+      createdAt: startedAt,
+      entries: [entry],
+      currentIndex: 0,
+      mockPreset: preset.id,
+      durationMinutes: preset.durationMinutes,
+      expiresAt,
+    };
+    mutateState((current) => {
+      const base = recordAbandon(current);
+      const previous = base.activeSession;
+      return {
+        ...base,
+        activeSession: session,
+        sessionHistory: previous
+          ? [
+              ...base.sessionHistory,
+              sessionHistoryRecord(previous, previous.entries, "ended"),
+            ].slice(-25)
+          : base.sessionHistory,
+        draft: null,
+      };
+    });
+    openItem(candidate, 5, undefined, session.id, "solving");
+    setToast(`${preset.durationMinutes}-minute mock started · guidance locked`);
+  }
+
+  function expireMockInterview(sessionId: string) {
+    const session = state.activeSession;
+    if (!session || session.id !== sessionId || session.kind !== "mock") return;
+    mutateState((current) => {
+      const active = current.activeSession;
+      if (!active || active.id !== sessionId || active.kind !== "mock")
+        return current;
+      const base =
+        current.draft?.sessionId === sessionId
+          ? recordAbandon(current)
+          : current;
+      return {
+        ...base,
+        draft: null,
+        activeSession: null,
+        sessionHistory: [
+          ...base.sessionHistory,
+          sessionHistoryRecord(active, active.entries, "expired"),
+        ].slice(-25),
+      };
+    });
+    setResult(null);
+    setFocusMode(false);
+    navigateView("sessions");
+    setToast("Time is up · the mock workspace is now locked");
   }
 
   function resumeSession() {
@@ -1420,15 +1567,7 @@ export default function SwiftGhostApp() {
           activeSession: null,
           sessionHistory: [
             ...base.sessionHistory,
-            {
-              id: session.id,
-              name: session.name,
-              startedAt: session.createdAt,
-              completedAt: new Date().toISOString(),
-              completed: entries.filter((entry) => entry.status === "completed")
-                .length,
-              total: entries.length,
-            },
+            sessionHistoryRecord(session, entries, "ended"),
           ].slice(-25),
         };
       });
@@ -1456,7 +1595,11 @@ export default function SwiftGhostApp() {
     const session = state.activeSession;
     if (
       !session ||
-      !window.confirm("End this session? Completed entries stay recorded.")
+      !window.confirm(
+        session.kind === "mock"
+          ? "End this timed mock? Your current code will be saved as an incomplete attempt for review."
+          : "End this session? Completed entries stay recorded.",
+      )
     )
       return;
     mutateState((current) => {
@@ -1469,22 +1612,14 @@ export default function SwiftGhostApp() {
         activeSession: null,
         sessionHistory: [
           ...base.sessionHistory,
-          {
-            id: session.id,
-            name: session.name,
-            startedAt: session.createdAt,
-            completedAt: new Date().toISOString(),
-            completed: session.entries.filter(
-              (entry) => entry.status === "completed",
-            ).length,
-            total: session.entries.length,
-          },
+          sessionHistoryRecord(session, session.entries, "ended"),
         ].slice(-25),
       };
     });
     setResult(null);
     navigateView("sessions");
-    setToast("Session ended");
+    setFocusMode(false);
+    setToast(session.kind === "mock" ? "Mock ended · review saved" : "Session ended");
   }
 
   function saveCustom(input: Parameters<typeof makeCustomItem>[0]) {
@@ -1601,15 +1736,7 @@ export default function SwiftGhostApp() {
         else {
           sessionHistory = [
             ...sessionHistory,
-            {
-              id: activeSession.id,
-              name: activeSession.name,
-              startedAt: activeSession.createdAt,
-              completedAt: new Date().toISOString(),
-              completed: entries.filter((entry) => entry.status === "completed")
-                .length,
-              total: entries.length,
-            },
+            sessionHistoryRecord(activeSession, entries, "ended"),
           ].slice(-25);
           activeSession = null;
         }
@@ -1660,7 +1787,7 @@ export default function SwiftGhostApp() {
       if (
         !parsed ||
         typeof parsed !== "object" ||
-        ![2, 3, 4, 5, 6, 7, 8, 9, 10, 11].includes(
+        ![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(
           Number((parsed as { version?: unknown }).version),
         )
       )
@@ -1707,6 +1834,7 @@ export default function SwiftGhostApp() {
     localStorage.removeItem(FIRST_STORAGE_KEY);
     localStorage.removeItem(EARLIEST_STORAGE_KEY);
     localStorage.removeItem(INITIAL_STORAGE_KEY);
+    localStorage.removeItem(SECOND_VERSION_STORAGE_KEY);
     localStorage.removeItem(FIRST_VERSION_STORAGE_KEY);
     setState(EMPTY_STATE);
     setSelectedId(BUILTIN_ITEMS[0].itemId);
@@ -1736,7 +1864,7 @@ export default function SwiftGhostApp() {
     if (result.sessionComplete) {
       setResult(null);
       navigateView("sessions");
-      setToast("Session complete");
+      setToast(result.mockInterview ? "Mock verified and saved" : "Session complete");
       return;
     }
     if (result.practiceKind === "concept") {
@@ -1901,6 +2029,7 @@ export default function SwiftGhostApp() {
           reveal={reveal}
           focusMode={focusMode}
           errorKeys={draft.keyErrors}
+          now={now}
           activeSession={state.activeSession}
           onOpenItem={openItem}
           onChooseStage={chooseStage}
@@ -1951,6 +2080,8 @@ export default function SwiftGhostApp() {
           state={state}
           items={allItems}
           onStart={startSession}
+          onStartMock={startMockInterview}
+          now={now}
           onResume={resumeSession}
           onSkip={skipSessionEntry}
           onEnd={endSession}
@@ -2311,6 +2442,7 @@ type PracticeProps = {
   reveal: boolean;
   focusMode: boolean;
   errorKeys: Record<string, number>;
+  now: number;
   activeSession: TrainingSession | null;
   onOpenItem: (
     item: PracticeItem,
@@ -2368,6 +2500,13 @@ function PracticeView(props: PracticeProps) {
     verificationState.itemId === props.item.itemId
       ? verificationState
       : { itemId: props.item.itemId, status: "idle" as const };
+  const isMock = Boolean(
+    props.activeSession?.kind === "mock" &&
+      props.draft.sessionId === props.activeSession.id,
+  );
+  const mockRemainingMs = isMock
+    ? (mockInterviewRemainingMs(props.activeSession, props.now) ?? 0)
+    : null;
 
   useEffect(
     () => () => {
@@ -2543,7 +2682,9 @@ function PracticeView(props: PracticeProps) {
                     <b>{queued?.title ?? "Unavailable item"}</b>
                     <small>
                       {entry.practiceKind === "solving"
-                        ? "Independent solve"
+                        ? props.activeSession?.kind === "mock"
+                          ? "Timed mock solve"
+                          : "Independent solve"
                         : entry.practiceKind === "concept"
                           ? "Concept recall"
                         : `Stage ${entry.stage} recall`}
@@ -2698,17 +2839,28 @@ function PracticeView(props: PracticeProps) {
         </nav>
         {props.activeSession &&
           props.draft.sessionId === props.activeSession.id && (
-            <div className="session-strip">
+            <div className={`session-strip ${isMock ? "mock" : ""}`}>
               <span>
                 <small>
-                  Session {props.activeSession.currentIndex + 1} of{" "}
-                  {props.activeSession.entries.length}
+                  {isMock
+                    ? "Timed mock interview"
+                    : `Session ${props.activeSession.currentIndex + 1} of ${props.activeSession.entries.length}`}
                 </small>
                 <strong>{props.activeSession.name}</strong>
               </span>
+              {isMock && mockRemainingMs !== null && (
+                <span className="mock-clock" role="timer" aria-live="off">
+                  <small>Time remaining</small>
+                  <strong>{formatMockClock(mockRemainingMs)}</strong>
+                </span>
+              )}
               <div>
-                <button onClick={props.onSkipSession}>Skip item</button>
-                <button onClick={props.onEndSession}>End session</button>
+                {!isMock && (
+                  <button onClick={props.onSkipSession}>Skip item</button>
+                )}
+                <button onClick={props.onEndSession}>
+                  {isMock ? "End mock" : "End session"}
+                </button>
               </div>
             </div>
           )}
@@ -2722,7 +2874,7 @@ function PracticeView(props: PracticeProps) {
                 {props.item.difficulty}
               </span>
               <span>{laneLabel(props.item)}</span>
-              <span>{props.item.pattern}</span>
+              <span>{isMock ? "Pattern hidden" : props.item.pattern}</span>
               {props.item.source === "custom" && <span>Device-local</span>}
             </div>
             <h1>{props.item.title}</h1>
@@ -2736,7 +2888,7 @@ function PracticeView(props: PracticeProps) {
             >
               {favorite ? "★" : "☆"}
             </button>
-            {prompt && (
+            {prompt && !isMock && (
               <a
                 className="outline-button"
                 href={prompt}
@@ -2748,6 +2900,16 @@ function PracticeView(props: PracticeProps) {
             )}
           </div>
         </div>
+        {isMock ? (
+          <div className="mock-policy" role="status">
+            <span>Interview mode locked</span>
+            <strong>Solve from the prompt and executable feedback only.</strong>
+            <small>
+              Pattern guidance, hints, the reference solution, and expected test
+              values stay hidden until this mock ends.
+            </small>
+          </div>
+        ) : (
         <div className="practice-kind-switch" aria-label="Practice style">
           <button
             className={props.practiceKind === "typing" ? "active" : ""}
@@ -2798,6 +2960,7 @@ function PracticeView(props: PracticeProps) {
             </small>
           </button>
         </div>
+        )}
         {props.practiceKind === "concept" ? (
           <ConceptPractice
             item={props.item}
@@ -2811,7 +2974,28 @@ function PracticeView(props: PracticeProps) {
           />
         ) : (
           <>
-        <div className="insight-grid">
+        {isMock && props.item.verification && (
+          <section className="mock-prompt-card" aria-labelledby="mock-prompt-title">
+            <div>
+              <span className="eyebrow">Interview prompt</span>
+              <h2 id="mock-prompt-title">{formatMockEntrypoint(props.item)}</h2>
+              <p>{props.item.summary}</p>
+            </div>
+            <div className="mock-visible-cases">
+              <strong>Visible inputs</strong>
+              <ul>
+                {props.item.verification.cases.slice(0, 3).map((testCase) => (
+                  <li key={testCase.name}>
+                    <span>{testCase.name}</span>
+                    <code>input: {formatMockArgs(testCase.args)}</code>
+                    <small>Expected output hidden during the mock</small>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </section>
+        )}
+        {!isMock && <div className="insight-grid">
           <article>
             <span className="card-icon">⌁</span>
             <div>
@@ -2847,8 +3031,8 @@ function PracticeView(props: PracticeProps) {
               </p>
             </div>
           </article>
-        </div>
-        {props.practiceKind === "solving" && (
+        </div>}
+        {props.practiceKind === "solving" && !isMock && (
           <div className="solve-hint-bar">
             <span>
               <small>Independent solve</small>
@@ -2871,7 +3055,7 @@ function PracticeView(props: PracticeProps) {
             )}
           </div>
         )}
-        {props.practiceKind === "solving" && solveHintLevel >= 3 && (
+        {props.practiceKind === "solving" && !isMock && solveHintLevel >= 3 && (
           <details className="solve-reference" open>
             <summary>Reference solution</summary>
             <pre>{props.item.code}</pre>
@@ -2983,8 +3167,8 @@ function PracticeView(props: PracticeProps) {
                   <strong>{props.draft.testRuns}</strong>
                 </span>
                 <span>
-                  <small>Hints</small>
-                  <strong>{props.draft.peeks}</strong>
+                  <small>{isMock ? "Guidance" : "Hints"}</small>
+                  <strong>{isMock ? "Locked" : props.draft.peeks}</strong>
                 </span>
               </>
             )}
@@ -3153,6 +3337,13 @@ function PracticeView(props: PracticeProps) {
                 {visibleVerificationState.result.setupError && (
                   <code>{visibleVerificationState.result.setupError}</code>
                 )}
+                {isMock ? (
+                  <p className="mock-test-note">
+                    Individual inputs and expected values are withheld during
+                    the mock. Use the aggregate result to test your own edge
+                    cases.
+                  </p>
+                ) : (
                 <ul>
                   {visibleVerificationState.result.cases.map((testCase, index) => (
                     <li
@@ -3174,6 +3365,7 @@ function PracticeView(props: PracticeProps) {
                     </li>
                   ))}
                 </ul>
+                )}
               </div>
             )}
             {visibleVerificationState.status === "error" && (
@@ -3184,6 +3376,17 @@ function PracticeView(props: PracticeProps) {
             )}
           </section>
         )}
+        {isMock ? (
+          <section className="mock-rules">
+            <span className="eyebrow">Mock interview contract</span>
+            <strong>Clarify, plan, implement, test, and explain.</strong>
+            <p>
+              This is local practice evidence, not a proctored score. A clean
+              verified solve records independent evidence; ending or timing out
+              preserves the attempt for review without advancing mastery.
+            </p>
+          </section>
+        ) : (
         <div className="practice-notes">
           <article>
             <small>
@@ -3220,7 +3423,8 @@ function PracticeView(props: PracticeProps) {
             </article>
           )}
         </div>
-        {props.state.settings.showKeyboard && (
+        )}
+        {!isMock && props.state.settings.showKeyboard && (
           <KeyboardGuide errors={props.errorKeys} />
         )}
           </>
@@ -3234,6 +3438,8 @@ function SessionsView({
   state,
   items,
   onStart,
+  onStartMock,
+  now,
   onResume,
   onSkip,
   onEnd,
@@ -3244,6 +3450,8 @@ function SessionsView({
     options: SessionBuildOptions,
     entries?: SessionQueueEntry[],
   ) => void;
+  onStartMock: (preset: MockInterviewPresetId) => void;
+  now: number;
   onResume: () => void;
   onSkip: () => void;
   onEnd: () => void;
@@ -3298,19 +3506,54 @@ function SessionsView({
     ],
   );
   const active = state.activeSession;
+  const activeMockRemaining =
+    active?.kind === "mock"
+      ? (mockInterviewRemainingMs(active, now) ?? 0)
+      : null;
   return (
     <main id="main-content" tabIndex={-1} className="page-container sessions-page">
       <PageHeading
         eyebrow="Deliberate practice"
-        title="Build a session that has a finish line."
-        copy="Create a persistent queue, lock in the recall stage for every item, and come back later without losing your place."
+        title="Practice deliberately, then rehearse the real interview."
+        copy="Build a persistent learning queue or enter a timed mock where guidance and expected test values stay locked."
       />
+      <section className="mock-interview-center">
+        <div className="mock-interview-copy">
+          <span className="eyebrow">Interview simulator</span>
+          <h2>One cold problem. A real countdown. No answer access.</h2>
+          <p>
+            Each preset chooses under-practiced verified Python work. The timer
+            survives reloads, pattern guidance stays hidden, and only a clean
+            executable pass counts as independent solve evidence.
+          </p>
+        </div>
+        <div className="mock-preset-grid">
+          {MOCK_INTERVIEW_PRESETS.map((preset) => (
+            <article key={preset.id}>
+              <span>{preset.durationMinutes} min</span>
+              <strong>{preset.label}</strong>
+              <small>{preset.note}</small>
+              <button
+                className="primary-button"
+                onClick={() => onStartMock(preset.id)}
+              >
+                Start mock →
+              </button>
+            </article>
+          ))}
+        </div>
+      </section>
       {active && (
-        <section className="active-session-card">
+        <section
+          className={`active-session-card ${active.kind === "mock" ? "mock" : ""}`}
+        >
           <div>
             <span className="eyebrow">In progress</span>
             <h2>{active.name}</h2>
             <p>
+              {active.kind === "mock" && activeMockRemaining !== null
+                ? `${formatMockClock(activeMockRemaining)} remaining · `
+                : ""}
               {
                 active.entries.filter((entry) => entry.status === "completed")
                   .length
@@ -3342,13 +3585,17 @@ function SessionsView({
           </div>
           <div className="session-actions">
             <button className="primary-button" onClick={onResume}>
-              Resume next item →
+              {active.kind === "mock"
+                ? "Resume timed mock →"
+                : "Resume next item →"}
             </button>
-            <button className="outline-button" onClick={onSkip}>
-              Skip current
-            </button>
+            {active.kind !== "mock" && (
+              <button className="outline-button" onClick={onSkip}>
+                Skip current
+              </button>
+            )}
             <button className="outline-button" onClick={onEnd}>
-              End session
+              {active.kind === "mock" ? "End mock" : "End session"}
             </button>
           </div>
           <div className="session-preview-list">
@@ -3372,7 +3619,9 @@ function SessionsView({
                     <strong>{item?.title ?? "Unavailable item"}</strong>
                     <small>
                       {entry.practiceKind === "solving"
-                        ? "Independent solve"
+                        ? active.kind === "mock"
+                          ? "Timed independent solve"
+                          : "Independent solve"
                         : `Stage ${entry.stage} recall`}
                       {entry.estimatedMinutes
                         ? ` · ${entry.estimatedMinutes} min`
@@ -3591,10 +3840,19 @@ function SessionsView({
                 <article key={session.id}>
                   <span>
                     <strong>{session.name}</strong>
-                    <small>{formatDate(session.completedAt)}</small>
+                    <small>
+                      {session.kind === "mock"
+                        ? `Mock · ${session.durationMinutes ?? 45} min · ${session.outcome ?? "ended"}`
+                        : "Practice session"}
+                      {` · ${formatDate(session.completedAt)}`}
+                    </small>
                   </span>
                   <b>
-                    {session.completed}/{session.total}
+                    {session.kind === "mock"
+                      ? session.completed
+                        ? "Verified"
+                        : "Review"
+                      : `${session.completed}/${session.total}`}
                   </b>
                 </article>
               ))}
@@ -4063,6 +4321,12 @@ function RecordsView({
   const conceptAttempts = attempts.filter(
     (attempt) => attempt.practiceKind === "concept",
   );
+  const mockHistory = state.sessionHistory.filter(
+    (session) => session.kind === "mock",
+  );
+  const verifiedMocks = mockHistory.filter(
+    (session) => session.outcome === "completed" && session.completed > 0,
+  );
   const eligible = attempts.filter(eligibleAttempt);
   const currentEligible = eligible.filter((attempt) =>
     items.some(
@@ -4190,6 +4454,15 @@ function RecordsView({
           label="Current streak"
           value={`${activeStreak(state)} days`}
           note={`${practicedMinutesToday(state)} minutes today`}
+        />
+        <StatCard
+          label="Mock interviews"
+          value={`${verifiedMocks.length}/${mockHistory.length}`}
+          note={
+            mockHistory.length
+              ? `${mockHistory.filter((session) => session.outcome === "expired").length} expired · ${mockHistory.filter((session) => session.outcome === "ended").length} ended early`
+              : "Start a timed mock from Sessions"
+          }
         />
         <StatCard
           label="Owned solutions"
@@ -4692,7 +4965,7 @@ function SettingsView({
           <small>Your data</small>
           <h2>Local profile</h2>
           <p>
-            Export a portable v11 JSON backup with Python, Swift, iOS, sessions,
+            Export a portable v12 JSON backup with Python, Swift, iOS, sessions,
             learning debriefs, revisioned snippets, local pacing and weak-line
             analytics, and
             community preferences—or restore any v2–v9 backup.
@@ -4789,7 +5062,7 @@ function CustomSnippetDialog({
           <label>
             <span>Title</span>
             <input
-              data-modal-autofocus
+              data-modal-autofocus="true"
               maxLength={80}
               value={title}
               onChange={(event) => setTitle(event.target.value)}
@@ -5072,7 +5345,9 @@ function ResultDialog({
         </div>
         <span className="eyebrow">
           {isSolve
-            ? "Solution verified"
+            ? result.mockInterview
+              ? "Mock interview verified"
+              : "Solution verified"
             : isConcept
               ? "Concept recall saved"
             : `Pass complete · Stage ${result.stage}`}
@@ -5080,7 +5355,9 @@ function ResultDialog({
         <h2 id="result-title">{result.item.title}</h2>
         <p>
           {result.sessionComplete
-            ? "That was the final item in this session. Your set is saved in session history."
+            ? result.mockInterview
+              ? "You produced a verified solution before the deadline. The mock is saved as independent interview evidence."
+              : "That was the final item in this session. Your set is saved in session history."
             : isSolve
               ? isCleanSolve
                 ? "All executable checks passed without hints. This records independent problem-solving evidence without changing typing records."
@@ -5199,7 +5476,12 @@ function ResultDialog({
           <button className="outline-button" onClick={onRecords}>
             Full analysis
           </button>
-          <button className="primary-button" data-autofocus onClick={onNext}>
+          <button
+            className="primary-button"
+            data-modal-autofocus="true"
+            autoFocus
+            onClick={onNext}
+          >
             {result.sessionNext
               ? "Next in session →"
               : result.sessionComplete

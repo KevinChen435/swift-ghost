@@ -102,10 +102,11 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v11"/);
-  assert.match(product, /PREVIOUS_STORAGE_KEY = "swift-ghost-state-v10"/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v12"/);
+  assert.match(product, /PREVIOUS_STORAGE_KEY = "swift-ghost-state-v11"/);
   assert.match(product, /FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2"/);
-  assert.match(product, /version: 11/);
+  assert.match(product, /version: 12/);
+  assert.match(product, /swift-ghost-state-v10/);
   assert.match(product, /swift-ghost-state-v9/);
   assert.match(product, /swift-ghost-state-v8/);
   assert.match(product, /swift-ghost-state-v7/);
@@ -207,6 +208,10 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(debrief, /30-second debrief/);
   assert.match(debrief, /How did retrieval feel/);
   assert.match(debrief, /No meaningful friction/);
+  assert.match(debrief, /role="radiogroup"/);
+  assert.match(debrief, /role="radio"/);
+  assert.match(debrief, /ArrowLeft/);
+  assert.match(debrief, /event\.metaKey \|\| event\.ctrlKey/);
   assert.match(learningState, /upsertLearningEvent/);
   assert.match(learningState, /applyDebriefToReviewState/);
   assert.match(product, /applyDebriefToReviewState/);
@@ -220,6 +225,8 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(page, /attempt\.practiceKind === "typing"/);
   assert.match(page, /Exact item/);
   assert.match(page, /Retry same/);
+  assert.match(page, /data-modal-autofocus="true"/);
+  assert.match(page, /autoFocus/);
   assert.match(page, /Full analysis/);
   assert.match(page, /Estimated time/);
   assert.match(page, /mobile-practice-controls/);
@@ -238,6 +245,36 @@ test("ships the full five-stage practice model and original problem links", asyn
   );
   assert.match(page, /edit\.insertedCount > 0/);
   assert.match(layout, /"og-v7\.png"/);
+});
+
+test("ships reload-safe timed mock interviews", async () => {
+  const app = await readFile(
+    new URL("../app/components/SwiftGhostApp.tsx", import.meta.url),
+    "utf8",
+  );
+  const product = await readFile(
+    new URL("../app/lib/product.ts", import.meta.url),
+    "utf8",
+  );
+  const mock = await readFile(
+    new URL("../app/lib/mock-interview.mjs", import.meta.url),
+    "utf8",
+  );
+  assert.match(product, /kind: "practice" \| "mock"/);
+  assert.match(product, /outcome\?: "completed" \| "ended" \| "expired"/);
+  assert.match(product, /durationMinutes\?: number/);
+  assert.match(product, /expiresAt\?: string/);
+  assert.match(mock, /MOCK_INTERVIEW_PRESETS/);
+  assert.match(mock, /selectMockInterviewItem/);
+  assert.match(mock, /mockInterviewRemainingMs/);
+  assert.match(app, /One cold problem\. A real countdown\. No answer access\./);
+  assert.match(app, /Interview mode locked/);
+  assert.match(app, /Interview prompt/);
+  assert.match(app, /formatMockEntrypoint/);
+  assert.match(app, /Expected output hidden during the mock/);
+  assert.match(app, /prompt && !isMock/);
+  assert.match(app, /Individual inputs and expected values are withheld/);
+  assert.match(app, /role="timer"/);
 });
 
 test("ships first-class Swift and iOS concept recall", async () => {
