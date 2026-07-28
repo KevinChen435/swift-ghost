@@ -44,6 +44,10 @@ import {
   type MockDebrief,
   type MockProblemWorkspace,
 } from "./mock-session.mjs";
+import {
+  normalizeInterviewStudioState,
+  type InterviewStudioState,
+} from "./interview-studio.mjs";
 
 export { analyzeEdit, correctPositionCount } from "./typing-engine.mjs";
 
@@ -229,7 +233,7 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 16;
+  version: 17;
   attempts: AttemptRecord[];
   submissionHistory: SubmissionRecord[];
   learningEvents: LearningEvent[];
@@ -243,10 +247,12 @@ export type AppState = {
   lastStage: number;
   activeSession: TrainingSession | null;
   sessionHistory: SessionHistoryRecord[];
+  interviewStudio: InterviewStudioState;
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v16";
+export const STORAGE_KEY = "swift-ghost-state-v17";
+export const SIXTEENTH_STORAGE_KEY = "swift-ghost-state-v16";
 export const FIFTEENTH_STORAGE_KEY = "swift-ghost-state-v15";
 export const FOURTEENTH_STORAGE_KEY = "swift-ghost-state-v14";
 export const THIRTEENTH_STORAGE_KEY = "swift-ghost-state-v13";
@@ -262,10 +268,11 @@ export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
-  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
 ];
 export const STATE_STORAGE_KEYS = [
   STORAGE_KEY,
+  SIXTEENTH_STORAGE_KEY,
   FIFTEENTH_STORAGE_KEY,
   FOURTEENTH_STORAGE_KEY,
   THIRTEENTH_STORAGE_KEY,
@@ -296,7 +303,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 16,
+  version: 17,
   attempts: [],
   submissionHistory: [],
   learningEvents: [],
@@ -310,6 +317,7 @@ export const EMPTY_STATE: AppState = {
   lastStage: 1,
   activeSession: null,
   sessionHistory: [],
+  interviewStudio: { active: null, history: [] },
   cloud: { communityEnabled: false, uploadedAttemptIds: [] },
 };
 
@@ -1365,7 +1373,7 @@ export function normalizeState(value: unknown): AppState {
     ? { ...draft, sessionId: draftMatchesSession ? draft.sessionId : undefined }
     : null;
   return {
-    version: 16,
+    version: 17,
     attempts,
     submissionHistory: normalizeSubmissionHistory(
       value.submissionHistory,
@@ -1391,6 +1399,13 @@ export function normalizeState(value: unknown): AppState {
     ),
     activeSession,
     sessionHistory: normalizeSessionHistory(value.sessionHistory, validIds),
+    interviewStudio: normalizeInterviewStudioState(
+      Number(value.version) >= 17 ? value.interviewStudio : undefined,
+      {
+        validItemIds: validIds,
+        revisions,
+      },
+    ),
     cloud: normalizeCloudPreferences(value.cloud),
   };
 }

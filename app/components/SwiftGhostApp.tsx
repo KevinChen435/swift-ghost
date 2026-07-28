@@ -28,6 +28,10 @@ import { ChallengeStatement } from "./ChallengeStatement";
 import { SolveWorkbench, type MobilePane } from "./SolveWorkbench";
 import { MockNotebook } from "./MockNotebook";
 import { MockDebriefDialog } from "./MockDebriefDialog";
+import {
+  InterviewStudioPanel,
+  type InterviewPanelSession,
+} from "./InterviewStudioPanel";
 import { PracticeEditor } from "./PracticeEditor";
 import { ChallengeConsole } from "./ChallengeConsole";
 import {
@@ -181,6 +185,25 @@ import {
   isRecordableChallengeResult,
 } from "../lib/challenge-lab.mjs";
 import { appendSubmissionHistory } from "../lib/submission-history.mjs";
+import {
+  INTERVIEW_STUDIO_LIMITS,
+  advanceInterviewPhase,
+  commitInterviewResponse,
+  createInterviewStudioSession,
+  finishInterviewStudioSession,
+  recordInterviewRunnerEventForSession,
+  requestInterviewCoachHint,
+  type InterviewRunnerEventStatus,
+  type InterviewStudioFormat,
+  type InterviewStudioMode,
+  type InterviewStudioSession,
+  type InterviewStudioState,
+  type InterviewStudioHistoryRecord,
+} from "../lib/interview-studio.mjs";
+import {
+  iosTechnicalScreenScript,
+  pythonInterviewScript,
+} from "../data/interview-scripts";
 
 type Result = AttemptRecord & {
   item: PracticeItem;
@@ -237,7 +260,7 @@ const THEMES: { id: Theme; label: string; colors: string[] }[] = [
 const NAV: { id: View; label: string; icon: string }[] = [
   { id: "today", label: "Today", icon: "◉" },
   { id: "practice", label: "Practice", icon: "⌨" },
-  { id: "sessions", label: "Sessions", icon: "≡" },
+  { id: "sessions", label: "Studio", icon: "≡" },
   { id: "library", label: "Library", icon: "▦" },
   { id: "records", label: "Records", icon: "↗" },
   { id: "settings", label: "Settings", icon: "⚙" },
@@ -329,6 +352,52 @@ function freshDraft(
     customCaseInput: "",
     challengeDate,
     sessionId,
+  };
+}
+
+function replaceActiveInterviewStudio(
+  studio: InterviewStudioState,
+  next: InterviewStudioSession,
+  at: string,
+): InterviewStudioState {
+  const previous =
+    studio.active?.phase === "completed" &&
+    studio.active.completedAt &&
+    studio.active.outcome
+      ? (studio.active as InterviewStudioHistoryRecord)
+      : studio.active
+        ? finishInterviewStudioSession(studio.active, {
+            at,
+            outcome: "ended",
+          })
+        : null;
+  const history = previous ? [...studio.history, previous] : studio.history;
+  return {
+    active: next,
+    history: history.slice(-INTERVIEW_STUDIO_LIMITS.maxHistoryRecords),
+  };
+}
+
+function archiveActiveInterviewStudio(
+  studio: InterviewStudioState,
+  at: string,
+  outcome: "completed" | "ended" | "expired",
+  expectedId?: string,
+): InterviewStudioState {
+  if (!studio.active || (expectedId && studio.active.id !== expectedId)) {
+    return studio;
+  }
+  const archived =
+    studio.active.phase === "completed" &&
+    studio.active.completedAt &&
+    studio.active.outcome
+      ? (studio.active as InterviewStudioHistoryRecord)
+      : finishInterviewStudioSession(studio.active, { at, outcome });
+  return {
+    active: null,
+    history: [...studio.history, archived].slice(
+      -INTERVIEW_STUDIO_LIMITS.maxHistoryRecords,
+    ),
   };
 }
 
@@ -1367,6 +1436,11 @@ export default function SwiftGhostApp() {
       };
       const liveSession = current.activeSession;
       if (liveSession && next.sessionId === liveSession.id) {
+        const isStudioSession =
+          current.interviewStudio.active?.id === liveSession.id ||
+          current.interviewStudio.history.some(
+            (record) => record.id === liveSession.id,
+          );
         const completedSession =
           liveSession.kind === "mock"
             ? withMockCheckpoint(
@@ -1397,16 +1471,23 @@ export default function SwiftGhostApp() {
             : {
                 ...committed,
                 activeSession: null,
-                sessionHistory: [
-                  ...committed.sessionHistory,
-                  sessionHistoryRecord(completedSession, entries, "completed"),
-                ].slice(-25),
+                sessionHistory: isStudioSession
+                  ? committed.sessionHistory
+                  : [
+                      ...committed.sessionHistory,
+                      sessionHistoryRecord(
+                        completedSession,
+                        entries,
+                        "completed",
+                      ),
+                    ].slice(-25),
               };
       }
       return committed;
     });
     if (session?.kind === "mock") {
       setResult(null);
+      const isStudioSession = state.interviewStudio.active?.id === session.id;
       if (sessionNext) {
         const nextItem = allItems.find(
           (candidate) => candidate.itemId === sessionNext?.itemId,
@@ -1426,6 +1507,11 @@ export default function SwiftGhostApp() {
           setToast("Problem saved · continuing the same interview clock");
           return;
         }
+      }
+      if (isStudioSession) {
+        navigateView("sessions");
+        setToast("Interview archived · transcript and evidence saved locally");
+        return;
       }
       setMockReviewSessionId(session.id);
       navigateView("sessions");
@@ -1757,7 +1843,7 @@ export default function SwiftGhostApp() {
     plannedEntries?: SessionQueueEntry[],
   ) {
     if (
-      state.activeSession &&
+      (state.activeSession || state.interviewStudio.active) &&
       !window.confirm(
         "Replace the active session with this new queue? Completed entries will stay in session history.",
       )
@@ -1841,7 +1927,17 @@ export default function SwiftGhostApp() {
             sessionHistoryRecord(previous, previous.entries, "ended"),
           ].slice(-25)
         : base.sessionHistory;
-      return { ...base, activeSession: session, sessionHistory, draft: null };
+      return {
+        ...base,
+        activeSession: session,
+        sessionHistory,
+        interviewStudio: archiveActiveInterviewStudio(
+          base.interviewStudio,
+          new Date().toISOString(),
+          "ended",
+        ),
+        draft: null,
+      };
     });
     const first = allItems.find(
       (candidate) => candidate.itemId === entries[0].itemId,
@@ -1862,7 +1958,7 @@ export default function SwiftGhostApp() {
     problemCount: MockInterviewProblemCount,
   ) {
     if (
-      state.activeSession &&
+      (state.activeSession || state.interviewStudio.active) &&
       !window.confirm(
         "Replace the active session with this timed mock? Completed work will stay in session history.",
       )
@@ -1932,6 +2028,11 @@ export default function SwiftGhostApp() {
       return {
         ...base,
         activeSession: session,
+        interviewStudio: archiveActiveInterviewStudio(
+          base.interviewStudio,
+          startedAt,
+          "ended",
+        ),
         sessionHistory: previous
           ? [
               ...base.sessionHistory,
@@ -1945,6 +2046,330 @@ export default function SwiftGhostApp() {
     setToast(
       `${preset.durationMinutes}-minute mock started · ${problemCount} problem${problemCount === 1 ? "" : "s"} · guidance locked`,
     );
+  }
+
+  function startInterviewStudio(
+    format: InterviewStudioFormat,
+    mode: InterviewStudioMode,
+    durationMinutes: 30 | 45 | 60,
+  ) {
+    if (
+      (state.activeSession || state.interviewStudio.active) &&
+      !window.confirm(
+        "Replace the active practice with this Interview Studio screen? Existing completed work and interview evidence will stay in history.",
+      )
+    ) {
+      return;
+    }
+    const startedAt = new Date().toISOString();
+    const selected =
+      format === "python-coding"
+        ? selectMockInterviewItems(
+            allItems,
+            state.attempts,
+            durationMinutes === 30
+              ? "screen"
+              : durationMinutes === 60
+                ? "stretch"
+                : "standard",
+            1,
+          )[0]
+        : allItems
+            .filter(
+              (candidate) =>
+                candidate.source === "builtin" &&
+                candidate.track === "ios" &&
+                supportsConceptPractice(candidate),
+            )
+            .map((candidate) => ({
+              candidate,
+              attempts: state.attempts.filter(
+                (attempt) =>
+                  attempt.itemId === candidate.itemId &&
+                  attempt.itemRevision === candidate.contentRevision &&
+                  attempt.practiceKind === "concept",
+              ).length,
+            }))
+            .sort(
+              (left, right) =>
+                left.attempts - right.attempts ||
+                left.candidate.itemId.localeCompare(right.candidate.itemId),
+            )[0]?.candidate;
+    if (!selected) {
+      setToast(
+        format === "python-coding"
+          ? "No verified Python problem matches this interview length"
+          : "No authored Swift/iOS screen is available",
+      );
+      return;
+    }
+    const sessionId = makeId();
+    const studio = createInterviewStudioSession({
+      id: sessionId,
+      format,
+      mode,
+      itemId: selected.itemId,
+      itemRevision: selected.contentRevision,
+      startedAt,
+      script:
+        format === "python-coding"
+          ? pythonInterviewScript(selected)
+          : iosTechnicalScreenScript(selected),
+    });
+
+    if (format === "python-coding") {
+      const expiresAt = mockInterviewEndsAt(startedAt, durationMinutes);
+      if (!expiresAt) {
+        setToast("The interview timer could not start");
+        return;
+      }
+      const entry: SessionQueueEntry = {
+        itemId: selected.itemId,
+        itemRevision: selected.contentRevision,
+        stage: 5,
+        status: "pending",
+        practiceKind: "solving",
+        estimatedMinutes: durationMinutes,
+        rationale:
+          "Scripted interview · transcript and observable runner evidence are saved locally.",
+      };
+      const session: TrainingSession = {
+        id: sessionId,
+        name: `${mode === "mock" ? "Interview" : "Coached interview"} · ${selected.title}`,
+        kind: "mock",
+        source: "mixed",
+        track: "interview",
+        language: "python",
+        stageMode: "recall",
+        createdAt: startedAt,
+        entries: [entry],
+        currentIndex: 0,
+        mockPreset:
+          durationMinutes === 30
+            ? "screen"
+            : durationMinutes === 60
+              ? "stretch"
+              : "standard",
+        problemCount: 1,
+        durationMinutes,
+        expiresAt,
+        mockProblems: [
+          createMockProblemWorkspace(
+            {
+              itemId: selected.itemId,
+              itemRevision: selected.contentRevision,
+              source: selected.starterCode ?? "",
+            },
+            { maxElapsedMs: durationMinutes * 60_000 },
+          ),
+        ],
+      };
+      mutateState((current) => {
+        const base = recordAbandon(current);
+        const previous = base.activeSession;
+        return {
+          ...base,
+          activeSession: session,
+          sessionHistory: previous
+            ? [
+                ...base.sessionHistory,
+                sessionHistoryRecord(previous, previous.entries, "ended"),
+              ].slice(-25)
+            : base.sessionHistory,
+          interviewStudio: replaceActiveInterviewStudio(
+            base.interviewStudio,
+            studio,
+            startedAt,
+          ),
+          draft: null,
+        };
+      });
+      openItem(selected, 5, undefined, sessionId, "solving");
+      setToast(
+        `${durationMinutes}-minute ${mode === "mock" ? "interview" : "coached interview"} started · transcript is local`,
+      );
+      return;
+    }
+
+    mutateState((current) => {
+      const base = recordAbandon(current);
+      const previous = base.activeSession;
+      return {
+        ...base,
+        activeSession: null,
+        sessionHistory: previous
+          ? [
+              ...base.sessionHistory,
+              sessionHistoryRecord(previous, previous.entries, "ended"),
+            ].slice(-25)
+          : base.sessionHistory,
+        interviewStudio: replaceActiveInterviewStudio(
+          base.interviewStudio,
+          studio,
+          startedAt,
+        ),
+        draft: null,
+      };
+    });
+    navigateView("sessions");
+    setToast(
+      `${mode === "mock" ? "Swift/iOS screen" : "Coached Swift/iOS screen"} started · no compiler or automatic scoring`,
+    );
+  }
+
+  function updateActiveInterviewStudio(
+    updater: (session: InterviewStudioSession) => InterviewStudioSession,
+  ) {
+    mutateState((current) => {
+      if (!current.interviewStudio.active) return current;
+      try {
+        return {
+          ...current,
+          interviewStudio: {
+            ...current.interviewStudio,
+            active: updater(current.interviewStudio.active),
+          },
+        };
+      } catch (error) {
+        setToast(
+          error instanceof Error
+            ? error.message
+            : "That interview step could not be recorded",
+        );
+        return current;
+      }
+    });
+  }
+
+  function commitActiveInterviewResponse(text: string) {
+    const at = new Date().toISOString();
+    updateActiveInterviewStudio((session) =>
+      advanceInterviewPhase(
+        commitInterviewResponse(session, { text, at }),
+        { at },
+      ),
+    );
+  }
+
+  function advanceActiveInterview() {
+    const at = new Date().toISOString();
+    updateActiveInterviewStudio((session) =>
+      advanceInterviewPhase(session, { at }),
+    );
+  }
+
+  function requestActiveInterviewHint() {
+    const at = new Date().toISOString();
+    updateActiveInterviewStudio((session) =>
+      requestInterviewCoachHint(session, { at }),
+    );
+  }
+
+  function recordActiveInterviewRunnerEvidence(
+    expectedSessionId: string,
+    status: InterviewRunnerEventStatus,
+    source: string,
+    passed: number,
+    total: number,
+  ) {
+    const at = new Date().toISOString();
+    mutateState((current) => {
+      const active = current.interviewStudio.active;
+      if (
+        !active ||
+        active.id !== expectedSessionId ||
+        active.format !== "python-coding"
+      ) {
+        return current;
+      }
+      try {
+        return {
+          ...current,
+          interviewStudio: {
+            ...current.interviewStudio,
+            active: recordInterviewRunnerEventForSession(
+              active,
+              expectedSessionId,
+              {
+                status,
+                source,
+                passed,
+                total,
+                at,
+              },
+            ),
+          },
+        };
+      } catch (error) {
+        setToast(
+          error instanceof Error
+            ? error.message
+            : "That runner evidence could not be recorded",
+        );
+        return current;
+      }
+    });
+  }
+
+  function finishActiveInterview() {
+    const current = stateRef.current;
+    const active = current.interviewStudio.active;
+    if (!active || active.phase !== "completed") {
+      setToast("Complete every interview step before finishing");
+      return;
+    }
+    const completedAt = new Date().toISOString();
+    if (active.format === "ios-technical") {
+      mutateState((latest) => ({
+        ...latest,
+        interviewStudio: archiveActiveInterviewStudio(
+          latest.interviewStudio,
+          completedAt,
+          "completed",
+          active.id,
+        ),
+      }));
+      setToast(
+        "Technical screen archived · authored criteria are available in history",
+      );
+      return;
+    }
+    const liveDraft = current.draft;
+    const accepted = current.submissionHistory
+      .slice()
+      .reverse()
+      .find(
+        (submission) =>
+          submission.sessionId === active.id &&
+          submission.status === "accepted" &&
+          submission.itemId === active.itemId &&
+          submission.itemRevision === active.itemRevision,
+      );
+    if (
+      !accepted ||
+      !liveDraft ||
+      liveDraft.sessionId !== active.id ||
+      liveDraft.value !== accepted.source
+    ) {
+      setToast("Submit the current source successfully before finishing");
+      return;
+    }
+    mutateState((latest) => ({
+      ...latest,
+      interviewStudio: archiveActiveInterviewStudio(
+        latest.interviewStudio,
+        completedAt,
+        "completed",
+        active.id,
+      ),
+    }));
+    finish(liveDraft, {
+      revision: accepted.verificationRevision,
+      passed: accepted.passed,
+      total: accepted.total,
+      runs: Math.max(1, liveDraft.testRuns),
+      submissions: Math.max(1, liveDraft.submissions),
+    });
   }
 
   function expireMockInterview(sessionId: string) {
@@ -1966,6 +2391,12 @@ export default function SwiftGhostApp() {
         ...base,
         draft: null,
         activeSession: null,
+        interviewStudio: archiveActiveInterviewStudio(
+          base.interviewStudio,
+          new Date().toISOString(),
+          "expired",
+          sessionId,
+        ),
         sessionHistory: [
           ...base.sessionHistory,
           sessionHistoryRecord(archived, archived.entries, "expired"),
@@ -2068,6 +2499,12 @@ export default function SwiftGhostApp() {
       return {
         ...base,
         activeSession: null,
+        interviewStudio: archiveActiveInterviewStudio(
+          base.interviewStudio,
+          new Date().toISOString(),
+          "ended",
+          session.id,
+        ),
         sessionHistory: [
           ...base.sessionHistory,
           sessionHistoryRecord(archived, archived.entries, "ended"),
@@ -2537,6 +2974,12 @@ export default function SwiftGhostApp() {
           errorKeys={draft.keyErrors}
           now={now}
           activeSession={state.activeSession}
+          interviewStudio={
+            state.interviewStudio.active?.format === "python-coding" &&
+            state.interviewStudio.active.id === state.activeSession?.id
+              ? state.interviewStudio.active
+              : null
+          }
           onOpenItem={openItem}
           onChooseStage={chooseStage}
           onChoosePracticeKind={choosePracticeKind}
@@ -2580,6 +3023,11 @@ export default function SwiftGhostApp() {
           onUseHint={() => updateDraft({ ...draft, peeks: draft.peeks + 1 })}
           onMockNotebookChange={updateActiveMockNotebook}
           onMockCheckpoint={recordActiveMockCheckpoint}
+          onInterviewCommitResponse={commitActiveInterviewResponse}
+          onInterviewAdvance={advanceActiveInterview}
+          onInterviewHint={requestActiveInterviewHint}
+          onInterviewRunnerEvidence={recordActiveInterviewRunnerEvidence}
+          onFinishInterview={finishActiveInterview}
           onSolveComplete={finishSolve}
           onConceptChange={updateConceptResponse}
           onConceptReveal={revealConceptAnswer}
@@ -2601,6 +3049,11 @@ export default function SwiftGhostApp() {
           items={allItems}
           onStart={startSession}
           onStartMock={startMockInterview}
+          onStartInterview={startInterviewStudio}
+          onInterviewCommitResponse={commitActiveInterviewResponse}
+          onInterviewAdvance={advanceActiveInterview}
+          onInterviewHint={requestActiveInterviewHint}
+          onFinishInterview={finishActiveInterview}
           now={now}
           onResume={resumeSession}
           onSkip={skipSessionEntry}
@@ -2986,6 +3439,7 @@ type PracticeProps = {
   errorKeys: Record<string, number>;
   now: number;
   activeSession: TrainingSession | null;
+  interviewStudio: InterviewStudioSession | null;
   onOpenItem: (
     item: PracticeItem,
     stage?: number,
@@ -3008,6 +3462,17 @@ type PracticeProps = {
   onUseHint: () => void;
   onMockNotebookChange: (notebook: MockNotebookValue) => void;
   onMockCheckpoint: (kind: MockCheckpointKind) => void;
+  onInterviewCommitResponse: (text: string) => void;
+  onInterviewAdvance: () => void;
+  onInterviewHint: () => void;
+  onInterviewRunnerEvidence: (
+    expectedSessionId: string,
+    status: InterviewRunnerEventStatus,
+    source: string,
+    passed: number,
+    total: number,
+  ) => void;
+  onFinishInterview: () => void;
   onSolveComplete: (
     source: string,
     result: PythonVerificationResult,
@@ -3078,6 +3543,12 @@ function PracticeView(props: PracticeProps) {
     props.activeSession?.kind === "mock" &&
       props.draft.sessionId === props.activeSession.id,
   );
+  const activeStudio =
+    props.interviewStudio?.format === "python-coding" &&
+    props.interviewStudio.id === props.draft.sessionId
+      ? props.interviewStudio
+      : null;
+  const isStudio = Boolean(activeStudio);
   const mockRemainingMs = isMock
     ? (mockInterviewRemainingMs(props.activeSession, props.now) ?? 0)
     : null;
@@ -3085,6 +3556,18 @@ function PracticeView(props: PracticeProps) {
     ? props.activeSession?.mockProblems?.find(
         (workspace) => workspace.itemId === props.item.itemId,
       )
+    : undefined;
+  const acceptedStudioSubmission = activeStudio
+    ? props.state.submissionHistory
+        .slice()
+        .reverse()
+        .find(
+          (submission) =>
+            submission.sessionId === activeStudio.id &&
+            submission.status === "accepted" &&
+            submission.itemId === props.item.itemId &&
+            submission.source === props.draft.value,
+        )
     : undefined;
 
   useEffect(() => {
@@ -3248,16 +3731,31 @@ function PracticeView(props: PracticeProps) {
         source: sourceToVerify,
         runs,
       });
+      const passedCount = result.cases.filter(
+        (testCase) => testCase.passed,
+      ).length;
+      if (activeStudio) {
+        props.onInterviewRunnerEvidence(
+          activeStudio.id,
+          result.ok ? "passed" : "failed",
+          sourceToVerify,
+          passedCount,
+          result.cases.length,
+        );
+      }
       if (submissionRequest) {
         props.onSubmissionSettled({
           ...submissionRequest,
           status: classifySubmissionResult(result),
           durationMs: result.durationMs,
-          passed: result.cases.filter((testCase) => testCase.passed).length,
+          passed: passedCount,
           total: result.cases.length,
         });
       }
-      if (isRecordableChallengeResult(result, purpose, isMock)) {
+      if (
+        isRecordableChallengeResult(result, purpose, isMock) &&
+        !isStudio
+      ) {
         props.onSolveComplete(
           sourceToVerify,
           result,
@@ -3280,6 +3778,15 @@ function PracticeView(props: PracticeProps) {
           passed: 0,
           total: 0,
         });
+      }
+      if (activeStudio) {
+        props.onInterviewRunnerEvidence(
+          activeStudio.id,
+          "error",
+          sourceToVerify,
+          0,
+          0,
+        );
       }
       setVerificationState({
         itemId: props.item.itemId,
@@ -3526,10 +4033,12 @@ function PracticeView(props: PracticeProps) {
       event.key === "Enter"
     ) {
       event.preventDefault();
-      if (event.shiftKey && !isMock) {
+      if (event.shiftKey && (!isMock || isStudio)) {
         void runPythonChecks("submit");
       } else {
-        void runPythonChecks(isMock ? "full" : "examples");
+        void runPythonChecks(
+          isStudio ? "examples" : isMock ? "full" : "examples",
+        );
       }
       return;
     }
@@ -3870,8 +4379,47 @@ function PracticeView(props: PracticeProps) {
           <SolveWorkbench
             mobilePane={mobileWorkspacePane}
             onMobilePaneChange={setMobileWorkspacePane}
+            notebookLabel={isStudio ? "Interview" : undefined}
             notebook={
-              isMock && mockWorkspace ? (
+              isStudio && activeStudio ? (
+                <div className="interview-notebook-stack">
+                  <InterviewStudioPanel
+                    compact
+                    session={activeStudio as InterviewPanelSession}
+                    onCommitResponse={props.onInterviewCommitResponse}
+                    onAdvance={props.onInterviewAdvance}
+                    onRequestHint={props.onInterviewHint}
+                    onFinish={props.onFinishInterview}
+                    canFinish={
+                      activeStudio.phase === "completed" &&
+                      Boolean(acceptedStudioSubmission)
+                    }
+                    finishLabel="Archive verified interview"
+                  />
+                  {mockWorkspace && (
+                    <details className="interview-notebook-details">
+                      <summary>Structured notebook</summary>
+                      <MockNotebook
+                        notebook={mockWorkspace.notebook}
+                        promptReady={
+                          mockWorkspace.checkpoints.promptAcknowledged !==
+                          undefined
+                        }
+                        approachReady={
+                          mockWorkspace.checkpoints.approachReady !== undefined
+                        }
+                        onAcknowledgePrompt={() =>
+                          props.onMockCheckpoint("promptAcknowledged")
+                        }
+                        onAcknowledgeApproach={() =>
+                          props.onMockCheckpoint("approachReady")
+                        }
+                        onChange={props.onMockNotebookChange}
+                      />
+                    </details>
+                  )}
+                </div>
+              ) : isMock && mockWorkspace ? (
                 <MockNotebook
                   notebook={mockWorkspace.notebook}
                   promptReady={
@@ -3990,7 +4538,11 @@ function PracticeView(props: PracticeProps) {
                 onRestart={resetPractice}
                 onFocusMode={props.onFocusMode}
                 onChange={handleEditorChange}
-                onRunExamples={() => void runPythonChecks(isMock ? "full" : "examples")}
+                onRunExamples={() =>
+                  void runPythonChecks(
+                    isStudio ? "examples" : isMock ? "full" : "examples",
+                  )
+                }
                 onSubmit={() => void runPythonChecks("submit")}
                 onKeyDown={handleEditorKeyDown}
                 onPaste={props.onPaste}
@@ -4000,6 +4552,7 @@ function PracticeView(props: PracticeProps) {
               <ChallengeConsole
                 practiceKind={props.practiceKind}
                 isMock={isMock}
+                isStudio={isStudio}
                 runnerSourcePresent={Boolean(runnerSource.trim())}
                 checksAreBusy={checksAreBusy}
                 consoleTab={consoleTab}
@@ -4235,7 +4788,11 @@ function PracticeView(props: PracticeProps) {
             onRestart={resetPractice}
             onFocusMode={props.onFocusMode}
             onChange={handleEditorChange}
-            onRunExamples={() => void runPythonChecks(isMock ? "full" : "examples")}
+            onRunExamples={() =>
+              void runPythonChecks(
+                isStudio ? "examples" : isMock ? "full" : "examples",
+              )
+            }
             onSubmit={() => void runPythonChecks("submit")}
             onKeyDown={handleEditorKeyDown}
             onPaste={props.onPaste}
@@ -4244,6 +4801,7 @@ function PracticeView(props: PracticeProps) {
           <ChallengeConsole
             practiceKind={props.practiceKind}
             isMock={isMock}
+            isStudio={isStudio}
             runnerSourcePresent={Boolean(runnerSource.trim())}
             checksAreBusy={checksAreBusy}
             consoleTab={consoleTab}
@@ -4411,6 +4969,11 @@ function SessionsView({
   items,
   onStart,
   onStartMock,
+  onStartInterview,
+  onInterviewCommitResponse,
+  onInterviewAdvance,
+  onInterviewHint,
+  onFinishInterview,
   now,
   onResume,
   onSkip,
@@ -4427,6 +4990,15 @@ function SessionsView({
     preset: MockInterviewPresetId,
     problemCount: MockInterviewProblemCount,
   ) => void;
+  onStartInterview: (
+    format: InterviewStudioFormat,
+    mode: InterviewStudioMode,
+    durationMinutes: 30 | 45 | 60,
+  ) => void;
+  onInterviewCommitResponse: (text: string) => void;
+  onInterviewAdvance: () => void;
+  onInterviewHint: () => void;
+  onFinishInterview: () => void;
   now: number;
   onResume: () => void;
   onSkip: () => void;
@@ -4445,6 +5017,11 @@ function SessionsView({
   const [stageMode, setStageMode] = useState<SessionStageMode>("recommended");
   const [mockProblemCount, setMockProblemCount] =
     useState<MockInterviewProblemCount>(1);
+  const [studioFormat, setStudioFormat] =
+    useState<InterviewStudioFormat>("python-coding");
+  const [studioMode, setStudioMode] =
+    useState<InterviewStudioMode>("mock");
+  const [studioDuration, setStudioDuration] = useState<30 | 45 | 60>(45);
   const signals = useMemo(
     () =>
       Object.fromEntries(
@@ -4485,6 +5062,7 @@ function SessionsView({
     ],
   );
   const active = state.activeSession;
+  const activeStudio = state.interviewStudio.active;
   const activeMockRemaining =
     active?.kind === "mock"
       ? (mockInterviewRemainingMs(active, now) ?? 0)
@@ -4493,17 +5071,147 @@ function SessionsView({
     <main id="main-content" tabIndex={-1} className="page-container sessions-page">
       <PageHeading
         eyebrow="Deliberate practice"
-        title="Practice deliberately, then rehearse the real interview."
-        copy="Build a persistent learning queue or enter a timed mock where guidance and expected test values stay locked."
+        title="Practice deliberately, then rehearse the real conversation."
+        copy="Use a scripted interviewer for clarification, implementation, testing, tradeoffs, and follow-ups—or build a focused practice queue."
       />
+      {activeStudio?.format === "ios-technical" && (
+        <section className="active-technical-screen">
+          <div className="technical-screen-scenario">
+            <span className="eyebrow">Current Swift/iOS scenario</span>
+            <h2>{activeStudio.script.title}</h2>
+            <p>{activeStudio.script.scenario}</p>
+            <small>
+              No Swift compiler or automatic correctness claim. Your committed
+              answers are compared with authored criteria after completion.
+            </small>
+          </div>
+          <InterviewStudioPanel
+            session={activeStudio as InterviewPanelSession}
+            responseLabel="Your interview answer"
+            onCommitResponse={onInterviewCommitResponse}
+            onAdvance={onInterviewAdvance}
+            onRequestHint={onInterviewHint}
+            onFinish={onFinishInterview}
+            canFinish={activeStudio.phase === "completed"}
+            finishLabel="Archive technical screen"
+          />
+        </section>
+      )}
+      {activeStudio?.format === "python-coding" && active && (
+        <section className="studio-resume-banner">
+          <div>
+            <span className="eyebrow">Interview Studio in progress</span>
+            <strong>{activeStudio.script.title}</strong>
+            <p>
+              {activeStudio.phase === "completed"
+                ? "The script is complete. Return to the workspace to archive the verified solution."
+                : `Current turn: ${activeStudio.phase.replace("-", " ")}. The transcript and timer survive reloads.`}
+            </p>
+          </div>
+          <button className="primary-button" onClick={onResume}>
+            Resume interview →
+          </button>
+        </section>
+      )}
+      <section className="interview-studio-launcher">
+        <div className="interview-launch-copy">
+          <span className="eyebrow">Interview Studio</span>
+          <h2>An interviewer that waits for your decisions—not just your code.</h2>
+          <p>
+            Work through eight forward-only turns. Python screens capture real
+            runner evidence. Swift/iOS screens use authored scenarios and never
+            pretend to execute or grade Swift.
+          </p>
+          <ul>
+            <li>Clarification and approach before implementation</li>
+            <li>Timestamped local transcript and runner evidence</li>
+            <li>Pattern-specific follow-ups and post-screen criteria</li>
+          </ul>
+        </div>
+        <div className="interview-launch-controls">
+          <fieldset>
+            <legend>Screen format</legend>
+            <div className="interview-option-grid">
+              <label className={studioFormat === "python-coding" ? "is-selected" : ""}>
+                <input
+                  type="radio"
+                  name="studio-format"
+                  checked={studioFormat === "python-coding"}
+                  onChange={() => setStudioFormat("python-coding")}
+                />
+                <strong>Python coding</strong>
+                <small>Real editor, samples, hidden checks, and submissions</small>
+              </label>
+              <label className={studioFormat === "ios-technical" ? "is-selected" : ""}>
+                <input
+                  type="radio"
+                  name="studio-format"
+                  checked={studioFormat === "ios-technical"}
+                  onChange={() => setStudioFormat("ios-technical")}
+                />
+                <strong>Swift / iOS screen</strong>
+                <small>Authored design, debugging, ownership, and API scenarios</small>
+              </label>
+            </div>
+          </fieldset>
+          <div className="interview-control-row">
+            <label>
+              <span>Interview behavior</span>
+              <select
+                value={studioMode}
+                onChange={(event) =>
+                  setStudioMode(event.target.value as InterviewStudioMode)
+                }
+              >
+                <option value="mock">Interview mode · no hints</option>
+                <option value="coach">Coach mode · logged hints</option>
+              </select>
+            </label>
+            {studioFormat === "python-coding" ? (
+              <label>
+                <span>Interview clock</span>
+                <select
+                  value={studioDuration}
+                  onChange={(event) =>
+                    setStudioDuration(Number(event.target.value) as 30 | 45 | 60)
+                  }
+                >
+                  <option value={30}>30 minutes</option>
+                  <option value={45}>45 minutes</option>
+                  <option value={60}>60 minutes</option>
+                </select>
+                <small>Runs as a real deadline.</small>
+              </label>
+            ) : (
+              <div className="interview-static-control">
+                <span>Pacing</span>
+                <strong>Self-paced technical screen</strong>
+                <small>Finish after your closing explanation.</small>
+              </div>
+            )}
+          </div>
+          <button
+            className="primary-button interview-start-button"
+            type="button"
+            onClick={() =>
+              onStartInterview(studioFormat, studioMode, studioDuration)
+            }
+          >
+            Start {studioFormat === "python-coding" ? "coding interview" : "technical screen"} →
+          </button>
+          <small className="interview-privacy-note">
+            Transcript stays on this device and is excluded from community
+            uploads. No microphone, camera, or network compiler.
+          </small>
+        </div>
+      </section>
       <section className="mock-interview-center">
         <div className="mock-interview-copy">
-          <span className="eyebrow">Interview simulator</span>
-          <h2>One or two cold problems. One clock. No in-app answer reveal.</h2>
+          <span className="eyebrow">Classic timed mock</span>
+          <h2>Prefer the old format? Keep the one- or two-problem clock.</h2>
           <p>
-            Each preset chooses under-practiced verified Python work. The timer
-            survives reloads, pattern guidance stays hidden, and only a clean
-            executable pass counts as independent solve evidence.
+            This simpler mode keeps the existing locked notebook and debrief
+            without the scripted interviewer transcript.
           </p>
         </div>
         <fieldset className="mock-problem-count">
@@ -4823,6 +5531,94 @@ function SessionsView({
             </p>
           )}
         </div>
+      </section>
+      <section className="interview-history">
+        <div className="section-head">
+          <div>
+            <small>Evidence replay</small>
+            <h2>Interview Studio history</h2>
+          </div>
+          <span>{state.interviewStudio.history.length} saved locally</span>
+        </div>
+        {state.interviewStudio.history.length ? (
+          <div className="interview-history-list">
+            {state.interviewStudio.history
+              .slice()
+              .reverse()
+              .map((session) => {
+                const responseCount = session.transcript.filter(
+                  (entry) => entry.kind === "candidate-response",
+                ).length;
+                const hintCount = session.transcript.filter(
+                  (entry) => entry.kind === "coach-hint",
+                ).length;
+                return (
+                  <details key={session.id}>
+                    <summary>
+                      <span>
+                        <strong>{session.script.title}</strong>
+                        <small>
+                          {session.format === "python-coding"
+                            ? "Python coding"
+                            : "Swift / iOS technical"}
+                          {` · ${session.mode === "mock" ? "Interview" : "Coach"} · ${session.outcome} · ${formatDate(session.completedAt)}`}
+                        </small>
+                      </span>
+                      <span className="interview-history-metrics">
+                        {responseCount} responses · {session.runnerEvents.length}{" "}
+                        runner events · {hintCount} hints
+                      </span>
+                    </summary>
+                    <div className="interview-history-report">
+                      <section>
+                        <span className="eyebrow">Observed transcript</span>
+                        <div className="interview-history-transcript">
+                          {session.transcript.map((entry) => (
+                            <article key={entry.id}>
+                              <header>
+                                <strong>
+                                  {entry.role === "candidate"
+                                    ? "You"
+                                    : entry.role === "interviewer"
+                                      ? "Interviewer"
+                                      : "Evidence"}
+                                </strong>
+                                <time dateTime={entry.at}>
+                                  {formatDate(entry.at)}
+                                </time>
+                              </header>
+                              <p>{entry.text}</p>
+                            </article>
+                          ))}
+                        </div>
+                      </section>
+                      <section>
+                        <span className="eyebrow">Authored review criteria</span>
+                        <p>
+                          Compare these with your committed answers. Swift/iOS
+                          responses are never automatically marked correct.
+                        </p>
+                        <ol>
+                          {session.script.referenceCriteria.map(
+                            (criterion, index) => (
+                              <li key={`${session.id}-criterion-${index}`}>
+                                {criterion}
+                              </li>
+                            ),
+                          )}
+                        </ol>
+                      </section>
+                    </div>
+                  </details>
+                );
+              })}
+          </div>
+        ) : (
+          <p className="interview-history-empty">
+            Complete your first scripted interview to unlock transcript replay
+            and authored review criteria.
+          </p>
+        )}
       </section>
       <section className="session-history">
         <div className="section-head">
@@ -5973,11 +6769,11 @@ function SettingsView({
           <small>Your data</small>
           <h2>Local profile</h2>
           <p>
-            Export a portable v16 JSON backup with Python, Swift, iOS, sessions,
+            Export a portable v17 JSON backup with Python, Swift, iOS, sessions,
             learning debriefs, revisioned snippets, local pacing and weak-line
             analytics, community preferences, structured custom testcases, and
-            local submission snapshots, mock notebooks and debriefs, or restore
-            any v2-v16 backup.
+            local submission snapshots, mock notebooks and debriefs, Interview
+            Studio transcripts and criteria, or restore any v2-v17 backup.
           </p>
         </div>
         <div className="data-actions">

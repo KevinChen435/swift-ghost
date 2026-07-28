@@ -37,9 +37,38 @@ test("server-renders the Swift Ghost practice shell", async () => {
   assert.match(html, /Practice the skill that needs evidence/);
   assert.match(html, /Build recall, one clean pass at a time/);
   assert.match(html, /Add snippet/);
-  assert.match(html, /Sessions/);
+  assert.match(html, /Studio/);
   assert.match(html, /Records/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/i);
+});
+
+test("local production capability checks degrade quietly without Worker bindings", async () => {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("capabilities-test", `${process.pid}-${Date.now()}`);
+  const { default: worker } = await import(workerUrl.href);
+  const response = await worker.fetch(
+    new Request("http://localhost/api/v1/capabilities"),
+    undefined,
+    {
+      waitUntil() {},
+      passThroughOnException() {},
+    },
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    apiVersion: "v1",
+    cloudSync: false,
+    community: false,
+    leaderboards: false,
+    auth: "anonymous",
+    maxAttemptBatch: 100,
+    privacy: {
+      profileDefault: "private",
+      activityDefault: "off",
+      leaderboardsDefault: "off",
+    },
+  });
 });
 
 test("ships the full five-stage practice model and original problem links", async () => {
@@ -102,14 +131,15 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v16"/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v17"/);
+  assert.match(product, /SIXTEENTH_STORAGE_KEY = "swift-ghost-state-v16"/);
   assert.match(product, /FIFTEENTH_STORAGE_KEY = "swift-ghost-state-v15"/);
   assert.match(product, /FOURTEENTH_STORAGE_KEY = "swift-ghost-state-v14"/);
   assert.match(product, /THIRTEENTH_STORAGE_KEY = "swift-ghost-state-v13"/);
   assert.match(product, /TWELFTH_STORAGE_KEY = "swift-ghost-state-v12"/);
   assert.match(product, /PREVIOUS_STORAGE_KEY = "swift-ghost-state-v11"/);
   assert.match(product, /FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2"/);
-  assert.match(product, /version: 16/);
+  assert.match(product, /version: 17/);
   assert.match(product, /swift-ghost-state-v10/);
   assert.match(product, /swift-ghost-state-v9/);
   assert.match(product, /swift-ghost-state-v8/);
@@ -296,7 +326,7 @@ test("ships reload-safe timed mock interviews", async () => {
   assert.match(mock, /MOCK_INTERVIEW_PRESETS/);
   assert.match(mock, /selectMockInterviewItems/);
   assert.match(mock, /mockInterviewRemainingMs/);
-  assert.match(app, /One or two cold problems\. One clock\. No in-app answer reveal\./);
+  assert.match(app, /Prefer the old format\? Keep the one- or two-problem clock\./);
   assert.match(app, /Two-problem mocks keep the same absolute deadline/);
   assert.match(app, /<MockNotebook/);
   assert.match(app, /<MockDebriefDialog/);

@@ -924,12 +924,16 @@ const worker = {
     ctx: ExecutionContext,
   ): Promise<Response> {
     const url = new URL(request.url);
+    // The local Vinext production preview does not provide Worker bindings.
+    // Treat that environment like the offline/static edition instead of
+    // turning harmless capability checks into repeated 500 responses.
+    const runtimeEnv = env ?? ({} as Env);
     if (
       url.pathname.startsWith(`${API_PREFIX}/`) ||
       url.pathname === API_PREFIX
     ) {
       try {
-        return await api(request, env, url);
+        return await api(request, runtimeEnv, url);
       } catch (error) {
         console.error(
           "Swift Ghost API failure",
