@@ -1,0 +1,633 @@
+"use client";
+
+import { useId, type KeyboardEvent } from "react";
+import type { PythonVerificationResult } from "../lib/python-runner.mjs";
+import type { PracticeKind, SubmissionRecord } from "../lib/product";
+
+export type ChallengeConsoleTab =
+  | "examples"
+  | "custom"
+  | "output"
+  | "submissions";
+
+export type ChallengeVerificationState = {
+  status: "idle" | "loading" | "running" | "passed" | "failed" | "error";
+  purpose?: "examples" | "submit" | "full";
+  result?: PythonVerificationResult;
+  message?: string;
+};
+
+export type ChallengeCustomExecutionState = {
+  status: "idle" | "loading" | "running" | "passed" | "error";
+  result?: PythonVerificationResult;
+  message?: string;
+};
+
+export type ChallengeConsoleProps = {
+  practiceKind: PracticeKind;
+  isMock: boolean;
+  runnerSourcePresent: boolean;
+  checksAreBusy: boolean;
+  consoleTab: ChallengeConsoleTab;
+  onConsoleTabChange: (tab: ChallengeConsoleTab) => void;
+  customCaseInput: string;
+  defaultCustomCaseInput: string;
+  onCustomCaseInputChange: (value: string) => void;
+  onLoadDefaultCustomCase: () => void;
+  onRunCustomCase: () => void | Promise<void>;
+  customExecutionState: ChallengeCustomExecutionState;
+  verificationState: ChallengeVerificationState;
+  exampleExpectedValues: readonly unknown[];
+  onRunExamples: () => void | Promise<void>;
+  onSubmit: () => void | Promise<void>;
+  onRunFull: () => void | Promise<void>;
+  submissionHistory: readonly SubmissionRecord[];
+  currentItemRevision: number;
+  currentVerificationRevision: number;
+  onRestoreSubmission: (source: string) => void;
+  canRecordMock?: boolean;
+  onRecordMock?: () => void;
+};
+
+const TAB_LABELS: Readonly<Record<ChallengeConsoleTab, string>> = {
+  examples: "Testcases",
+  custom: "Custom",
+  output: "Result",
+  submissions: "Submissions",
+};
+
+const SUBMISSION_STATUS_LABELS: Readonly<
+  Record<SubmissionRecord["status"], string>
+> = {
+  accepted: "Accepted",
+  "wrong-answer": "Wrong answer",
+  "runtime-error": "Runtime error",
+  "time-limit": "Time limit exceeded",
+  "invalid-entrypoint": "Invalid entrypoint",
+  "judge-error": "Judge error",
+};
+
+function tabId(prefix: string, tab: ChallengeConsoleTab) {
+  return `${prefix}-${tab}-tab`;
+}
+
+function panelId(prefix: string, tab: ChallengeConsoleTab) {
+  return `${prefix}-${tab}-panel`;
+}
+
+function formatJson(value: unknown) {
+  const encoded = JSON.stringify(value, null, 2);
+  return encoded === undefined ? "undefined" : encoded;
+}
+
+function formatSubmissionTimestamp(value: string) {
+  const timestamp = new Date(value);
+  if (Number.isNaN(timestamp.getTime())) return "Unknown time";
+  return `${timestamp.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
+function sourceLineCount(source: string) {
+  if (!source) return 0;
+  return source.split(/\r\n|\r|\n/).length;
+}
+
+function passedCount(result: PythonVerificationResult) {
+  return result.cases.filter((testCase) => testCase.passed).length;
+}
+
+function CustomCasePanel({
+  customCaseInput,
+  defaultCustomCaseInput,
+  onCustomCaseInputChange,
+  onLoadDefaultCustomCase,
+  onRunCustomCase,
+  customExecutionState,
+  runnerSourcePresent,
+  checksAreBusy,
+}: Pick<
+  ChallengeConsoleProps,
+  | "customCaseInput"
+  | "defaultCustomCaseInput"
+  | "onCustomCaseInputChange"
+  | "onLoadDefaultCustomCase"
+  | "onRunCustomCase"
+  | "customExecutionState"
+  | "runnerSourcePresent"
+  | "checksAreBusy"
+>) {
+  const customResult = customExecutionState.result;
+  const customIsRunning =
+    customExecutionState.status === "loading" ||
+    customExecutionState.status === "running";
+
+  return (
+    <div className="custom-case-panel challenge-console-custom">
+      <div className="custom-case-head">
+        <span>
+          <small>Custom testcase</small>
+          <strong>Run your own JSON arguments</strong>
+        </span>
+        <button
+          className="text-button"
+          type="button"
+          onClick={onLoadDefaultCustomCase}
+        >
+          Load example
+        </button>
+      </div>
+      <label>
+        JSON arguments
+        <textarea
+          value={customCaseInput}
+          onChange={(event) => onCustomCaseInputChange(event.target.value)}
+          placeholder={defaultCustomCaseInput}
+          spellCheck={false}
+          aria-label="Custom testcase arguments as JSON"
+        />
+      </label>
+      <div className="custom-case-actions">
+        <button
+          className="outline-button"
+          type="button"
+          disabled={!runnerSourcePresent || checksAreBusy}
+          onClick={() => void onRunCustomCase()}
+        >
+          {customExecutionState.status === "loading"
+            ? "Loading Python..."
+            : customExecutionState.status === "running"
+              ? "Running testcase..."
+              : "Run custom testcase"}
+        </button>
+        <small>This output is private practice and never records mastery.</small>
+      </div>
+
+      {(customResult || customExecutionState.status === "error") && (
+        <div
+          className={`custom-case-result${customExecutionState.status === "error" ? " failed" : ""}`}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {customExecutionState.status === "error" ? (
+            <>
+              <strong>Custom testcase could not run</strong>
+              <code>{customExecutionState.message}</code>
+            </>
+          ) : (
+            <>
+              <span>Output</span>
+              {customResult?.cases.map((testCase, index) => (
+                <div key={`${testCase.name}-${index}`}>
+                  <strong>{testCase.name}</strong>
+                  {testCase.error ? (
+                    <code>{testCase.error}</code>
+                  ) : (
+                    <pre>{formatJson(testCase.actual)}</pre>
+                  )}
+                </div>
+              ))}
+              {customResult?.stdout && (
+                <div>
+                  <strong>Standard output</strong>
+                  <pre>{customResult.stdout}</pre>
+                </div>
+              )}
+              {customResult?.stderr && (
+                <div>
+                  <strong>Standard error</strong>
+                  <pre>{customResult.stderr}</pre>
+                </div>
+              )}
+              <small>{Math.round(customResult?.durationMs ?? 0)} ms</small>
+            </>
+          )}
+        </div>
+      )}
+      {!customResult &&
+        customExecutionState.status !== "error" &&
+        !customIsRunning && (
+          <p className="challenge-console-empty">
+            Add one JSON testcase, then run it to inspect the returned value.
+          </p>
+        )}
+    </div>
+  );
+}
+
+function VerificationOutput({
+  verificationState,
+  exampleExpectedValues,
+  isMock,
+}: Pick<
+  ChallengeConsoleProps,
+  "verificationState" | "exampleExpectedValues" | "isMock"
+>) {
+  const result = verificationState.result;
+  const showsExampleDetails =
+    verificationState.purpose === "examples" && !isMock;
+
+  if (verificationState.status === "error") {
+    return (
+      <div
+        className="python-verification-results failed"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <strong>Checks could not run</strong>
+        {showsExampleDetails && verificationState.message && (
+          <code>{verificationState.message}</code>
+        )}
+        {!showsExampleDetails && (
+          <p className="mock-test-note">
+            The judge could not finish this run. Individual judge details stay
+            private.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  if (!result) {
+    const isRunning =
+      verificationState.status === "loading" ||
+      verificationState.status === "running";
+    return (
+      <div
+        className="challenge-console-empty"
+        role={isRunning ? "status" : undefined}
+        aria-live={isRunning ? "polite" : undefined}
+      >
+        {isRunning
+          ? verificationState.status === "loading"
+            ? "Loading the local Python judge..."
+            : "Running checks..."
+          : "Run the examples or submit your solution to see a result."}
+      </div>
+    );
+  }
+
+  const passed = passedCount(result);
+  const isSubmission = verificationState.purpose === "submit";
+  const isRedacted = isMock || isSubmission;
+
+  return (
+    <div
+      className={`python-verification-results ${result.ok ? "passed" : "failed"}`}
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <strong>
+        {isSubmission
+          ? result.ok
+            ? "Accepted"
+            : "Not accepted"
+          : result.ok
+            ? `All ${result.cases.length} checks passed`
+            : `${passed}/${result.cases.length} checks passed`}
+      </strong>
+      <small>{Math.round(result.durationMs)} ms</small>
+
+      {isRedacted ? (
+        <p className="mock-test-note">
+          Hidden judge details stay out of the interface. Use the aggregate
+          result to revise your edge cases.
+        </p>
+      ) : showsExampleDetails ? (
+        <>
+          {result.setupError && <code>{result.setupError}</code>}
+          <ul>
+            {result.cases.map((testCase, index) => (
+              <li
+                className={testCase.passed ? "passed" : "failed"}
+                key={`${testCase.name}-${index}`}
+              >
+                <span aria-hidden="true">{testCase.passed ? "OK" : "X"}</span>
+                <strong>{testCase.name}</strong>
+                {testCase.error ? (
+                  <code>{testCase.error}</code>
+                ) : (
+                  <code>
+                    expected: {formatJson(exampleExpectedValues[index])}
+                    {"\n"}
+                    received: {formatJson(testCase.actual)}
+                  </code>
+                )}
+              </li>
+            ))}
+          </ul>
+          {result.stdout && (
+            <div className="challenge-console-stream">
+              <strong>Standard output</strong>
+              <pre>{result.stdout}</pre>
+            </div>
+          )}
+          {result.stderr && (
+            <div className="challenge-console-stream">
+              <strong>Standard error</strong>
+              <pre>{result.stderr}</pre>
+            </div>
+          )}
+        </>
+      ) : (
+        <p className="mock-test-note">
+          This verification run is summarized without individual judge cases.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function SubmissionHistory({
+  submissions,
+  currentItemRevision,
+  currentVerificationRevision,
+  checksAreBusy,
+  onRestoreSubmission,
+}: {
+  submissions: readonly SubmissionRecord[];
+  currentItemRevision: number;
+  currentVerificationRevision: number;
+  checksAreBusy: boolean;
+  onRestoreSubmission: (source: string) => void;
+}) {
+  const newestFirst = [...submissions].sort(
+    (left, right) =>
+      Date.parse(right.submittedAt) - Date.parse(left.submittedAt),
+  );
+
+  if (newestFirst.length === 0) {
+    return (
+      <p className="challenge-console-empty">
+        Your submitted solutions will appear here with their judge result.
+      </p>
+    );
+  }
+
+  return (
+    <ol className="challenge-console-submission-list">
+      {newestFirst.map((submission) => {
+        const isCurrentRevision =
+          submission.itemRevision === currentItemRevision &&
+          submission.verificationRevision === currentVerificationRevision;
+        return (
+          <li
+            className={`challenge-console-submission is-${submission.status}`}
+            key={submission.id}
+          >
+          <div className="challenge-console-submission-head">
+            <strong>{SUBMISSION_STATUS_LABELS[submission.status]}</strong>
+            <time dateTime={submission.submittedAt}>
+              {formatSubmissionTimestamp(submission.submittedAt)}
+            </time>
+          </div>
+          <div className="challenge-console-submission-meta">
+            <span>
+              {submission.passed}/{submission.total} checks
+            </span>
+            <span>{Math.round(submission.durationMs)} ms</span>
+            <span>{sourceLineCount(submission.source)} lines</span>
+            <span>{submission.origin === "mock" ? "Mock" : "Practice"}</span>
+            <span>{isCurrentRevision ? "Current prompt" : "Older prompt"}</span>
+          </div>
+          <button
+            className="outline-button"
+            type="button"
+            disabled={checksAreBusy}
+            onClick={() => onRestoreSubmission(submission.source)}
+          >
+            {isCurrentRevision ? "Restore" : "Restore older source"}
+          </button>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
+export function ChallengeConsole({
+  practiceKind,
+  isMock,
+  runnerSourcePresent,
+  checksAreBusy,
+  consoleTab,
+  onConsoleTabChange,
+  customCaseInput,
+  defaultCustomCaseInput,
+  onCustomCaseInputChange,
+  onLoadDefaultCustomCase,
+  onRunCustomCase,
+  customExecutionState,
+  verificationState,
+  exampleExpectedValues,
+  onRunExamples,
+  onSubmit,
+  onRunFull,
+  submissionHistory,
+  currentItemRevision,
+  currentVerificationRevision,
+  onRestoreSubmission,
+  canRecordMock = false,
+  onRecordMock,
+}: ChallengeConsoleProps) {
+  const idPrefix = `challenge-console-${useId().replace(/:/g, "")}`;
+  const isSolving = practiceKind === "solving";
+  const availableTabs: readonly ChallengeConsoleTab[] = isMock
+    ? ["examples", "output"]
+    : isSolving
+      ? ["examples", "custom", "output", "submissions"]
+      : ["examples", "output"];
+  const activeTab = availableTabs.includes(consoleTab)
+    ? consoleTab
+    : availableTabs[0];
+
+  function selectAdjacentTab(
+    event: KeyboardEvent<HTMLButtonElement>,
+    currentTab: ChallengeConsoleTab,
+  ) {
+    const currentIndex = availableTabs.indexOf(currentTab);
+    const nextIndex =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? availableTabs.length - 1
+          : event.key === "ArrowRight"
+            ? (currentIndex + 1) % availableTabs.length
+            : event.key === "ArrowLeft"
+              ? (currentIndex - 1 + availableTabs.length) %
+                availableTabs.length
+              : -1;
+    if (nextIndex < 0) return;
+    event.preventDefault();
+    const nextTab = availableTabs[nextIndex];
+    onConsoleTabChange(nextTab);
+    document.getElementById(tabId(idPrefix, nextTab))?.focus();
+  }
+
+  const isRunning =
+    verificationState.status === "loading" ||
+    verificationState.status === "running";
+
+  return (
+    <section
+      className={`python-verification challenge-console${isMock ? " is-mock" : ""}`}
+      aria-label="Code runner and submissions"
+    >
+      <header className="challenge-console-header">
+        <div>
+          <span className="eyebrow">Browser Python - local judge</span>
+          <h2>{isSolving ? "Testcases and results" : "Check your solution"}</h2>
+        </div>
+        <p>
+          {isSolving
+            ? "Run examples while you iterate. Submit checks the complete local judge suite."
+            : "Your code stays on this device and runs in a fresh Python worker."}
+        </p>
+      </header>
+
+      <div
+        className="challenge-console-tabs"
+        role="tablist"
+        aria-label="Test console panels"
+        aria-orientation="horizontal"
+      >
+        {availableTabs.map((tab) => (
+          <button
+            className={`challenge-console-tab${activeTab === tab ? " is-active" : ""}`}
+            id={tabId(idPrefix, tab)}
+            key={tab}
+            type="button"
+            role="tab"
+            aria-controls={panelId(idPrefix, tab)}
+            aria-selected={activeTab === tab}
+            tabIndex={activeTab === tab ? 0 : -1}
+            onClick={() => onConsoleTabChange(tab)}
+            onKeyDown={(event) => selectAdjacentTab(event, tab)}
+          >
+            {TAB_LABELS[tab]}
+            {tab === "submissions" && submissionHistory.length > 0 && (
+              <span className="challenge-console-tab-count">
+                {submissionHistory.length}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      <div
+        className={`challenge-console-panel challenge-console-${activeTab}-panel`}
+        id={panelId(idPrefix, activeTab)}
+        role="tabpanel"
+        aria-labelledby={tabId(idPrefix, activeTab)}
+        tabIndex={0}
+      >
+        {activeTab === "examples" && (
+          <div className="challenge-console-example-summary">
+            <strong>Start with the examples</strong>
+            <p>
+              Run the published examples for fast feedback. A submission checks
+              additional edge cases without revealing their inputs or outputs.
+            </p>
+            {verificationState.purpose === "examples" &&
+              verificationState.result && (
+                <VerificationOutput
+                  verificationState={verificationState}
+                  exampleExpectedValues={exampleExpectedValues}
+                  isMock={isMock}
+                />
+              )}
+          </div>
+        )}
+        {activeTab === "custom" && !isMock && isSolving && (
+          <CustomCasePanel
+            customCaseInput={customCaseInput}
+            defaultCustomCaseInput={defaultCustomCaseInput}
+            onCustomCaseInputChange={onCustomCaseInputChange}
+            onLoadDefaultCustomCase={onLoadDefaultCustomCase}
+            onRunCustomCase={onRunCustomCase}
+            customExecutionState={customExecutionState}
+            runnerSourcePresent={runnerSourcePresent}
+            checksAreBusy={checksAreBusy}
+          />
+        )}
+        {activeTab === "output" && (
+          <VerificationOutput
+            verificationState={verificationState}
+            exampleExpectedValues={exampleExpectedValues}
+            isMock={isMock}
+          />
+        )}
+        {activeTab === "submissions" && !isMock && isSolving && (
+          <SubmissionHistory
+            submissions={submissionHistory}
+            currentItemRevision={currentItemRevision}
+            currentVerificationRevision={currentVerificationRevision}
+            checksAreBusy={checksAreBusy}
+            onRestoreSubmission={onRestoreSubmission}
+          />
+        )}
+      </div>
+
+      <footer className="python-verification-actions challenge-console-actions">
+        {isSolving && !isMock ? (
+          <>
+            <button
+              className="outline-button"
+              type="button"
+              disabled={!runnerSourcePresent || checksAreBusy}
+              onClick={() => void onRunExamples()}
+            >
+              {isRunning && verificationState.purpose === "examples"
+                ? "Running examples..."
+                : "Run examples"}
+            </button>
+            <button
+              className="primary-button submit-solution"
+              type="button"
+              disabled={!runnerSourcePresent || checksAreBusy}
+              onClick={() => void onSubmit()}
+            >
+              {isRunning && verificationState.purpose === "submit"
+                ? "Judging solution..."
+                : "Submit solution"}
+            </button>
+            <small>Ctrl/Cmd+Enter runs examples; add Shift to submit</small>
+          </>
+        ) : (
+          <button
+            className="primary-button"
+            type="button"
+            disabled={!runnerSourcePresent || checksAreBusy}
+            onClick={() => void onRunFull()}
+          >
+            {verificationState.status === "loading"
+              ? "Loading Python..."
+              : verificationState.status === "running"
+                ? "Running checks..."
+                : "Run checks"}
+          </button>
+        )}
+
+        {!runnerSourcePresent && (
+          <small>Type some code before running checks.</small>
+        )}
+
+        {isMock &&
+          canRecordMock &&
+          onRecordMock &&
+          verificationState.purpose === "full" &&
+          verificationState.result?.ok && (
+            <button
+              className="primary-button record-solve"
+              type="button"
+              disabled={checksAreBusy}
+              onClick={onRecordMock}
+            >
+              Record verified solve
+            </button>
+          )}
+      </footer>
+    </section>
+  );
+}

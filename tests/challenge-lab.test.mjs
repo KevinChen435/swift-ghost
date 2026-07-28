@@ -8,6 +8,7 @@ import { PYTHON_PROBLEMS } from "../app/data/python-problems.ts";
 import {
   challengeSpecForItem,
   challengeVerificationForPurpose,
+  classifySubmissionResult,
   customCaseVerification,
   isRecordableChallengeResult,
   visibleChallengeVerification,
@@ -184,5 +185,38 @@ test("example runs cannot record a solve while accepted submissions can", () => 
       "submit",
     ),
     false,
+  );
+});
+
+test("submission results receive useful aggregate verdicts", () => {
+  assert.equal(
+    classifySubmissionResult({ ok: true, cases: [{ passed: true }] }),
+    "accepted",
+  );
+  assert.equal(
+    classifySubmissionResult({ ok: false, cases: [{ passed: false }] }),
+    "wrong-answer",
+  );
+  assert.equal(
+    classifySubmissionResult({
+      ok: false,
+      cases: [{ passed: false, error: "division by zero" }],
+    }),
+    "runtime-error",
+  );
+  assert.equal(
+    classifySubmissionResult({
+      ok: false,
+      cases: [{ passed: false, error: "Execution timed out" }],
+    }),
+    "time-limit",
+  );
+  assert.equal(
+    classifySubmissionResult({
+      ok: false,
+      setupError: "Solution.twoSum was not found",
+      cases: [],
+    }),
+    "invalid-entrypoint",
   );
 });

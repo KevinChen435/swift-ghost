@@ -50,6 +50,16 @@ export function isRecordableChallengeResult(
   purpose: "examples" | "submit" | "full",
   isMock?: boolean,
 ): boolean;
+export function classifySubmissionResult(result: {
+  ok?: boolean;
+  setupError?: string | null;
+  cases?: ReadonlyArray<{ error?: string | null }>;
+}):
+  | "accepted"
+  | "wrong-answer"
+  | "runtime-error"
+  | "time-limit"
+  | "invalid-entrypoint";
 export function defaultCustomCaseInput(
   verification: PythonVerification,
 ): string;

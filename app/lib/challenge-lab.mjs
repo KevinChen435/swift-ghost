@@ -129,6 +129,20 @@ export function isRecordableChallengeResult(
   );
 }
 
+export function classifySubmissionResult(result) {
+  if (result?.ok === true) return "accepted";
+  if (result?.setupError) return "invalid-entrypoint";
+  if (
+    result?.cases?.some((testCase) =>
+      /time(?:d)? out|time limit/i.test(String(testCase?.error ?? "")),
+    )
+  )
+    return "time-limit";
+  if (result?.cases?.some((testCase) => Boolean(testCase?.error)))
+    return "runtime-error";
+  return "wrong-answer";
+}
+
 export function defaultCustomCaseInput(verification) {
   const first = verification?.cases?.[0];
   return JSON.stringify({ args: first?.args ?? [] }, null, 2);

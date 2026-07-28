@@ -5,6 +5,10 @@ import {
   type PracticeItem,
 } from "./items";
 import {
+  appendSubmissionHistory,
+  isStorableSubmissionSource,
+} from "./submission-history.mjs";
+import {
   normalizeLineErrors,
   normalizeTimelineSamples,
   type TimelineSample,
@@ -74,6 +78,29 @@ export type VerificationSummary = {
   total: number;
   runs: number;
   submissions: number;
+};
+
+export type SubmissionStatus =
+  | "accepted"
+  | "wrong-answer"
+  | "runtime-error"
+  | "time-limit"
+  | "invalid-entrypoint"
+  | "judge-error";
+
+export type SubmissionRecord = {
+  id: string;
+  itemId: ItemId;
+  itemRevision: number;
+  verificationRevision: number;
+  submittedAt: string;
+  status: SubmissionStatus;
+  durationMs: number;
+  passed: number;
+  total: number;
+  source: string;
+  origin: "practice" | "mock";
+  sessionId?: string;
 };
 
 export type Settings = {
@@ -181,8 +208,9 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 13;
+  version: 14;
   attempts: AttemptRecord[];
+  submissionHistory: SubmissionRecord[];
   learningEvents: LearningEvent[];
   favorites: ItemId[];
   customItems: PracticeItem[];
@@ -196,7 +224,8 @@ export type AppState = {
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v13";
+export const STORAGE_KEY = "swift-ghost-state-v14";
+export const THIRTEENTH_STORAGE_KEY = "swift-ghost-state-v13";
 export const TWELFTH_STORAGE_KEY = "swift-ghost-state-v12";
 export const PREVIOUS_STORAGE_KEY = "swift-ghost-state-v11";
 export const LEGACY_STORAGE_KEY = "swift-ghost-state-v10";
@@ -208,6 +237,24 @@ export const EARLIEST_STORAGE_KEY = "swift-ghost-state-v5";
 export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
+export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+];
+export const STATE_STORAGE_KEYS = [
+  STORAGE_KEY,
+  THIRTEENTH_STORAGE_KEY,
+  TWELFTH_STORAGE_KEY,
+  PREVIOUS_STORAGE_KEY,
+  LEGACY_STORAGE_KEY,
+  OLDER_STORAGE_KEY,
+  OLDEST_STORAGE_KEY,
+  ORIGINAL_STORAGE_KEY,
+  FIRST_STORAGE_KEY,
+  EARLIEST_STORAGE_KEY,
+  INITIAL_STORAGE_KEY,
+  SECOND_VERSION_STORAGE_KEY,
+  FIRST_VERSION_STORAGE_KEY,
+] as const;
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: "midnight",
@@ -223,8 +270,9 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 13,
+  version: 14,
   attempts: [],
+  submissionHistory: [],
   learningEvents: [],
   favorites: [],
   customItems: [],
@@ -282,6 +330,59 @@ function normalizeVerificationSummary(value: unknown) {
       finiteNumber(value.submissions, 1, 1, 100000),
     ),
   };
+}
+
+function normalizeSubmissionHistory(
+  value: unknown,
+  validIds: Set<ItemId>,
+  supportsSolving: Map<ItemId, boolean>,
+) {
+  if (!Array.isArray(value)) return [];
+  const statuses: SubmissionStatus[] = [
+    "accepted",
+    "wrong-answer",
+    "runtime-error",
+    "time-limit",
+    "invalid-entrypoint",
+    "judge-error",
+  ];
+  return value.slice(-1000).reduce<SubmissionRecord[]>((history, raw) => {
+    if (!isRecord(raw) || typeof raw.id !== "string" || !raw.id.trim())
+      return history;
+    const itemId = itemIdFromRaw(raw.itemId);
+    if (
+      !itemId ||
+      !validIds.has(itemId) ||
+      !supportsSolving.get(itemId) ||
+      !statuses.includes(raw.status as SubmissionStatus) ||
+      !isStorableSubmissionSource(raw.source) ||
+      typeof raw.submittedAt !== "string" ||
+      Number.isNaN(Date.parse(raw.submittedAt))
+    )
+      return history;
+    const total = Math.round(finiteNumber(raw.total, 0, 0, 64));
+    return appendSubmissionHistory(history, {
+      id: raw.id.trim().slice(0, 100),
+      itemId,
+      itemRevision: Math.round(
+        finiteNumber(raw.itemRevision, 1, 1, 1000000),
+      ),
+      verificationRevision: Math.round(
+        finiteNumber(raw.verificationRevision, 1, 1, 1000000),
+      ),
+      submittedAt: raw.submittedAt,
+      status: raw.status as SubmissionStatus,
+      durationMs: finiteNumber(raw.durationMs, 0, 0, 86400000),
+      passed: Math.round(finiteNumber(raw.passed, 0, 0, total)),
+      total,
+      source: raw.source,
+      origin: raw.origin === "mock" ? "mock" : "practice",
+      sessionId:
+        typeof raw.sessionId === "string"
+          ? raw.sessionId.slice(0, 100)
+          : undefined,
+    });
+  }, []);
 }
 
 function normalizeSettings(value: unknown): Settings {
@@ -1018,8 +1119,13 @@ export function normalizeState(value: unknown): AppState {
     ? { ...draft, sessionId: draftMatchesSession ? draft.sessionId : undefined }
     : null;
   return {
-    version: 13,
+    version: 14,
     attempts,
+    submissionHistory: normalizeSubmissionHistory(
+      value.submissionHistory,
+      validIds,
+      supportsSolving,
+    ),
     learningEvents: normalizeLearningEvents(value.learningEvents, {
       validItemIds: validIds,
       attemptsById: new Map(attempts.map((attempt) => [attempt.id, attempt])),
@@ -1045,20 +1151,7 @@ export function normalizeState(value: unknown): AppState {
 export function loadState(): AppState {
   if (typeof window === "undefined") return EMPTY_STATE;
   try {
-    for (const key of [
-      STORAGE_KEY,
-      TWELFTH_STORAGE_KEY,
-      PREVIOUS_STORAGE_KEY,
-      LEGACY_STORAGE_KEY,
-      OLDER_STORAGE_KEY,
-      OLDEST_STORAGE_KEY,
-      ORIGINAL_STORAGE_KEY,
-      FIRST_STORAGE_KEY,
-      EARLIEST_STORAGE_KEY,
-      INITIAL_STORAGE_KEY,
-      SECOND_VERSION_STORAGE_KEY,
-      FIRST_VERSION_STORAGE_KEY,
-    ]) {
+    for (const key of STATE_STORAGE_KEYS) {
       const stored = localStorage.getItem(key);
       if (!stored) continue;
       try {
@@ -1080,7 +1173,7 @@ function hasSupportedStateVersion(
 ): value is Record<string, unknown> {
   return (
     isRecord(value) &&
-    [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].includes(Number(value.version))
+    SUPPORTED_STATE_VERSIONS.includes(Number(value.version))
   );
 }
 

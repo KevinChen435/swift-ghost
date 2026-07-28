@@ -25,6 +25,9 @@ import { LearningAnalytics } from "./LearningAnalytics";
 import { DailyCoach } from "./DailyCoach";
 import { ReadinessAnalytics } from "./ReadinessAnalytics";
 import { ChallengeStatement } from "./ChallengeStatement";
+import { SolveWorkbench, type MobilePane } from "./SolveWorkbench";
+import { PracticeEditor } from "./PracticeEditor";
+import { ChallengeConsole } from "./ChallengeConsole";
 import {
   ConceptPractice,
   type ConceptCompletionInput,
@@ -82,19 +85,9 @@ import {
 } from "../lib/catalog-filters.mjs";
 import {
   EMPTY_STATE,
-  EARLIEST_STORAGE_KEY,
-  FIRST_STORAGE_KEY,
-  FIRST_VERSION_STORAGE_KEY,
-  INITIAL_STORAGE_KEY,
-  LEGACY_STORAGE_KEY,
-  OLDER_STORAGE_KEY,
-  OLDEST_STORAGE_KEY,
-  ORIGINAL_STORAGE_KEY,
-  PREVIOUS_STORAGE_KEY,
-  SECOND_VERSION_STORAGE_KEY,
+  STATE_STORAGE_KEYS,
   STAGES,
-  STORAGE_KEY,
-  TWELFTH_STORAGE_KEY,
+  SUPPORTED_STATE_VERSIONS,
   activeStreak,
   analyzeEdit,
   completedAttempts,
@@ -122,6 +115,7 @@ import {
   type Draft,
   type PracticeKind,
   type Settings,
+  type SubmissionRecord,
   type Theme,
   type TrainingSession,
   type View,
@@ -150,10 +144,12 @@ import {
 } from "../lib/mock-interview.mjs";
 import {
   challengeVerificationForPurpose,
+  classifySubmissionResult,
   customCaseVerification,
   defaultCustomCaseInput,
   isRecordableChallengeResult,
 } from "../lib/challenge-lab.mjs";
+import { appendSubmissionHistory } from "../lib/submission-history.mjs";
 
 type Result = AttemptRecord & {
   item: PracticeItem;
@@ -397,6 +393,8 @@ function useModalKeyboard(
 
 export default function SwiftGhostApp() {
   const [state, setState] = useState<AppState>(EMPTY_STATE);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const [ready, setReady] = useState(false);
   const [view, setView] = useState<View>("today");
   const [selectedId, setSelectedId] = useState<ItemId>(BUILTIN_ITEMS[0].itemId);
@@ -984,6 +982,47 @@ export default function SwiftGhostApp() {
     }));
   }
 
+  function recordSubmission(submission: SubmissionRecord) {
+    mutateState((current) => ({
+      ...current,
+      submissionHistory: appendSubmissionHistory(
+        current.submissionHistory,
+        submission,
+      ),
+    }));
+  }
+
+  function restoreSubmissionSource(source: string) {
+    if (practiceKind !== "solving" || !item.verification) return;
+    mutateState((current) => {
+      const currentDraft =
+        current.draft?.itemId === item.itemId &&
+        current.draft.practiceKind === "solving"
+          ? current.draft
+          : freshDraft(
+              item.itemId,
+              5,
+              item.contentRevision,
+              undefined,
+              undefined,
+              "solving",
+              item.starterCode ?? "",
+            );
+      return {
+        ...current,
+        draft: {
+          ...currentDraft,
+          value: source,
+          startedAt: currentDraft.startedAt ?? Date.now(),
+          peeks: currentDraft.peeks + 1,
+        },
+        lastItemId: item.itemId,
+        lastStage: 5,
+      };
+    });
+    setToast("Submission restored - this solve is now marked assisted");
+  }
+
   function completeAttempt(
     next: Draft,
     attempt: AttemptRecord,
@@ -1256,10 +1295,11 @@ export default function SwiftGhostApp() {
     submissions = 1,
     purpose: "submit" | "full" = "submit",
   ) {
+    const liveDraft = stateRef.current.draft;
     const activeMock =
-      state.activeSession?.kind === "mock" &&
-      draft.sessionId === state.activeSession.id
-        ? state.activeSession
+      stateRef.current.activeSession?.kind === "mock" &&
+      liveDraft?.sessionId === stateRef.current.activeSession.id
+        ? stateRef.current.activeSession
         : null;
     if (activeMock && mockInterviewRemainingMs(activeMock, Date.now()) === 0) {
       expireMockInterview(activeMock.id);
@@ -1268,6 +1308,11 @@ export default function SwiftGhostApp() {
     if (
       practiceKind !== "solving" ||
       !item.verification ||
+      !liveDraft ||
+      liveDraft.itemId !== item.itemId ||
+      liveDraft.itemRevision !== item.contentRevision ||
+      liveDraft.practiceKind !== "solving" ||
+      liveDraft.value !== source ||
       !isRecordableChallengeResult(
         verificationResult,
         purpose,
@@ -1276,13 +1321,13 @@ export default function SwiftGhostApp() {
     )
       return;
     const next: Draft = {
-      ...draft,
+      ...liveDraft,
       practiceKind: "solving",
       stage: 5,
       value: source,
-      startedAt: draft.startedAt ?? Date.now(),
-      testRuns: Math.max(draft.testRuns, runs),
-      submissions: Math.max(draft.submissions, submissions),
+      startedAt: liveDraft.startedAt ?? Date.now(),
+      testRuns: Math.max(liveDraft.testRuns, runs),
+      submissions: Math.max(liveDraft.submissions, submissions),
     };
     finish(next, {
       revision: item.verification.revision ?? 1,
@@ -1852,7 +1897,7 @@ export default function SwiftGhostApp() {
       if (
         !parsed ||
         typeof parsed !== "object" ||
-        ![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].includes(
+        !SUPPORTED_STATE_VERSIONS.includes(
           Number((parsed as { version?: unknown }).version),
         )
       )
@@ -1890,18 +1935,9 @@ export default function SwiftGhostApp() {
       )
     )
       return;
-    localStorage.removeItem(STORAGE_KEY);
-    localStorage.removeItem(TWELFTH_STORAGE_KEY);
-    localStorage.removeItem(PREVIOUS_STORAGE_KEY);
-    localStorage.removeItem(LEGACY_STORAGE_KEY);
-    localStorage.removeItem(OLDER_STORAGE_KEY);
-    localStorage.removeItem(OLDEST_STORAGE_KEY);
-    localStorage.removeItem(ORIGINAL_STORAGE_KEY);
-    localStorage.removeItem(FIRST_STORAGE_KEY);
-    localStorage.removeItem(EARLIEST_STORAGE_KEY);
-    localStorage.removeItem(INITIAL_STORAGE_KEY);
-    localStorage.removeItem(SECOND_VERSION_STORAGE_KEY);
-    localStorage.removeItem(FIRST_VERSION_STORAGE_KEY);
+    for (const storageKey of STATE_STORAGE_KEYS) {
+      localStorage.removeItem(storageKey);
+    }
     setState(EMPTY_STATE);
     setSelectedId(BUILTIN_ITEMS[0].itemId);
     setStage(1);
@@ -2133,6 +2169,8 @@ export default function SwiftGhostApp() {
               submissions: draft.submissions + 1,
             })
           }
+          onSubmissionSettled={recordSubmission}
+          onRestoreSubmission={restoreSubmissionSource}
           onCustomCaseChange={updateCustomCaseInput}
           onUseHint={() => updateDraft({ ...draft, peeks: draft.peeks + 1 })}
           onSolveComplete={finishSolve}
@@ -2534,6 +2572,8 @@ type PracticeProps = {
   onReset: () => void;
   onTestRun: () => void;
   onSubmissionRun: () => void;
+  onSubmissionSettled: (submission: SubmissionRecord) => void;
+  onRestoreSubmission: (source: string) => void;
   onCustomCaseChange: (value: string) => void;
   onUseHint: () => void;
   onSolveComplete: (
@@ -2576,11 +2616,17 @@ function PracticeView(props: PracticeProps) {
     message?: string;
   }>({ itemId: props.item.itemId, status: "idle" });
   const [solveHintLevel, setSolveHintLevel] = useState(0);
+  const [consoleTab, setConsoleTab] = useState<
+    "examples" | "custom" | "output" | "submissions"
+  >("examples");
+  const [mobileWorkspacePane, setMobileWorkspacePane] =
+    useState<MobilePane>("problem");
   const [runnerActive, setRunnerActive] = useState(false);
   const pythonRunner = useRef<PythonRunner | null>(null);
   const verificationRunId = useRef(0);
   const customExecutionRunId = useRef(0);
   const runnerBusy = useRef(false);
+  const disposed = useRef(false);
   const [lastRunnableSource, setLastRunnableSource] = useState<{
     itemId: ItemId;
     source: string;
@@ -2601,12 +2647,15 @@ function PracticeView(props: PracticeProps) {
     ? (mockInterviewRemainingMs(props.activeSession, props.now) ?? 0)
     : null;
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    disposed.current = false;
+    return () => {
+      disposed.current = true;
+      verificationRunId.current += 1;
+      customExecutionRunId.current += 1;
       pythonRunner.current?.dispose();
-    },
-    [],
-  );
+    };
+  }, []);
   useEffect(() => {
     verificationRunId.current += 1;
     customExecutionRunId.current += 1;
@@ -2688,6 +2737,22 @@ function PracticeView(props: PracticeProps) {
     const submissions =
       props.draft.submissions + (purpose === "submit" ? 1 : 0);
     const runId = ++verificationRunId.current;
+    const submissionRequest =
+      purpose === "submit" || (isMock && purpose === "full")
+        ? {
+            id: makeId(),
+            itemId: props.item.itemId,
+            itemRevision: props.item.contentRevision,
+            verificationRevision: props.item.verification.revision ?? 1,
+            submittedAt: new Date().toISOString(),
+            source: sourceToVerify,
+            origin: isMock ? ("mock" as const) : ("practice" as const),
+            sessionId: props.draft.sessionId,
+          }
+        : null;
+    const verificationStartedAt = performance.now();
+    setConsoleTab("output");
+    setMobileWorkspacePane("tests");
     if (purpose === "submit") props.onSubmissionRun();
     else props.onTestRun();
     try {
@@ -2703,7 +2768,7 @@ function PracticeView(props: PracticeProps) {
         sourceToVerify,
         challengeVerificationForPurpose(props.item.verification, purpose),
       );
-      if (runId !== verificationRunId.current) return;
+      if (disposed.current || runId !== verificationRunId.current) return;
       if (result.kind !== "verification")
         throw new Error("Python runner returned an unexpected result");
       setVerificationState({
@@ -2714,6 +2779,15 @@ function PracticeView(props: PracticeProps) {
         source: sourceToVerify,
         runs,
       });
+      if (submissionRequest) {
+        props.onSubmissionSettled({
+          ...submissionRequest,
+          status: classifySubmissionResult(result),
+          durationMs: result.durationMs,
+          passed: result.cases.filter((testCase) => testCase.passed).length,
+          total: result.cases.length,
+        });
+      }
       if (isRecordableChallengeResult(result, purpose, isMock)) {
         props.onSolveComplete(
           sourceToVerify,
@@ -2724,7 +2798,20 @@ function PracticeView(props: PracticeProps) {
         );
       }
     } catch (error) {
-      if (runId !== verificationRunId.current) return;
+      if (disposed.current || runId !== verificationRunId.current) return;
+      if (submissionRequest) {
+        props.onSubmissionSettled({
+          ...submissionRequest,
+          status:
+            error instanceof Error &&
+            /time(?:d)? out|time limit/i.test(error.message)
+              ? "time-limit"
+              : "judge-error",
+          durationMs: Math.max(0, performance.now() - verificationStartedAt),
+          passed: 0,
+          total: 0,
+        });
+      }
       setVerificationState({
         itemId: props.item.itemId,
         status: "error",
@@ -2736,7 +2823,7 @@ function PracticeView(props: PracticeProps) {
       });
     } finally {
       runnerBusy.current = false;
-      setRunnerActive(false);
+      if (!disposed.current) setRunnerActive(false);
     }
   }
 
@@ -2760,6 +2847,8 @@ function PracticeView(props: PracticeProps) {
     runnerBusy.current = true;
     setRunnerActive(true);
     const runId = ++customExecutionRunId.current;
+    setConsoleTab("custom");
+    setMobileWorkspacePane("tests");
     props.onTestRun();
     try {
       const runner = pythonRunner.current ?? createPythonRunner();
@@ -2770,15 +2859,17 @@ function PracticeView(props: PracticeProps) {
           visibleCustomExecutionState.status === "idle" ? "loading" : "running",
       });
       const result = await runner.run(runnerSource, execution);
-      if (runId !== customExecutionRunId.current) return;
+      if (disposed.current || runId !== customExecutionRunId.current) return;
       if (result.kind !== "execution")
         throw new Error("Python runner returned an unexpected result");
+      if (disposed.current || runId !== customExecutionRunId.current) return;
       setCustomExecutionState({
         itemId: props.item.itemId,
         status: "passed",
         result,
       });
     } catch (error) {
+      if (disposed.current || runId !== customExecutionRunId.current) return;
       setCustomExecutionState({
         itemId: props.item.itemId,
         status: "error",
@@ -2787,7 +2878,7 @@ function PracticeView(props: PracticeProps) {
       });
     } finally {
       runnerBusy.current = false;
-      setRunnerActive(false);
+      if (!disposed.current) setRunnerActive(false);
     }
   }
 
@@ -2839,6 +2930,29 @@ function PracticeView(props: PracticeProps) {
     props.onReset();
   }
 
+  function restoreSubmission(source: string) {
+    if (checksAreBusy) return;
+    if (
+      runnerSource.trim() &&
+      runnerSource !== source &&
+      !window.confirm(
+        "Replace the current editor with this submitted solution? Your saved submission will remain in history.",
+      )
+    )
+      return;
+    verificationRunId.current += 1;
+    customExecutionRunId.current += 1;
+    setVerificationState({ itemId: props.item.itemId, status: "idle" });
+    setCustomExecutionState({ itemId: props.item.itemId, status: "idle" });
+    setMobileWorkspacePane("code");
+    props.onRestoreSubmission(source);
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLTextAreaElement>(".editor-wrap textarea")
+        ?.focus();
+    });
+  }
+
   function handleEditorKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (
       props.practiceKind === "solving" &&
@@ -2856,7 +2970,11 @@ function PracticeView(props: PracticeProps) {
     props.onKeyDown(event);
   }
   return (
-    <main id="main-content" tabIndex={-1} className="practice-layout">
+    <main
+      id="main-content"
+      tabIndex={-1}
+      className={`practice-layout ${props.practiceKind === "solving" ? "is-solving" : ""}`}
+    >
       <aside className="problem-rail">
         <div className="rail-head">
           <span className="eyebrow">
@@ -3182,6 +3300,172 @@ function PracticeView(props: PracticeProps) {
             onReveal={props.onConceptReveal}
             onComplete={props.onConceptComplete}
           />
+        ) : props.practiceKind === "solving" && props.item.verification ? (
+          <SolveWorkbench
+            mobilePane={mobileWorkspacePane}
+            onMobilePaneChange={setMobileWorkspacePane}
+            problem={
+              <div className="solve-workbench-problem-content">
+                <ChallengeStatement item={props.item} />
+                {!isMock && (
+                  <div className="solve-workbench-guidance">
+                    <div className="solve-hint-bar">
+                      <span>
+                        <small>
+                          {props.draft.peeks > 0
+                            ? "Assisted solve"
+                            : "Independent solve"}
+                        </small>
+                        <strong>
+                          {solveHintLevel === 0
+                            ? props.draft.peeks > 0
+                              ? "Assistance already used"
+                              : "No hints used"
+                            : `${solveHintLevel} hint${solveHintLevel === 1 ? "" : "s"} used`}
+                        </strong>
+                      </span>
+                      <div className="solve-hint-actions">
+                        {props.draft.peeks > 0 && (
+                          <span className="assisted-label">Assisted solve</span>
+                        )}
+                        {solveHintLevel < 3 && (
+                          <button
+                            className="outline-button"
+                            onClick={revealSolveHint}
+                          >
+                            {solveHintLevel === 0
+                              ? "Reveal cue"
+                              : solveHintLevel === 1
+                                ? "Reveal invariant"
+                                : "Reveal reference"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {solveHintLevel >= 1 && (
+                      <article>
+                        <small>Pattern cue</small>
+                        <p>{props.item.cue}</p>
+                      </article>
+                    )}
+                    {solveHintLevel >= 2 && (
+                      <article>
+                        <small>Invariant</small>
+                        <p>{props.item.invariant}</p>
+                      </article>
+                    )}
+                    {solveHintLevel >= 3 && (
+                      <details className="solve-reference" open>
+                        <summary>Reference solution</summary>
+                        <pre>{props.item.code}</pre>
+                      </details>
+                    )}
+                  </div>
+                )}
+                <div className="solve-brief">
+                  <span className="eyebrow">Verified solve workspace</span>
+                  <strong>Pass every local check, then submit.</strong>
+                  <p>
+                    Examples help you iterate. Only a complete accepted judge
+                    run records solving evidence.
+                  </p>
+                </div>
+                {isMock && (
+                  <section className="mock-rules">
+                    <span className="eyebrow">Mock interview contract</span>
+                    <strong>
+                      Clarify, plan, implement, test, and explain.
+                    </strong>
+                    <p>
+                      Sample outputs stay in the prompt. Hints and submission
+                      history remain out of the interview view.
+                    </p>
+                  </section>
+                )}
+              </div>
+            }
+            editor={
+              <PracticeEditor
+                item={props.item}
+                draft={props.draft}
+                practiceKind={props.practiceKind}
+                settings={props.state.settings}
+                metrics={props.metrics}
+                ghostCode={props.ghostCode}
+                editorLineCount={editorLineCount}
+                errorCount={errorCount}
+                linesLeft={linesLeft}
+                isMock={isMock}
+                reveal={props.reveal}
+                focusMode={props.focusMode}
+                copied={copied}
+                onCopyLink={() => void copyPracticeLink()}
+                onReveal={props.onReveal}
+                onRestart={resetPractice}
+                onFocusMode={props.onFocusMode}
+                onChange={handleEditorChange}
+                onKeyDown={handleEditorKeyDown}
+                onPaste={props.onPaste}
+              />
+            }
+            tests={
+              <ChallengeConsole
+                practiceKind={props.practiceKind}
+                isMock={isMock}
+                runnerSourcePresent={Boolean(runnerSource.trim())}
+                checksAreBusy={checksAreBusy}
+                consoleTab={consoleTab}
+                onConsoleTabChange={setConsoleTab}
+                customCaseInput={customCaseInput}
+                defaultCustomCaseInput={defaultCustomCaseInput(
+                  props.item.verification,
+                )}
+                onCustomCaseInputChange={changeCustomCaseInput}
+                onLoadDefaultCustomCase={() =>
+                  changeCustomCaseInput(
+                    defaultCustomCaseInput(props.item.verification!),
+                  )
+                }
+                onRunCustomCase={runCustomCase}
+                customExecutionState={visibleCustomExecutionState}
+                verificationState={visibleVerificationState}
+                exampleExpectedValues={challengeVerificationForPurpose(
+                  props.item.verification,
+                  "examples",
+                ).cases.map((testCase) => testCase.expected)}
+                onRunExamples={() => runPythonChecks("examples")}
+                onSubmit={() => runPythonChecks("submit")}
+                onRunFull={() => runPythonChecks("full")}
+                submissionHistory={props.state.submissionHistory.filter(
+                  (submission) => submission.itemId === props.item.itemId,
+                )}
+                currentItemRevision={props.item.contentRevision}
+                currentVerificationRevision={props.item.verification.revision ?? 1}
+                onRestoreSubmission={restoreSubmission}
+                canRecordMock={Boolean(
+                  isMock &&
+                    visibleVerificationState.status === "passed" &&
+                    visibleVerificationState.result &&
+                    isRecordableChallengeResult(
+                      visibleVerificationState.result,
+                      visibleVerificationState.purpose ?? "full",
+                      true,
+                    ) &&
+                    visibleVerificationState.source === runnerSource,
+                )}
+                onRecordMock={() => {
+                  if (!visibleVerificationState.result) return;
+                  props.onSolveComplete(
+                    runnerSource,
+                    visibleVerificationState.result,
+                    visibleVerificationState.runs ?? props.draft.testRuns,
+                    Math.max(1, props.draft.submissions),
+                    "full",
+                  );
+                }}
+              />
+            }
+          />
         ) : (
           <>
         {props.practiceKind === "solving" && props.item.verification && (
@@ -3291,315 +3575,64 @@ function PracticeView(props: PracticeProps) {
             </p>
           </div>
         )}
-        <div className="editor-card">
-          <div className="editor-toolbar">
-            <div className="window-dots" aria-hidden="true">
-              <i />
-              <i />
-              <i />
-            </div>
-            <div className="file-tab">
-              <span className={`swift-badge ${props.item.language}`}>
-                {LANGUAGE_META[props.item.language].short}
-              </span>
-              {LANGUAGE_META[props.item.language].file}{" "}
-              <small>{problemLineCount(props.item)} lines</small>
-            </div>
-            <div className="editor-actions">
-              <button className="copy-action" onClick={copyPracticeLink}>
-                {copied ? "Copied" : "Copy link"}
-              </button>
-              {props.practiceKind === "typing" && (
-                <button className="peek-action" onClick={props.onReveal}>
-                  {props.reveal ? "Hide answer" : "Peek"}
-                </button>
-              )}
-              <button className="restart-action" onClick={resetPractice}>
-                Restart
-              </button>
-              <button className="focus-action" onClick={props.onFocusMode}>
-                {props.focusMode ? "Exit focus" : "Focus"}
-              </button>
-            </div>
-          </div>
-          <div className="metric-strip" aria-live="polite">
-            {props.practiceKind === "typing" ? (
-              <>
-                <span>
-                  <small>Progress</small>
-                  <strong>{props.metrics.progress}%</strong>
-                </span>
-                {props.state.settings.showLiveWpm && (
-                  <span>
-                    <small>WPM</small>
-                    <strong>{props.metrics.wpm}</strong>
-                  </span>
-                )}
-                <span>
-                  <small>Accuracy</small>
-                  <strong>{props.metrics.accuracy}%</strong>
-                </span>
-                <span>
-                  <small>Errors</small>
-                  <strong>{errorCount}</strong>
-                </span>
-                <span>
-                  <small>Lines left</small>
-                  <strong>{linesLeft}</strong>
-                </span>
-              </>
-            ) : (
-              <>
-                <span>
-                  <small>Workspace</small>
-                  <strong>{editorLineCount} lines</strong>
-                </span>
-                <span>
-                  <small>Test runs</small>
-                  <strong>{props.draft.testRuns}</strong>
-                </span>
-                <span>
-                  <small>Submissions</small>
-                  <strong>{props.draft.submissions}</strong>
-                </span>
-                <span>
-                  <small>{isMock ? "Guidance" : "Hints"}</small>
-                  <strong>{isMock ? "Locked" : props.draft.peeks}</strong>
-                </span>
-              </>
-            )}
-            <span>
-              <small>Time</small>
-              <strong>{formatDuration(props.metrics.durationMs)}</strong>
-            </span>
-            <span className="strict-indicator">
-              <i />
-              {props.practiceKind === "solving"
-                ? "Free-form solve"
-                : props.draft.challengeDate || props.state.settings.strictMode
-                  ? "Strict correction"
-                  : "Free correction"}
-            </span>
-          </div>
-          <div
-            className="editor-wrap"
-            style={
-              {
-                "--font-size": `${props.state.settings.fontSize}px`,
-                "--editor-lines": props.state.settings.editorLines,
-                "--code-height": `${editorLineCount * props.state.settings.fontSize * 1.65 + 56}px`,
-              } as React.CSSProperties
-            }
-          >
-            <pre className="line-numbers" aria-hidden="true">
-              {Array.from(
-                { length: editorLineCount },
-                (_, index) => index + 1,
-              ).join("\n")}
-            </pre>
-            <pre className="ghost-layer" aria-hidden="true">
-              {props.ghostCode}
-            </pre>
-            <pre className="typed-layer" aria-hidden="true">
-              {props.draft.value.split("").map((char, index) => (
-                <span
-                  className={
-                    props.practiceKind === "solving" ||
-                    char === props.item.code[index]
-                      ? "right"
-                      : "wrong"
-                  }
-                  key={`${index}-${char}`}
-                >
-                  {char}
-                </span>
-              ))}
-            </pre>
-            <textarea
-              value={props.draft.value}
-              onChange={handleEditorChange}
-              onKeyDown={handleEditorKeyDown}
-              onPaste={props.onPaste}
-              spellCheck={false}
-              autoCapitalize="off"
-              autoComplete="off"
-              aria-label={`${props.practiceKind === "solving" ? "Solve" : "Type"} the ${LANGUAGE_META[props.item.language].label} solution for ${props.item.title}. Press Escape to leave the editor.`}
-            />
-          </div>
-          <div className="editor-footer">
-            <span>
-              <i className="key-swatch typed" />
-              typed
-            </span>
-            {props.practiceKind === "typing" && (
-              <>
-                <span>
-                  <i className="key-swatch ghost" />
-                  ghost
-                </span>
-                <span>
-                  <i className="key-swatch hidden" />
-                  hidden
-                </span>
-              </>
-            )}
-            <span className="spacer" />
-            <span>
-              Tab inserts {props.state.settings.tabSize} spaces · Esc leaves
-              editor
-            </span>
-          </div>
-          {props.practiceKind === "typing" && (
-            <div className="progress-line">
-              <i style={{ width: `${props.metrics.progress}%` }} />
-            </div>
-          )}
-        </div>
+          <PracticeEditor
+            item={props.item}
+            draft={props.draft}
+            practiceKind={props.practiceKind}
+            settings={props.state.settings}
+            metrics={props.metrics}
+            ghostCode={props.ghostCode}
+            editorLineCount={editorLineCount}
+            errorCount={errorCount}
+            linesLeft={linesLeft}
+            isMock={isMock}
+            reveal={props.reveal}
+            focusMode={props.focusMode}
+            copied={copied}
+            onCopyLink={() => void copyPracticeLink()}
+            onReveal={props.onReveal}
+            onRestart={resetPractice}
+            onFocusMode={props.onFocusMode}
+            onChange={handleEditorChange}
+            onKeyDown={handleEditorKeyDown}
+            onPaste={props.onPaste}
+          />
         {props.item.verification && (
-          <section
-            className={`python-verification ${props.practiceKind === "solving" ? "challenge-console" : ""}`}
-          >
-            <div>
-              <span className="eyebrow">Browser Python · local subset</span>
-              <h2>
-                {props.practiceKind === "solving"
-                  ? "Cases and submission"
-                  : "Run the solution against real checks."}
-              </h2>
-              <p>
-                {props.practiceKind === "solving"
-                  ? "Your code stays on this device. Run examples while iterating; Submit uses the complete judge suite. Only an accepted submission records independent problem-solving evidence."
-                  : "Your code stays on this device. Checks run in a fresh browser Python worker and never affect mastery or public rankings."}
-              </p>
-            </div>
-            {props.practiceKind === "solving" && !isMock && (
-              <div className="custom-case-panel">
-                <div className="custom-case-head">
-                  <span>
-                    <small>Custom testcase</small>
-                    <strong>Run your own arguments</strong>
-                  </span>
-                  <button
-                    className="text-button"
-                    onClick={() =>
-                      changeCustomCaseInput(
-                        defaultCustomCaseInput(props.item.verification!),
-                      )
-                    }
-                  >
-                    Load example
-                  </button>
-                </div>
-                <label>
-                  JSON arguments
-                  <textarea
-                    value={customCaseInput}
-                    onChange={(event) =>
-                      changeCustomCaseInput(event.target.value)
-                    }
-                    placeholder={defaultCustomCaseInput(props.item.verification)}
-                    spellCheck={false}
-                    aria-label="Custom testcase arguments as JSON"
-                  />
-                </label>
-                <div className="custom-case-actions">
-                  <button
-                    className="outline-button"
-                    disabled={
-                      !runnerSource.trim() ||
-                      checksAreBusy
-                    }
-                    onClick={() => void runCustomCase()}
-                  >
-                    {visibleCustomExecutionState.status === "loading"
-                      ? "Loading Python..."
-                      : visibleCustomExecutionState.status === "running"
-                        ? "Running testcase..."
-                        : "Run custom testcase"}
-                  </button>
-                  <small>This run shows output but never records mastery.</small>
-                </div>
-                {visibleCustomExecutionState.result && (
-                  <div className="custom-case-result">
-                    <span>Output</span>
-                    {visibleCustomExecutionState.result.cases.map((testCase) => (
-                      <div key={testCase.name}>
-                        <strong>{testCase.name}</strong>
-                        {testCase.error ? (
-                          <code>{testCase.error}</code>
-                        ) : (
-                          <pre>{JSON.stringify(testCase.actual, null, 2)}</pre>
-                        )}
-                      </div>
-                    ))}
-                    <small>{visibleCustomExecutionState.result.durationMs} ms</small>
-                  </div>
-                )}
-                {visibleCustomExecutionState.status === "error" && (
-                  <div className="custom-case-result failed">
-                    <strong>Custom testcase could not run</strong>
-                    <code>{visibleCustomExecutionState.message}</code>
-                  </div>
-                )}
-              </div>
+          <ChallengeConsole
+            practiceKind={props.practiceKind}
+            isMock={isMock}
+            runnerSourcePresent={Boolean(runnerSource.trim())}
+            checksAreBusy={checksAreBusy}
+            consoleTab={consoleTab}
+            onConsoleTabChange={setConsoleTab}
+            customCaseInput={customCaseInput}
+            defaultCustomCaseInput={defaultCustomCaseInput(
+              props.item.verification,
             )}
-            <div className="python-verification-actions">
-              {props.practiceKind === "solving" && !isMock && (
-                <>
-                  <button
-                    className="outline-button"
-                    disabled={
-                      !runnerSource.trim() ||
-                      checksAreBusy
-                    }
-                    onClick={() => void runPythonChecks("examples")}
-                  >
-                    {visibleVerificationState.status === "running" &&
-                    visibleVerificationState.purpose === "examples"
-                      ? "Running examples..."
-                      : "Run examples"}
-                  </button>
-                  <button
-                    className="primary-button submit-solution"
-                    disabled={
-                      !runnerSource.trim() ||
-                      checksAreBusy
-                    }
-                    onClick={() => void runPythonChecks("submit")}
-                  >
-                    {visibleVerificationState.status === "running" &&
-                    visibleVerificationState.purpose === "submit"
-                      ? "Judging solution..."
-                      : "Submit solution"}
-                  </button>
-                  <small>Ctrl/Cmd+Enter runs examples; add Shift to submit</small>
-                </>
-              )}
-              {(props.practiceKind !== "solving" || isMock) && (
-              <button
-                className="primary-button"
-                disabled={
-                  !runnerSource.trim() ||
-                  checksAreBusy
-                }
-                onClick={() => void runPythonChecks("full")}
-              >
-                {visibleVerificationState.status === "loading"
-                  ? "Loading Python…"
-                  : visibleVerificationState.status === "running"
-                    ? "Running checks…"
-                    : "Run checks"}
-              </button>
-              )}
-              {!runnerSource.trim() && (
-                <small>Type some code before running checks.</small>
-              )}
-              {props.practiceKind === "typing" &&
-                !props.draft.value.trim() &&
-                runnerSource.trim() && (
-                  <small>Using your most recent completed solution.</small>
-                )}
-              {isMock &&
+            onCustomCaseInputChange={changeCustomCaseInput}
+            onLoadDefaultCustomCase={() =>
+              changeCustomCaseInput(
+                defaultCustomCaseInput(props.item.verification!),
+              )
+            }
+            onRunCustomCase={runCustomCase}
+            customExecutionState={visibleCustomExecutionState}
+            verificationState={visibleVerificationState}
+            exampleExpectedValues={challengeVerificationForPurpose(
+              props.item.verification,
+              "examples",
+            ).cases.map((testCase) => testCase.expected)}
+            onRunExamples={() => runPythonChecks("examples")}
+            onSubmit={() => runPythonChecks("submit")}
+            onRunFull={() => runPythonChecks("full")}
+            submissionHistory={props.state.submissionHistory.filter(
+              (submission) => submission.itemId === props.item.itemId,
+            )}
+            currentItemRevision={props.item.contentRevision}
+            currentVerificationRevision={props.item.verification.revision ?? 1}
+            onRestoreSubmission={restoreSubmission}
+            canRecordMock={Boolean(
+              isMock &&
                 visibleVerificationState.status === "passed" &&
                 visibleVerificationState.result &&
                 isRecordableChallengeResult(
@@ -3607,83 +3640,19 @@ function PracticeView(props: PracticeProps) {
                   visibleVerificationState.purpose ?? "full",
                   true,
                 ) &&
-                visibleVerificationState.source === runnerSource && (
-                  <button
-                    className="primary-button record-solve"
-                    onClick={() =>
-                      props.onSolveComplete(
-                        runnerSource,
-                        visibleVerificationState.result as PythonVerificationResult,
-                        visibleVerificationState.runs ?? props.draft.testRuns,
-                        Math.max(1, props.draft.submissions),
-                        "full",
-                      )
-                    }
-                  >
-                    Record verified solve →
-                  </button>
-                )}
-            </div>
-            {visibleVerificationState.result && (
-              <div
-                className={`python-verification-results ${visibleVerificationState.result.ok ? "passed" : "failed"}`}
-                role="status"
-                aria-live="polite"
-                aria-atomic="true"
-              >
-                <strong>
-                  {visibleVerificationState.purpose === "submit"
-                    ? visibleVerificationState.result.ok
-                      ? "Accepted"
-                      : "Not accepted"
-                    : visibleVerificationState.result.ok
-                      ? `All ${visibleVerificationState.result.cases.length} checks passed`
-                      : `${visibleVerificationState.result.cases.filter((testCase) => testCase.passed).length}/${visibleVerificationState.result.cases.length} checks passed`}
-                </strong>
-                <small>
-                  {visibleVerificationState.result.durationMs} ms after runtime
-                  load
-                </small>
-                {visibleVerificationState.result.setupError && (
-                  <code>{visibleVerificationState.result.setupError}</code>
-                )}
-                {isMock || visibleVerificationState.purpose === "submit" ? (
-                  <p className="mock-test-note">
-                    Hidden judge details stay out of the interface. Use the
-                    aggregate local result to revise your edge cases.
-                  </p>
-                ) : (
-                <ul>
-                  {visibleVerificationState.result.cases.map((testCase, index) => (
-                    <li
-                      className={testCase.passed ? "passed" : "failed"}
-                      key={testCase.name}
-                    >
-                      <span>{testCase.passed ? "✓" : "×"}</span>
-                      <strong>{testCase.name}</strong>
-                      {testCase.error && <code>{testCase.error}</code>}
-                      {!testCase.passed && !testCase.error && (
-                        <code>
-                          expected: {JSON.stringify(
-                            props.item.verification?.cases[index]?.expected,
-                          )}
-                          {"\n"}
-                          received: {JSON.stringify(testCase.actual)}
-                        </code>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-                )}
-              </div>
+                visibleVerificationState.source === runnerSource,
             )}
-            {visibleVerificationState.status === "error" && (
-              <div className="python-verification-results failed">
-                <strong>Checks could not run</strong>
-                <code>{visibleVerificationState.message}</code>
-              </div>
-            )}
-          </section>
+            onRecordMock={() => {
+              if (!visibleVerificationState.result) return;
+              props.onSolveComplete(
+                runnerSource,
+                visibleVerificationState.result,
+                visibleVerificationState.runs ?? props.draft.testRuns,
+                Math.max(1, props.draft.submissions),
+                "full",
+              );
+            }}
+          />
         )}
         {isMock ? (
           <section className="mock-rules">
@@ -5274,10 +5243,10 @@ function SettingsView({
           <small>Your data</small>
           <h2>Local profile</h2>
           <p>
-            Export a portable v13 JSON backup with Python, Swift, iOS, sessions,
+            Export a portable v14 JSON backup with Python, Swift, iOS, sessions,
             learning debriefs, revisioned snippets, local pacing and weak-line
-            analytics, community preferences, and challenge testcases, or restore
-            any v2-v13 backup.
+            analytics, community preferences, challenge testcases, and local
+            submission snapshots, or restore any v2-v14 backup.
           </p>
         </div>
         <div className="data-actions">

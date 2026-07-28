@@ -102,11 +102,12 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v13"/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v14"/);
+  assert.match(product, /THIRTEENTH_STORAGE_KEY = "swift-ghost-state-v13"/);
   assert.match(product, /TWELFTH_STORAGE_KEY = "swift-ghost-state-v12"/);
   assert.match(product, /PREVIOUS_STORAGE_KEY = "swift-ghost-state-v11"/);
   assert.match(product, /FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2"/);
-  assert.match(product, /version: 13/);
+  assert.match(product, /version: 14/);
   assert.match(product, /swift-ghost-state-v10/);
   assert.match(product, /swift-ghost-state-v9/);
   assert.match(product, /swift-ghost-state-v8/);
@@ -195,16 +196,23 @@ test("ships the full five-stage practice model and original problem links", asyn
     product,
     /Try the next older backup when a newer write was interrupted/,
   );
-  assert.match(page, /Run the solution against real checks/);
+  assert.match(page, /<ChallengeConsole/);
   assert.match(page, /Write any passing Python solution/);
-  assert.match(page, /Run examples/);
-  assert.match(page, /Submit solution/);
-  assert.match(page, /Run custom testcase/);
+  const consoleUi = await readFile(
+    new URL("../app/components/ChallengeConsole.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(consoleUi, /Run examples/);
+  assert.match(consoleUi, /Submit solution/);
+  assert.match(consoleUi, /Run custom testcase/);
+  assert.match(consoleUi, /Submissions/);
+  assert.match(consoleUi, /Restore/);
+  assert.match(consoleUi, /Older prompt/);
   assert.match(page, /challengeVerificationForPurpose/);
   assert.match(page, /isRecordableChallengeResult/);
   assert.match(page, /purpose === "submit"/);
-  assert.match(page, /Record verified solve/);
-  assert.match(page, /expected:/);
+  assert.match(consoleUi, /Record verified solve/);
+  assert.match(consoleUi, /expected:/);
   assert.match(page, /Skip to practice content/);
   assert.match(page, /Planned independent solve/);
   assert.match(coach, /15, 30, 45/);
@@ -274,11 +282,15 @@ test("ships reload-safe timed mock interviews", async () => {
   assert.match(mock, /MOCK_INTERVIEW_PRESETS/);
   assert.match(mock, /selectMockInterviewItem/);
   assert.match(mock, /mockInterviewRemainingMs/);
-  assert.match(app, /One cold problem\. A real countdown\. No answer access\./);
+  assert.match(app, /One cold problem\. A real countdown\. No in-app answer reveal\./);
   assert.match(app, /Interview mode locked/);
   assert.match(app, /<ChallengeStatement item=\{props\.item\}/);
   assert.match(app, /prompt && !isMock/);
-  assert.match(app, /Hidden judge details stay out of the interface/);
+  const consoleUi = await readFile(
+    new URL("../app/components/ChallengeConsole.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(consoleUi, /Hidden judge details stay out of the interface/);
   assert.match(app, /role="timer"/);
 });
 
@@ -303,7 +315,7 @@ test("ships first-class Swift and iOS concept recall", async () => {
   assert.match(product, /conceptCommittedResponse/);
   assert.match(app, /finishConcept/);
   assert.match(app, /practiceKind: "concept"/);
-  assert.match(app, /FIRST_VERSION_STORAGE_KEY/);
+  assert.match(app, /STATE_STORAGE_KEYS/);
   assert.match(concept, /Commit & compare answer/);
   assert.match(concept, /Optional guided typing/);
   assert.match(concept, /Self-rated recall · not automated correctness/);
