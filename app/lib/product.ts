@@ -22,6 +22,13 @@ import {
   type LearningEvent,
   type RetrievalGrade,
 } from "./learning-state.mjs";
+import {
+  deriveCustomTestcaseSchema,
+  migrateLegacyCustomTestcases,
+  normalizeCustomTestcaseCollection,
+  type CustomTestcaseCollection,
+  type CustomTestcaseSchema,
+} from "./custom-testcases.mjs";
 import type {
   SessionLanguage,
   SessionQueueEntry,
@@ -208,13 +215,14 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 14;
+  version: 15;
   attempts: AttemptRecord[];
   submissionHistory: SubmissionRecord[];
   learningEvents: LearningEvent[];
   favorites: ItemId[];
   customItems: PracticeItem[];
   customCaseInputs: Partial<Record<ItemId, string>>;
+  customTestcases: Partial<Record<ItemId, CustomTestcaseCollection>>;
   settings: Settings;
   draft: Draft | null;
   lastItemId: ItemId;
@@ -224,7 +232,8 @@ export type AppState = {
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v14";
+export const STORAGE_KEY = "swift-ghost-state-v15";
+export const FOURTEENTH_STORAGE_KEY = "swift-ghost-state-v14";
 export const THIRTEENTH_STORAGE_KEY = "swift-ghost-state-v13";
 export const TWELFTH_STORAGE_KEY = "swift-ghost-state-v12";
 export const PREVIOUS_STORAGE_KEY = "swift-ghost-state-v11";
@@ -238,10 +247,11 @@ export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
-  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
 ];
 export const STATE_STORAGE_KEYS = [
   STORAGE_KEY,
+  FOURTEENTH_STORAGE_KEY,
   THIRTEENTH_STORAGE_KEY,
   TWELFTH_STORAGE_KEY,
   PREVIOUS_STORAGE_KEY,
@@ -270,13 +280,14 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 14,
+  version: 15,
   attempts: [],
   submissionHistory: [],
   learningEvents: [],
   favorites: [],
   customItems: [],
   customCaseInputs: {},
+  customTestcases: {},
   settings: DEFAULT_SETTINGS,
   draft: null,
   lastItemId: BUILTIN_ITEMS[0].itemId,
@@ -823,6 +834,34 @@ export function qualificationFor(
   return "syntax";
 }
 
+const CUSTOM_TESTCASE_STATE_BYTE_LIMIT = 512_000;
+
+export function customTestcaseSchemaForItem(
+  item: PracticeItem,
+): CustomTestcaseSchema | null {
+  const verification = item.verification;
+  const challenge = item.challenge;
+  const firstCase = verification?.cases[0];
+  if (!verification || !challenge || !firstCase) return null;
+  const argCodecs =
+    firstCase.argCodecs ?? firstCase.args.map(() => "json" as const);
+  if (argCodecs.length !== challenge.parameters.length) return null;
+  try {
+    return deriveCustomTestcaseSchema({
+      itemId: item.itemId,
+      itemRevision: item.contentRevision,
+      judgeRevision: verification.revision ?? 1,
+      parameters: challenge.parameters,
+      argCodecs,
+      visibleSampleArgs: verification.cases
+        .filter((testCase) => testCase.visibility === "sample")
+        .map((testCase) => testCase.args),
+    });
+  } catch {
+    return null;
+  }
+}
+
 export function normalizeState(value: unknown): AppState {
   if (!hasSupportedStateVersion(value)) return EMPTY_STATE;
   const customItems = normalizeCustomItems(value.customItems);
@@ -1095,6 +1134,55 @@ export function normalizeState(value: unknown): AppState {
   ) {
     customCaseInputs[draftItemId] = draft.customCaseInput;
   }
+  const customTestcases: Partial<
+    Record<ItemId, CustomTestcaseCollection>
+  > = {};
+  let customTestcaseBytes = 0;
+  const itemsById = new Map<ItemId, PracticeItem>(
+    [...BUILTIN_ITEMS, ...customItems].map((candidate) => [
+      candidate.itemId,
+      candidate,
+    ]),
+  );
+  const persistCustomTestcases = (
+    rawItemId: string,
+    rawCollection: unknown,
+    legacy = false,
+  ) => {
+    const itemId = itemIdFromRaw(rawItemId);
+    const item = itemId ? itemsById.get(itemId) : undefined;
+    const schema = item ? customTestcaseSchemaForItem(item) : null;
+    if (!itemId || !activeIds.has(itemId) || !schema) return;
+    try {
+      const collection = legacy
+        ? migrateLegacyCustomTestcases(schema, String(rawCollection))
+        : normalizeCustomTestcaseCollection(schema, rawCollection);
+      const encodedBytes = new TextEncoder().encode(
+        JSON.stringify(collection),
+      ).byteLength;
+      if (
+        encodedBytes > CUSTOM_TESTCASE_STATE_BYTE_LIMIT ||
+        customTestcaseBytes + encodedBytes > CUSTOM_TESTCASE_STATE_BYTE_LIMIT
+      ) {
+        return;
+      }
+      customTestcases[itemId] = collection;
+      customTestcaseBytes += encodedBytes;
+    } catch {
+      // Invalid, stale, or oversized imported cases are discarded safely.
+    }
+  };
+  if (isRecord(value.customTestcases)) {
+    Object.entries(value.customTestcases)
+      .slice(0, 200)
+      .forEach(([rawItemId, rawCollection]) =>
+        persistCustomTestcases(rawItemId, rawCollection),
+      );
+  }
+  Object.entries(customCaseInputs).forEach(([rawItemId, legacyInput]) => {
+    if (customTestcases[rawItemId as ItemId] !== undefined) return;
+    persistCustomTestcases(rawItemId, legacyInput, true);
+  });
   const activeSession = normalizeActiveSession(
     value.activeSession,
     activeIds,
@@ -1119,7 +1207,7 @@ export function normalizeState(value: unknown): AppState {
     ? { ...draft, sessionId: draftMatchesSession ? draft.sessionId : undefined }
     : null;
   return {
-    version: 14,
+    version: 15,
     attempts,
     submissionHistory: normalizeSubmissionHistory(
       value.submissionHistory,
@@ -1133,6 +1221,7 @@ export function normalizeState(value: unknown): AppState {
     favorites,
     customItems,
     customCaseInputs,
+    customTestcases,
     settings: normalizeSettings(value.settings),
     draft: normalizedDraft,
     lastItemId:

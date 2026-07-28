@@ -67,6 +67,7 @@ export function SolveWorkbench({
   const activePointerId = useRef<number | null>(null);
   const pendingProblemPercent = useRef(problemPercent);
   const resizeFrame = useRef<number | null>(null);
+  const [isMobileLayout, setIsMobileLayout] = useState(false);
 
   function selectMobilePane(pane: MobilePane) {
     if (controlledMobilePane === undefined) setInternalMobilePane(pane);
@@ -85,6 +86,14 @@ export function SolveWorkbench({
     },
     [],
   );
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 720px)");
+    const updateLayout = () => setIsMobileLayout(query.matches);
+    updateLayout();
+    query.addEventListener("change", updateLayout);
+    return () => query.removeEventListener("change", updateLayout);
+  }, []);
 
   function problemPercentFromPointer(clientX: number) {
     const bounds = layoutRef.current?.getBoundingClientRect();
@@ -266,6 +275,7 @@ export function SolveWorkbench({
           aria-labelledby={tabId(idPrefix, "problem")}
           tabIndex={0}
           data-mobile-active={mobilePane === "problem"}
+          hidden={isMobileLayout && mobilePane !== "problem"}
         >
           {problem}
         </section>
@@ -298,6 +308,7 @@ export function SolveWorkbench({
             aria-labelledby={tabId(idPrefix, "code")}
             tabIndex={0}
             data-mobile-active={mobilePane === "code"}
+            hidden={isMobileLayout && mobilePane !== "code"}
           >
             {editor}
           </section>
@@ -309,6 +320,7 @@ export function SolveWorkbench({
             aria-labelledby={tabId(idPrefix, "tests")}
             tabIndex={0}
             data-mobile-active={mobilePane === "tests"}
+            hidden={isMobileLayout && mobilePane !== "tests"}
           >
             {tests}
           </section>

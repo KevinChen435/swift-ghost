@@ -3,6 +3,16 @@
 import { useId, type KeyboardEvent } from "react";
 import type { PythonVerificationResult } from "../lib/python-runner.mjs";
 import type { PracticeKind, SubmissionRecord } from "../lib/product";
+import type {
+  CustomTestcase,
+  CustomTestcaseCollection,
+  CustomTestcaseSchema,
+} from "../lib/custom-testcases.mjs";
+import {
+  StructuredCustomTestcases,
+  type CustomTestcaseModeSnapshot,
+} from "./StructuredCustomTestcases";
+import { SubmissionInspector } from "./SubmissionInspector";
 
 export type ChallengeConsoleTab =
   | "examples"
@@ -18,9 +28,10 @@ export type ChallengeVerificationState = {
 };
 
 export type ChallengeCustomExecutionState = {
-  status: "idle" | "loading" | "running" | "passed" | "error";
+  status: "idle" | "loading" | "running" | "finished" | "error";
   result?: PythonVerificationResult;
   message?: string;
+  caseIds?: readonly string[];
 };
 
 export type ChallengeConsoleProps = {
@@ -35,16 +46,38 @@ export type ChallengeConsoleProps = {
   onCustomCaseInputChange: (value: string) => void;
   onLoadDefaultCustomCase: () => void;
   onRunCustomCase: () => void | Promise<void>;
+  customTestcaseSchema: CustomTestcaseSchema | null;
+  customTestcases: CustomTestcaseCollection | null;
+  onSelectCustomTestcase: (caseId: string) => void;
+  onAddCustomTestcase: (afterCaseId?: string) => void;
+  onDuplicateCustomTestcase: (caseId: string) => void;
+  onDeleteCustomTestcase: (caseId: string) => void;
+  onRenameCustomTestcase: (caseId: string, name: string) => void;
+  onCustomTestcaseModeChange: (
+    caseId: string,
+    mode: CustomTestcase["mode"],
+    snapshot: CustomTestcaseModeSnapshot,
+  ) => void;
+  onCustomTestcaseFieldChange: (
+    caseId: string,
+    parameterId: string,
+    text: string,
+  ) => void;
+  onCustomTestcaseRawChange: (caseId: string, raw: string) => void;
+  onRunCustomTestcases: (scope: "selected" | "all") => void | Promise<void>;
   customExecutionState: ChallengeCustomExecutionState;
   verificationState: ChallengeVerificationState;
   exampleExpectedValues: readonly unknown[];
   onRunExamples: () => void | Promise<void>;
   onSubmit: () => void | Promise<void>;
   onRunFull: () => void | Promise<void>;
+  onCancelRun: () => void;
   submissionHistory: readonly SubmissionRecord[];
   currentItemRevision: number;
   currentVerificationRevision: number;
-  onRestoreSubmission: (source: string) => void;
+  currentSource: string;
+  onInspectSubmission: (submission: SubmissionRecord) => void;
+  onRestoreSubmission: (submission: SubmissionRecord) => void;
   canRecordMock?: boolean;
   onRecordMock?: () => void;
 };
@@ -54,17 +87,6 @@ const TAB_LABELS: Readonly<Record<ChallengeConsoleTab, string>> = {
   custom: "Custom",
   output: "Result",
   submissions: "Submissions",
-};
-
-const SUBMISSION_STATUS_LABELS: Readonly<
-  Record<SubmissionRecord["status"], string>
-> = {
-  accepted: "Accepted",
-  "wrong-answer": "Wrong answer",
-  "runtime-error": "Runtime error",
-  "time-limit": "Time limit exceeded",
-  "invalid-entrypoint": "Invalid entrypoint",
-  "judge-error": "Judge error",
 };
 
 function tabId(prefix: string, tab: ChallengeConsoleTab) {
@@ -78,17 +100,6 @@ function panelId(prefix: string, tab: ChallengeConsoleTab) {
 function formatJson(value: unknown) {
   const encoded = JSON.stringify(value, null, 2);
   return encoded === undefined ? "undefined" : encoded;
-}
-
-function formatSubmissionTimestamp(value: string) {
-  const timestamp = new Date(value);
-  if (Number.isNaN(timestamp.getTime())) return "Unknown time";
-  return `${timestamp.toISOString().slice(0, 16).replace("T", " ")} UTC`;
-}
-
-function sourceLineCount(source: string) {
-  if (!source) return 0;
-  return source.split(/\r\n|\r|\n/).length;
 }
 
 function passedCount(result: PythonVerificationResult) {
@@ -341,68 +352,31 @@ function VerificationOutput({
 
 function SubmissionHistory({
   submissions,
+  currentSource,
   currentItemRevision,
   currentVerificationRevision,
   checksAreBusy,
+  onInspectSubmission,
   onRestoreSubmission,
 }: {
   submissions: readonly SubmissionRecord[];
+  currentSource: string;
   currentItemRevision: number;
   currentVerificationRevision: number;
   checksAreBusy: boolean;
-  onRestoreSubmission: (source: string) => void;
+  onInspectSubmission: (submission: SubmissionRecord) => void;
+  onRestoreSubmission: (submission: SubmissionRecord) => void;
 }) {
-  const newestFirst = [...submissions].sort(
-    (left, right) =>
-      Date.parse(right.submittedAt) - Date.parse(left.submittedAt),
-  );
-
-  if (newestFirst.length === 0) {
-    return (
-      <p className="challenge-console-empty">
-        Your submitted solutions will appear here with their judge result.
-      </p>
-    );
-  }
-
   return (
-    <ol className="challenge-console-submission-list">
-      {newestFirst.map((submission) => {
-        const isCurrentRevision =
-          submission.itemRevision === currentItemRevision &&
-          submission.verificationRevision === currentVerificationRevision;
-        return (
-          <li
-            className={`challenge-console-submission is-${submission.status}`}
-            key={submission.id}
-          >
-          <div className="challenge-console-submission-head">
-            <strong>{SUBMISSION_STATUS_LABELS[submission.status]}</strong>
-            <time dateTime={submission.submittedAt}>
-              {formatSubmissionTimestamp(submission.submittedAt)}
-            </time>
-          </div>
-          <div className="challenge-console-submission-meta">
-            <span>
-              {submission.passed}/{submission.total} checks
-            </span>
-            <span>{Math.round(submission.durationMs)} ms</span>
-            <span>{sourceLineCount(submission.source)} lines</span>
-            <span>{submission.origin === "mock" ? "Mock" : "Practice"}</span>
-            <span>{isCurrentRevision ? "Current prompt" : "Older prompt"}</span>
-          </div>
-          <button
-            className="outline-button"
-            type="button"
-            disabled={checksAreBusy}
-            onClick={() => onRestoreSubmission(submission.source)}
-          >
-            {isCurrentRevision ? "Restore" : "Restore older source"}
-          </button>
-          </li>
-        );
-      })}
-    </ol>
+    <SubmissionInspector
+      submissions={submissions}
+      currentSource={currentSource}
+      currentItemRevision={currentItemRevision}
+      currentVerificationRevision={currentVerificationRevision}
+      checksAreBusy={checksAreBusy}
+      onInspect={onInspectSubmission}
+      onRestoreSubmission={onRestoreSubmission}
+    />
   );
 }
 
@@ -418,15 +392,29 @@ export function ChallengeConsole({
   onCustomCaseInputChange,
   onLoadDefaultCustomCase,
   onRunCustomCase,
+  customTestcaseSchema,
+  customTestcases,
+  onSelectCustomTestcase,
+  onAddCustomTestcase,
+  onDuplicateCustomTestcase,
+  onDeleteCustomTestcase,
+  onRenameCustomTestcase,
+  onCustomTestcaseModeChange,
+  onCustomTestcaseFieldChange,
+  onCustomTestcaseRawChange,
+  onRunCustomTestcases,
   customExecutionState,
   verificationState,
   exampleExpectedValues,
   onRunExamples,
   onSubmit,
   onRunFull,
+  onCancelRun,
   submissionHistory,
   currentItemRevision,
   currentVerificationRevision,
+  currentSource,
+  onInspectSubmission,
   onRestoreSubmission,
   canRecordMock = false,
   onRecordMock,
@@ -540,16 +528,36 @@ export function ChallengeConsole({
           </div>
         )}
         {activeTab === "custom" && !isMock && isSolving && (
-          <CustomCasePanel
-            customCaseInput={customCaseInput}
-            defaultCustomCaseInput={defaultCustomCaseInput}
-            onCustomCaseInputChange={onCustomCaseInputChange}
-            onLoadDefaultCustomCase={onLoadDefaultCustomCase}
-            onRunCustomCase={onRunCustomCase}
-            customExecutionState={customExecutionState}
-            runnerSourcePresent={runnerSourcePresent}
-            checksAreBusy={checksAreBusy}
-          />
+          customTestcaseSchema && customTestcases ? (
+            <StructuredCustomTestcases
+              schema={customTestcaseSchema}
+              collection={customTestcases}
+              executionState={customExecutionState}
+              runnerSourcePresent={runnerSourcePresent}
+              checksAreBusy={checksAreBusy}
+              onSelectCase={onSelectCustomTestcase}
+              onAddCase={onAddCustomTestcase}
+              onDuplicateCase={onDuplicateCustomTestcase}
+              onDeleteCase={onDeleteCustomTestcase}
+              onRenameCase={onRenameCustomTestcase}
+              onModeChange={onCustomTestcaseModeChange}
+              onFieldChange={onCustomTestcaseFieldChange}
+              onRawChange={onCustomTestcaseRawChange}
+              onRunSelected={() => onRunCustomTestcases("selected")}
+              onRunAll={() => onRunCustomTestcases("all")}
+            />
+          ) : (
+            <CustomCasePanel
+              customCaseInput={customCaseInput}
+              defaultCustomCaseInput={defaultCustomCaseInput}
+              onCustomCaseInputChange={onCustomCaseInputChange}
+              onLoadDefaultCustomCase={onLoadDefaultCustomCase}
+              onRunCustomCase={onRunCustomCase}
+              customExecutionState={customExecutionState}
+              runnerSourcePresent={runnerSourcePresent}
+              checksAreBusy={checksAreBusy}
+            />
+          )
         )}
         {activeTab === "output" && (
           <VerificationOutput
@@ -563,13 +571,24 @@ export function ChallengeConsole({
             submissions={submissionHistory}
             currentItemRevision={currentItemRevision}
             currentVerificationRevision={currentVerificationRevision}
+            currentSource={currentSource}
             checksAreBusy={checksAreBusy}
+            onInspectSubmission={onInspectSubmission}
             onRestoreSubmission={onRestoreSubmission}
           />
         )}
       </div>
 
       <footer className="python-verification-actions challenge-console-actions">
+        {checksAreBusy && (
+          <button
+            className="outline-button cancel-run"
+            type="button"
+            onClick={onCancelRun}
+          >
+            Cancel run
+          </button>
+        )}
         {isSolving && !isMock ? (
           <>
             <button

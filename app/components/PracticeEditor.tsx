@@ -1,13 +1,9 @@
 "use client";
 
-import type {
-  ChangeEvent,
-  ClipboardEvent,
-  CSSProperties,
-  KeyboardEvent,
-} from "react";
+import type { ClipboardEvent, CSSProperties, KeyboardEvent } from "react";
 import { problemLineCount } from "../data/problems";
 import type { PracticeItem } from "../lib/items";
+import { SolveCodeEditor } from "./SolveCodeEditor";
 import {
   formatDuration,
   type Draft,
@@ -40,7 +36,9 @@ export type PracticeEditorProps = {
   onReveal: () => void;
   onRestart: () => void;
   onFocusMode: () => void;
-  onChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
+  onRunExamples: () => void;
+  onSubmit: () => void;
+  onChange: (value: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => void;
 };
@@ -64,7 +62,13 @@ export function PracticeEditor(props: PracticeEditorProps) {
           <span className={`swift-badge ${props.item.language}`}>
             {language.short}
           </span>
-          {language.file} <small>{problemLineCount(props.item)} lines</small>
+          {language.file}{" "}
+          <small>
+            {props.practiceKind === "solving"
+              ? props.editorLineCount
+              : problemLineCount(props.item)}{" "}
+            lines
+          </small>
         </div>
         <div className="editor-actions">
           <button className="copy-action" onClick={props.onCopyLink}>
@@ -83,7 +87,7 @@ export function PracticeEditor(props: PracticeEditorProps) {
           </button>
         </div>
       </div>
-      <div className="metric-strip" aria-live="polite">
+      <div className="metric-strip">
         {props.practiceKind === "typing" ? (
           <>
             <span>
@@ -143,7 +147,7 @@ export function PracticeEditor(props: PracticeEditorProps) {
         </span>
       </div>
       <div
-        className="editor-wrap"
+        className={`editor-wrap${props.practiceKind === "solving" ? " solve-editor-wrap" : ""}`}
         style={
           {
             "--font-size": `${props.settings.fontSize}px`,
@@ -152,40 +156,55 @@ export function PracticeEditor(props: PracticeEditorProps) {
           } as CSSProperties
         }
       >
-        <pre className="line-numbers" aria-hidden="true">
-          {Array.from(
-            { length: props.editorLineCount },
-            (_, index) => index + 1,
-          ).join("\n")}
-        </pre>
-        <pre className="ghost-layer" aria-hidden="true">
-          {props.ghostCode}
-        </pre>
-        <pre className="typed-layer" aria-hidden="true">
-          {props.draft.value.split("").map((character, index) => (
-            <span
-              className={
-                props.practiceKind === "solving" ||
-                character === props.item.code[index]
-                  ? "right"
-                  : "wrong"
-              }
-              key={`${index}-${character}`}
-            >
-              {character}
-            </span>
-          ))}
-        </pre>
-        <textarea
-          value={props.draft.value}
-          onChange={props.onChange}
-          onKeyDown={props.onKeyDown}
-          onPaste={props.onPaste}
-          spellCheck={false}
-          autoCapitalize="off"
-          autoComplete="off"
-          aria-label={`${props.practiceKind === "solving" ? "Solve" : "Type"} the ${language.label} solution for ${props.item.title}. Press Escape to leave the editor.`}
-        />
+        {props.practiceKind === "solving" ? (
+          <SolveCodeEditor
+            value={props.draft.value}
+            fontSize={props.settings.fontSize}
+            tabSize={props.settings.tabSize}
+            isMock={props.isMock}
+            ariaLabel={`Solve ${props.item.title} in Python. Press Escape, then Tab, to leave the editor.`}
+            onChange={props.onChange}
+            onRunExamples={props.onRunExamples}
+            onSubmit={props.onSubmit}
+            onExitFocus={() => {
+              if (props.focusMode) props.onFocusMode();
+            }}
+          />
+        ) : (
+          <>
+            <pre className="line-numbers" aria-hidden="true">
+              {Array.from(
+                { length: props.editorLineCount },
+                (_, index) => index + 1,
+              ).join("\n")}
+            </pre>
+            <pre className="ghost-layer" aria-hidden="true">
+              {props.ghostCode}
+            </pre>
+            <pre className="typed-layer" aria-hidden="true">
+              {props.draft.value.split("").map((character, index) => (
+                <span
+                  className={
+                    character === props.item.code[index] ? "right" : "wrong"
+                  }
+                  key={`${index}-${character}`}
+                >
+                  {character}
+                </span>
+              ))}
+            </pre>
+            <textarea
+              value={props.draft.value}
+              onChange={(event) => props.onChange(event.target.value)}
+              onKeyDown={props.onKeyDown}
+              onPaste={props.onPaste}
+              spellCheck={false}
+              autoCapitalize="off"
+              autoComplete="off"
+              aria-label={`Type the ${language.label} solution for ${props.item.title}. Press Escape to leave the editor.`}
+            />
+          </>
+        )}
       </div>
       <div className="editor-footer">
         <span>
@@ -206,7 +225,9 @@ export function PracticeEditor(props: PracticeEditorProps) {
         )}
         <span className="spacer" />
         <span>
-          Tab inserts {props.settings.tabSize} spaces - Esc leaves editor
+          {props.practiceKind === "solving"
+            ? "Ctrl/Cmd+Enter runs - add Shift to submit - Esc then Tab leaves"
+            : `Tab inserts ${props.settings.tabSize} spaces - Esc leaves editor`}
         </span>
       </div>
       {props.practiceKind === "typing" && (
