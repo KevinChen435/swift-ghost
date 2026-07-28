@@ -6,12 +6,12 @@ const read = (path) => readFile(new URL(path, import.meta.url), "utf8");
 
 test("v23 state migrates v22 submissions into durable receipts and preserves every fallback", async () => {
   const product = await read("../app/lib/product.ts");
-  assert.match(product, /version: 23/);
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v23"/);
+  assert.match(product, /version: 24/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v24"/);
   assert.match(product, /TWENTY_SECOND_STORAGE_KEY = "swift-ghost-state-v22"/);
   assert.match(
     product,
-    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_SECOND_STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY/,
+    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_THIRD_STORAGE_KEY,\s+TWENTY_SECOND_STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY/,
   );
   assert.match(product, /submissionLog: SubmissionLog/);
   assert.match(product, /submissionAnnotations: SubmissionAnnotations/);
@@ -38,11 +38,16 @@ test("ordinary and timed submissions persist pending receipts before invoking th
   assert.match(app, /requestSubmissionReceipt\(current\.submissionLog, request\)/);
   assert.match(app, /const persisted = saveState\(next\)/);
   assert.match(app, /options\.requirePersistence && !persisted/);
-  assert.equal(
-    app.match(/\{ requirePersistence: true \}/g)?.length,
-    2,
-    "ordinary and virtual-round requests must both require durable storage",
+  const localRequest = app.slice(
+    app.indexOf("function requestLocalSubmission"),
+    app.indexOf("function recordSubmission"),
   );
+  const roundRequest = app.slice(
+    app.indexOf("function requestActiveVirtualRoundSubmission"),
+    app.indexOf("function settleActiveVirtualRoundSubmission"),
+  );
+  assert.match(localRequest, /\{ requirePersistence: true \}/);
+  assert.match(roundRequest, /\{ requirePersistence: true \}/);
   assert.match(app, /activeSubmissionRequest\.current = submissionRequest/);
   assert.match(app, /interruptionReason: "local-judge-error"/);
 });

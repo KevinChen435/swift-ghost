@@ -303,7 +303,7 @@ function VerificationOutput({
 
       {isRedacted ? (
         <p className="mock-test-note">
-          Hidden judge details stay out of the interface. Use the aggregate
+          Unshown judge details stay out of the interface, but they ship in this local app and are not a security boundary. Use the aggregate
           result to revise your edge cases.
         </p>
       ) : showsExampleDetails ? (

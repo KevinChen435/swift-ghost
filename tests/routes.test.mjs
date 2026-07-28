@@ -81,6 +81,30 @@ test("the Records submission work log round-trips filters, selection, and compar
   assert.equal(ignored.submissions, undefined);
 });
 
+test("solution review routes preserve a bounded attempt identity", () => {
+  const route = parseRoute(
+    "/swift-ghost/?view=records&section=reviews&attempt=attempt_01-review:2",
+  );
+  assert.equal(route.view, "records");
+  assert.equal(route.recordsSection, "reviews");
+  assert.equal(route.reviewAttemptId, "attempt_01-review:2");
+  assert.equal(
+    serializeRoute(route, "https://example.test/swift-ghost/?stale=1"),
+    "/swift-ghost/?view=records&section=reviews&attempt=attempt_01-review%3A2",
+  );
+  assert.equal(
+    parseRoute(
+      "/?view=records&section=reviews&attempt=..%2F..%2Fprivate",
+    ).reviewAttemptId,
+    undefined,
+  );
+  assert.equal(
+    parseRoute("/?view=library&section=reviews&attempt=attempt-1")
+      .reviewAttemptId,
+    undefined,
+  );
+});
+
 const items = [
   {
     itemId: "builtin:1",

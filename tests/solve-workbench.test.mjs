@@ -48,7 +48,7 @@ test("solve workbench ships accessible split and mobile panel controls", async (
   assert.match(app, /setMobileWorkspacePane\("tests"\)/);
 
   assert.match(submissionInspector, /challenge-console-submission-list/);
-  assert.match(consoleUi, /Hidden judge details stay out of the interface/);
+  assert.match(consoleUi, /Unshown judge details stay out of the interface/);
   assert.doesNotMatch(consoleUi, /<pre>\{submission\.source\}<\/pre>/);
   assert.match(consoleUi, /availableTabs\.includes\(consoleTab\)/);
 

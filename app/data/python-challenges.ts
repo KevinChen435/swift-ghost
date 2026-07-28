@@ -125,7 +125,7 @@ export const PYTHON_CHALLENGES = {
     id: 10006,
     title: "Heap Tuple Ordering",
     statement:
-      "Select up to limit tasks from a task list. Lower numeric priority runs first; equal priorities are ordered by lower submission sequence. Return only the selected task names.",
+      "Select up to limit tasks from a task list. Lower numeric priority runs first; equal priorities are ordered by lower submission sequence, then alphabetically by task name when both keys tie. Return only the selected task names.",
     entrypoint: "next_tasks(tasks, limit)",
     parameters: [
       { name: "tasks", type: "list[tuple[int, int, str]]", description: "(priority, sequence, name) records." },
@@ -134,7 +134,7 @@ export const PYTHON_CHALLENGES = {
     returns: "list[str] — selected names in execution order.",
     constraints: [
       "0 <= limit.",
-      "Sequence numbers are unique within tasks.",
+      "Sequence numbers may repeat; a tied priority and sequence is ordered by task name.",
       "Priorities and sequence numbers are integers.",
       "Return every task when limit exceeds the task count.",
       "Do not mutate tasks.",
@@ -186,7 +186,7 @@ export const PYTHON_CHALLENGES = {
     id: 1,
     title: "Two Sum",
     statement:
-      "Find the two distinct positions in an integer array whose values add to target. Return their indices.",
+      "Find two distinct positions in an integer array whose values add to target. Return their indices, or an empty list when no pair exists.",
     entrypoint: "Solution.twoSum(nums, target)",
     parameters: [
       { name: "nums", type: "list[int]", description: "Values to search." },
@@ -195,7 +195,7 @@ export const PYTHON_CHALLENGES = {
     returns: "list[int] — the two zero-based indices.",
     constraints: [
       "2 <= len(nums).",
-      "Exactly one valid pair exists.",
+      "Zero or one valid pair exists.",
       "The same array position cannot be used twice.",
       "Values and target may be negative, zero, or positive.",
     ],
@@ -368,7 +368,7 @@ export const PYTHON_CHALLENGES = {
     returns: "int — target's zero-based index, or -1.",
     constraints: [
       "nums is sorted in strictly increasing order.",
-      "nums contains at least one integer.",
+      "nums may be empty.",
       "target may lie inside or outside the array's value range.",
       "The solution must run in O(log n) time.",
     ],
@@ -604,8 +604,8 @@ export const PYTHON_CHALLENGES = {
     ],
     returns: "int — number of four-directionally connected land components.",
     constraints: [
-      "grid has at least one row and one column.",
-      "Every row has the same length.",
+      "grid may be empty or contain an empty first row; either case has zero islands.",
+      "When cells are present, every row has the same length.",
       "Cells contain only '0' or '1'.",
       "Diagonal contact does not connect land.",
       "Each land cell belongs to exactly one counted island.",
@@ -720,7 +720,7 @@ export const PYTHON_CHALLENGES = {
     ],
     returns: "int — maximum total from a nonadjacent subset.",
     constraints: [
-      "nums contains at least one value.",
+      "nums may be empty.",
       "Every amount is nonnegative.",
       "The first and last houses are not adjacent; the street is not circular.",
       "Choosing no house is allowed conceptually, though nonnegative inputs never make it worse.",

@@ -67,7 +67,7 @@ export function ChallengeStatement({
           <h2 id={titleId}>{challenge.entrypoint}</h2>
         </div>
         <span className="hidden-check-count">
-          {challenge.hiddenCaseCount} hidden check
+          {challenge.hiddenCaseCount} unshown check
           {challenge.hiddenCaseCount === 1 ? "" : "s"}
         </span>
       </header>

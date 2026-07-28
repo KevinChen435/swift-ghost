@@ -49,6 +49,8 @@ import { MockNotebook } from "./MockNotebook";
 import { MockDebriefDialog } from "./MockDebriefDialog";
 import { CatalogLibrary } from "./CatalogLibrary";
 import { SubmissionWorkLog } from "./SubmissionWorkLog";
+import { SolutionReviewWorkspace } from "./SolutionReviewWorkspace";
+import { getSolutionGuide } from "../data/solution-guides";
 import {
   InterviewStudioPanel,
   type InterviewPanelSession,
@@ -121,6 +123,7 @@ import {
 } from "../lib/submission-work-log.mjs";
 import {
   requestSubmission as requestSubmissionReceipt,
+  resolveSubmissionSource,
   settleSubmission as settleSubmissionReceipt,
   settledSubmissionRecords,
   type SubmissionContextKind,
@@ -132,6 +135,12 @@ import {
   updateSubmissionAnnotation,
   type SubmissionAnnotation,
 } from "../lib/submission-annotations.mjs";
+import {
+  createSolutionReview,
+  scheduleReasonForReview,
+  upsertSolutionReview,
+  type SolutionReviewRecord,
+} from "../lib/solution-review.mjs";
 import {
   EMPTY_STATE,
   STATE_STORAGE_KEYS,
@@ -688,6 +697,7 @@ export default function SwiftGhostApp() {
   );
   const [recordsSection, setRecordsSection] =
     useState<RecordsSection>("overview");
+  const [reviewAttemptId, setReviewAttemptId] = useState<string>();
   const [submissionLogQuery, setSubmissionLogQuery] =
     useState<SubmissionWorkLogQuery>(() =>
       normalizeSubmissionWorkLogQuery(DEFAULT_SUBMISSION_WORK_LOG_QUERY),
@@ -787,6 +797,7 @@ export default function SwiftGhostApp() {
         normalizeCatalogQuery(route.catalog ?? DEFAULT_CATALOG_QUERY),
       );
       setRecordsSection(route.recordsSection ?? "overview");
+      setReviewAttemptId(route.reviewAttemptId);
       setSubmissionLogQuery(
         normalizeSubmissionWorkLogQuery(
           route.submissions ?? DEFAULT_SUBMISSION_WORK_LOG_QUERY,
@@ -817,6 +828,19 @@ export default function SwiftGhostApp() {
             view: "records",
             recordsSection: "submissions",
             submissions: route.submissions,
+          },
+          window.location.href,
+        );
+        const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        if (canonicalHref !== currentHref)
+          window.history.replaceState({}, "", canonicalHref);
+      }
+      if (route.view === "records" && route.recordsSection === "reviews") {
+        const canonicalHref = serializeRoute(
+          {
+            view: "records",
+            recordsSection: "reviews",
+            reviewAttemptId: route.reviewAttemptId,
           },
           window.location.href,
         );
@@ -876,6 +900,7 @@ export default function SwiftGhostApp() {
         normalizeCatalogQuery(route.catalog ?? DEFAULT_CATALOG_QUERY),
       );
       setRecordsSection(route.recordsSection ?? "overview");
+      setReviewAttemptId(route.reviewAttemptId);
       setSubmissionLogQuery(
         normalizeSubmissionWorkLogQuery(
           route.submissions ?? DEFAULT_SUBMISSION_WORK_LOG_QUERY,
@@ -1511,6 +1536,7 @@ export default function SwiftGhostApp() {
     setResult(null);
     if (nextView === "records") {
       setRecordsSection("overview");
+      setReviewAttemptId(undefined);
       setSubmissionLogQuery(
         normalizeSubmissionWorkLogQuery(DEFAULT_SUBMISSION_WORK_LOG_QUERY),
       );
@@ -1551,6 +1577,7 @@ export default function SwiftGhostApp() {
     const normalized = normalizeSubmissionWorkLogQuery(nextQuery);
     setView("records");
     setRecordsSection(nextSection);
+    setReviewAttemptId(undefined);
     setSubmissionLogQuery(normalized);
     const route: AppRoute =
       nextSection === "submissions"
@@ -1559,7 +1586,9 @@ export default function SwiftGhostApp() {
             recordsSection: "submissions",
             submissions: normalized,
           }
-        : { view: "records", recordsSection: "overview" };
+        : nextSection === "reviews"
+          ? { view: "records", recordsSection: "reviews" }
+          : { view: "records", recordsSection: "overview" };
     const href = serializeRoute(route, window.location.href);
     const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
     if (href === currentHref) return;
@@ -1568,6 +1597,309 @@ export default function SwiftGhostApp() {
       "",
       href,
     );
+  }
+
+  function timedSolutionReviewAttemptIds(current: AppState) {
+    const timedSessionIds = new Set(
+      current.sessionHistory
+        .filter((session) => session.kind === "mock")
+        .map((session) => session.id),
+    );
+    const finishedRoundIds = new Set(
+      current.virtualRoundWorkspace.history.map((round) => round.id),
+    );
+    const submissionsById = new Map(
+      current.submissionLog.receipts.map((receipt) => [receipt.id, receipt]),
+    );
+    return new Set(
+      current.attempts
+        .filter((attempt) => {
+          if (attempt.sessionId && timedSessionIds.has(attempt.sessionId))
+            return true;
+          const receipt = attempt.submissionId
+            ? submissionsById.get(attempt.submissionId)
+            : undefined;
+          return Boolean(
+            receipt?.context.virtualRoundId &&
+              finishedRoundIds.has(receipt.context.virtualRoundId),
+          );
+        })
+        .map((attempt) => attempt.id),
+    );
+  }
+
+  function solutionReviewOptions(current: AppState) {
+    return {
+      attemptsById: new Map(
+        current.attempts.map((attempt) => [attempt.id, attempt]),
+      ),
+      validItemIds: new Set(
+        [...BUILTIN_ITEMS, ...current.customItems].map(
+          (candidate) => candidate.itemId,
+        ),
+      ),
+      submissionIds: new Set(
+        current.submissionLog.receipts.map((receipt) => receipt.id),
+      ),
+      submissionsById: new Map(
+        current.submissionLog.receipts.map((receipt) => [receipt.id, receipt]),
+      ),
+      timedAttemptIds: timedSolutionReviewAttemptIds(current),
+    };
+  }
+
+  function teachBackPromptFor(itemToReview: PracticeItem) {
+    return (
+      itemToReview.transfer?.teachBackQuestion ??
+      itemToReview.recallChecks?.[1] ??
+      `Explain the invariant for ${itemToReview.title}, then name one input that would break a weaker approach.`
+    );
+  }
+
+  function openSolutionReview(attemptId: string) {
+    if (blockVirtualRoundNavigation()) return;
+    const current = stateRef.current;
+    const attempt = current.attempts.find(
+      (candidate) => candidate.id === attemptId,
+    );
+    const itemToReview = attempt
+      ? allItems.find((candidate) => candidate.itemId === attempt.itemId)
+      : undefined;
+    if (
+      !attempt ||
+      !itemToReview ||
+      attempt.practiceKind !== "solving" ||
+      attempt.outcome !== "completed" ||
+      !attempt.verification ||
+      attempt.verification.total < 1 ||
+      attempt.verification.passed !== attempt.verification.total
+    ) {
+      setToast("Solution review requires a completed accepted solve");
+      return;
+    }
+    try {
+      commitStateImmediately(
+        (latest) => {
+          const existing = latest.solutionReviews.find(
+            (review) => review.attemptId === attemptId,
+          );
+          if (existing) return latest;
+          const submission = attempt.submissionId
+            ? latest.submissionLog.receipts.find(
+                (receipt) =>
+                  receipt.id === attempt.submissionId &&
+                  receipt.lifecycle === "settled" &&
+                  receipt.status === "accepted" &&
+                  receipt.itemId === attempt.itemId &&
+                  receipt.itemRevision === attempt.itemRevision,
+              )
+            : undefined;
+          const review = createSolutionReview({
+            id: makeId(),
+            attempt,
+            submissionId: submission?.id,
+            teachBackPrompt: teachBackPromptFor(itemToReview),
+            now: new Date().toISOString(),
+            unlockContext: timedSolutionReviewAttemptIds(latest).has(attempt.id)
+              ? "finished-timed-run"
+              : "accepted-practice",
+          });
+          return {
+            ...latest,
+            solutionReviews: upsertSolutionReview(
+              latest.solutionReviews,
+              review,
+              solutionReviewOptions(latest),
+            ),
+          };
+        },
+        { requirePersistence: true },
+      );
+    } catch (error) {
+      setToast(
+        error instanceof Error
+          ? error.message
+          : "Solution review could not be saved locally",
+      );
+      return;
+    }
+    setResult(null);
+    setView("records");
+    setRecordsSection("reviews");
+    setReviewAttemptId(attemptId);
+    writeRoute({
+      view: "records",
+      recordsSection: "reviews",
+      reviewAttemptId: attemptId,
+    });
+  }
+
+  function saveSolutionReviewDraft(review: SolutionReviewRecord) {
+    try {
+      commitStateImmediately(
+        (current) => ({
+          ...current,
+          solutionReviews: upsertSolutionReview(
+            current.solutionReviews,
+            { ...review, updatedAt: new Date().toISOString() },
+            solutionReviewOptions(current),
+          ),
+        }),
+        { requirePersistence: true },
+      );
+      setToast("Solution review draft saved on this device");
+      return true;
+    } catch (error) {
+      setToast(
+        error instanceof Error
+          ? error.message
+          : "Solution review draft could not be saved",
+      );
+      return false;
+    }
+  }
+
+  function learningFrictionForReview(
+    category: SolutionReviewRecord["mistakeCategory"],
+  ): LearningEvent["friction"] {
+    if (category === "recognition") return "recognition";
+    if (category === "invariant") return "invariant";
+    if (category === "complexity") return "complexity";
+    if (category === "python-syntax") return "syntax";
+    if (category === "swift-syntax-api") return "api";
+    if (category === "implementation-plan" || category === "edge-case")
+      return "implementation";
+    return "none";
+  }
+
+  function completeSolutionReview(review: SolutionReviewRecord) {
+    if (!review.grade || !review.teachBackCommittedAt) {
+      setToast("Commit a teach-back answer and self-rate it before finishing");
+      return false;
+    }
+    try {
+      commitStateImmediately(
+        (current) => {
+          const attempt = current.attempts.find(
+            (candidate) => candidate.id === review.attemptId,
+          );
+          if (!attempt) throw new Error("The linked attempt is no longer available");
+          const completedAt = new Date().toISOString();
+          const existingEvent = current.learningEvents.find(
+            (event) => event.attemptId === attempt.id,
+          );
+          const event: LearningEvent = {
+            id: existingEvent?.id ?? makeId(),
+            attemptId: attempt.id,
+            itemId: attempt.itemId,
+            itemRevision: attempt.itemRevision,
+            practiceKind: "solving",
+            activityKind: "solve",
+            grade: review.grade!,
+            friction: learningFrictionForReview(review.mistakeCategory),
+            confidence:
+              review.grade === "again"
+                ? 1
+                : review.grade === "hard"
+                  ? 2
+                  : review.grade === "good"
+                    ? 4
+                    : 5,
+            createdAt: completedAt,
+            promptSnapshot: review.teachBackPrompt,
+            response: review.teachBackResponse,
+          };
+          const learningEvents = upsertLearningEvent(
+            current.learningEvents,
+            event,
+          );
+          const projected = { ...current, learningEvents };
+          const dueAt =
+            reviewDueAt(projected, attempt.itemId) ??
+            new Date(Date.parse(completedAt) + 86_400_000);
+          const completedReview: SolutionReviewRecord = {
+            ...review,
+            status: "completed",
+            step: "complete",
+            activityKind: event.activityKind,
+            dueAt: dueAt.toISOString(),
+            scheduleReason: scheduleReasonForReview({
+              mistakeCategory: review.mistakeCategory,
+              grade: review.grade,
+              qualification: attempt.qualification,
+            }),
+            updatedAt: completedAt,
+            completedAt,
+          };
+          return {
+            ...projected,
+            solutionReviews: upsertSolutionReview(
+              current.solutionReviews,
+              completedReview,
+              solutionReviewOptions(current),
+            ),
+          };
+        },
+        { requirePersistence: true },
+      );
+      setToast("Review completed · the next activity is scheduled locally");
+      return true;
+    } catch (error) {
+      setToast(
+        error instanceof Error
+          ? error.message
+          : "Solution review could not be completed",
+      );
+      return false;
+    }
+  }
+
+  function closeSolutionReview() {
+    setReviewAttemptId(undefined);
+    updateRecordsRoute("reviews");
+  }
+
+  function retryFromSolutionReview(attemptId: string) {
+    const current = stateRef.current;
+    const attempt = current.attempts.find(
+      (candidate) => candidate.id === attemptId,
+    );
+    const itemToRetry = attempt
+      ? allItems.find((candidate) => candidate.itemId === attempt.itemId)
+      : undefined;
+    if (!itemToRetry?.verification || itemToRetry.language !== "python") {
+      setToast("This reviewed item no longer has a runnable Python judge");
+      return;
+    }
+    mutateState((latest) => {
+      const abandoned = recordAbandon(latest);
+      return {
+        ...abandoned,
+        draft: {
+          ...freshDraft(
+            itemToRetry.itemId,
+            5,
+            itemToRetry.contentRevision,
+            undefined,
+            undefined,
+            "solving",
+            itemToRetry.starterCode ?? "",
+          ),
+          peeks: 1,
+        },
+        lastItemId: itemToRetry.itemId,
+        lastStage: 5,
+      };
+    });
+    setSelectedId(itemToRetry.itemId);
+    setStage(5);
+    setPracticeKind("solving");
+    setPracticeEpoch((value) => value + 1);
+    setReveal(false);
+    setResult(null);
+    setView("practice");
+    writeRoute(routeForItem(itemToRetry, 5, "solving"));
+    setToast("Review-informed retry opened · this solve is marked assisted");
   }
 
   function saveSubmissionAnnotation(
@@ -1691,6 +2023,7 @@ export default function SwiftGhostApp() {
     outcome: AttemptRecord["outcome"],
     current: AppState,
     verification?: AttemptRecord["verification"],
+    submissionId?: string,
   ) {
     const live = currentMetrics(active, activeItem.code);
     const isConcept = active.practiceKind === "concept";
@@ -1742,6 +2075,8 @@ export default function SwiftGhostApp() {
       sessionId: active.sessionId,
       assessmentRunId: active.assessmentRunId,
       assessmentProbeId: active.assessmentProbeId,
+      submissionId:
+        active.practiceKind === "solving" ? submissionId : undefined,
       keyErrors: { ...active.keyErrors },
       lineErrors: { ...active.lineErrors },
     };
@@ -2467,8 +2802,19 @@ export default function SwiftGhostApp() {
     });
   }
 
-  function finish(next: Draft, verification?: AttemptRecord["verification"]) {
-    const attempt = createAttempt(next, item, "completed", state, verification);
+  function finish(
+    next: Draft,
+    verification?: AttemptRecord["verification"],
+    submissionId?: string,
+  ) {
+    const attempt = createAttempt(
+      next,
+      item,
+      "completed",
+      state,
+      verification,
+      submissionId,
+    );
     completeAttempt(next, attempt);
   }
 
@@ -2637,6 +2983,7 @@ export default function SwiftGhostApp() {
     runs: number,
     submissions = 1,
     purpose: "submit" | "full" = "submit",
+    submissionId?: string,
   ) {
     const liveDraft = stateRef.current.draft;
     const activeMock =
@@ -2672,14 +3019,18 @@ export default function SwiftGhostApp() {
       testRuns: Math.max(liveDraft.testRuns, runs),
       submissions: Math.max(liveDraft.submissions, submissions),
     };
-    finish(next, {
-      revision: item.verification.revision ?? 1,
-      passed: verificationResult.cases.filter((testCase) => testCase.passed)
-        .length,
-      total: verificationResult.cases.length,
-      runs: Math.max(1, runs),
-      submissions: Math.max(1, submissions),
-    });
+    finish(
+      next,
+      {
+        revision: item.verification.revision ?? 1,
+        passed: verificationResult.cases.filter((testCase) => testCase.passed)
+          .length,
+        total: verificationResult.cases.length,
+        runs: Math.max(1, runs),
+        submissions: Math.max(1, submissions),
+      },
+      submissionId,
+    );
   }
 
   function insertAtCursor(input: HTMLTextAreaElement, text: string) {
@@ -4205,7 +4556,7 @@ export default function SwiftGhostApp() {
       total: accepted.total,
       runs: Math.max(1, liveDraft.testRuns),
       submissions: Math.max(1, liveDraft.submissions),
-    });
+    }, accepted.id);
   }
 
   function expireMockInterview(sessionId: string) {
@@ -5036,6 +5387,7 @@ export default function SwiftGhostApp() {
           state={state}
           items={allItems}
           section={recordsSection}
+          reviewAttemptId={reviewAttemptId}
           submissionQuery={submissionLogQuery}
           now={now}
           transferVariants={transferVariants}
@@ -5060,6 +5412,11 @@ export default function SwiftGhostApp() {
           onSaveSubmissionAnnotation={saveSubmissionAnnotation}
           onOpenSubmissionClean={openSubmissionClean}
           onContinueFromSubmission={continueFromSubmission}
+          onOpenSolutionReview={openSolutionReview}
+          onSaveSolutionReview={saveSolutionReviewDraft}
+          onCompleteSolutionReview={completeSolutionReview}
+          onCloseSolutionReview={closeSolutionReview}
+          onRetrySolutionReview={retryFromSolutionReview}
         />
       )}
       {view === "settings" && (
@@ -5089,6 +5446,7 @@ export default function SwiftGhostApp() {
           onRandom={() => randomItem()}
           onRecords={() => navigateView("records")}
           onTransferLab={openTransferLab}
+          onSolutionReview={() => openSolutionReview(result.id)}
           debrief={state.learningEvents.find(
             (event) => event.attemptId === result.id,
           )}
@@ -5527,6 +5885,7 @@ type PracticeProps = {
     runs: number,
     submissions?: number,
     purpose?: "submit" | "full",
+    submissionId?: string,
   ) => void;
   onConceptChange: (value: string) => void;
   onConceptReveal: (assisted: boolean, responseSnapshot: string) => void;
@@ -5904,6 +6263,7 @@ function PracticeView(props: PracticeProps) {
           runs,
           submissions,
           purpose === "full" ? "full" : "submit",
+          submissionRequest?.id,
         );
       }
     } catch (error) {
@@ -7517,7 +7877,7 @@ function SessionsView({
                   onChange={() => setStudioFormat("python-coding")}
                 />
                 <strong>Python coding</strong>
-                <small>Real editor, samples, hidden checks, and submissions</small>
+                <small>Real editor, samples, unshown checks, and submissions</small>
               </label>
               <label className={studioFormat === "ios-technical" ? "is-selected" : ""}>
                 <input
@@ -8050,6 +8410,7 @@ function RecordsView({
   state,
   items,
   section,
+  reviewAttemptId,
   submissionQuery,
   now,
   transferVariants,
@@ -8065,10 +8426,16 @@ function RecordsView({
   onSaveSubmissionAnnotation,
   onOpenSubmissionClean,
   onContinueFromSubmission,
+  onOpenSolutionReview,
+  onSaveSolutionReview,
+  onCompleteSolutionReview,
+  onCloseSolutionReview,
+  onRetrySolutionReview,
 }: {
   state: AppState;
   items: PracticeItem[];
   section: RecordsSection;
+  reviewAttemptId?: string;
   submissionQuery: SubmissionWorkLogQuery;
   now: number;
   transferVariants: TransferVariant[];
@@ -8100,7 +8467,121 @@ function RecordsView({
     item: PracticeItem,
     source: string,
   ) => void;
+  onOpenSolutionReview: (attemptId: string) => void;
+  onSaveSolutionReview: (review: SolutionReviewRecord) => boolean;
+  onCompleteSolutionReview: (review: SolutionReviewRecord) => boolean;
+  onCloseSolutionReview: () => void;
+  onRetrySolutionReview: (attemptId: string) => void;
 }) {
+  if (section === "reviews") {
+    const reviewableAttempts = state.attempts
+      .filter(
+        (attempt) =>
+          attempt.practiceKind === "solving" &&
+          attempt.outcome === "completed" &&
+          Boolean(attempt.verification) &&
+          (attempt.verification?.total ?? 0) > 0 &&
+          attempt.verification?.passed === attempt.verification?.total,
+      )
+      .sort(
+        (left, right) =>
+          Date.parse(right.completedAt) - Date.parse(left.completedAt),
+      );
+    const activeReview = reviewAttemptId
+      ? state.solutionReviews.find(
+          (review) => review.attemptId === reviewAttemptId,
+        )
+      : undefined;
+    const activeAttempt = activeReview
+      ? state.attempts.find(
+          (attempt) => attempt.id === activeReview.attemptId,
+        )
+      : undefined;
+    const activeItem = activeAttempt
+      ? items.find((candidate) => candidate.itemId === activeAttempt.itemId)
+      : undefined;
+    const guide =
+      activeItem &&
+      (activeItem.itemId.startsWith("python:") ||
+        activeItem.itemId.startsWith("transfer:"))
+        ? getSolutionGuide(activeItem.itemId, activeReview?.itemRevision)
+        : null;
+    if (activeReview && activeAttempt && activeItem) {
+      return (
+        <SolutionReviewWorkspace
+          key={`${activeReview.attemptId}:${activeReview.updatedAt}`}
+          review={activeReview}
+          attempt={activeAttempt}
+          item={activeItem}
+          submittedSource={
+            activeReview.submissionId
+              ? resolveSubmissionSource(
+                  state.submissionLog,
+                  activeReview.submissionId,
+                )
+              : null
+          }
+          guide={guide}
+          onSave={onSaveSolutionReview}
+          onComplete={onCompleteSolutionReview}
+          onExit={onCloseSolutionReview}
+          onRetry={() => onRetrySolutionReview(activeAttempt.id)}
+        />
+      );
+    }
+    return (
+      <main id="main-content" tabIndex={-1} className="page-container">
+        <PageHeading
+          eyebrow="Private learning workspace"
+          title="Solution review library."
+          copy="Explain first, compare against reviewed project-authored guides, capture the first wrong turn, teach it back, and schedule the next retrieval. Accepted attempts remain immutable."
+        />
+        <div className="records-section-switch" role="group" aria-label="Records section">
+          <button type="button" onClick={() => onSectionChange("overview")}>Overview</button>
+          <button type="button" onClick={() => onSectionChange("submissions")}>Submissions</button>
+          <button className="is-active" type="button" aria-current="page">Solution reviews</button>
+        </div>
+        {reviewAttemptId && !activeReview ? (
+          <p className="solution-review-route-warning" role="status">
+            That review is unavailable or no longer linked to a surviving accepted attempt. No attempt was inferred from timestamps or matching code.
+          </p>
+        ) : null}
+        <section className="solution-review-library" aria-labelledby="solution-review-library-title">
+          <div className="section-head">
+            <div><small>Accepted local solves</small><h2 id="solution-review-library-title">Reviewable attempts</h2></div>
+            <span>{state.solutionReviews.filter((review) => review.status === "completed").length} complete · {state.solutionReviews.filter((review) => review.status === "draft").length} drafts</span>
+          </div>
+          <p className="solution-review-library-trust">References are bundled project-authored content. There are no synthetic votes, peer counts, acceptance rates, “fastest” claims, or automated explanation grades.</p>
+          {reviewableAttempts.length ? (
+            <div className="solution-review-library-list">
+              {reviewableAttempts.map((attempt) => {
+                const saved = state.solutionReviews.find(
+                  (review) => review.attemptId === attempt.id,
+                );
+                return (
+                  <article key={attempt.id}>
+                    <div>
+                      <small>{attempt.qualification === "solved" ? "Independent accepted" : "Assisted accepted"} · {formatDate(attempt.completedAt)}</small>
+                      <strong>{attempt.titleSnapshot}</strong>
+                      <span>{attempt.verification?.passed}/{attempt.verification?.total} checks · prompt revision {attempt.itemRevision}</span>
+                    </div>
+                    <span className={`solution-review-library-status is-${saved?.status ?? "ready"}`}>
+                      {saved?.status === "completed" ? "Completed" : saved ? `Draft · ${saved.step.replaceAll("-", " ")}` : "Ready"}
+                    </span>
+                    <button className={saved ? "outline-button" : "primary-button"} type="button" onClick={() => onOpenSolutionReview(attempt.id)}>
+                      {saved?.status === "completed" ? "Open review" : saved ? "Resume review" : "Start review"}
+                    </button>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="empty-history"><strong>No accepted solves to review yet.</strong><p>Submit a Python solution that passes every local check. The accepted result will unlock an explain-first review.</p></div>
+          )}
+        </section>
+      </main>
+    );
+  }
   if (section === "submissions") {
     return (
       <main id="main-content" tabIndex={-1} className="page-container">
@@ -8112,6 +8593,7 @@ function RecordsView({
         <div className="records-section-switch" role="group" aria-label="Records section">
           <button type="button" onClick={() => onSectionChange("overview")}>Overview</button>
           <button className="is-active" type="button" aria-current="page">Submissions</button>
+          <button type="button" onClick={() => onSectionChange("reviews")}>Solution reviews</button>
         </div>
         <SubmissionWorkLog
           log={state.submissionLog}
@@ -8123,6 +8605,14 @@ function RecordsView({
           onSaveAnnotation={onSaveSubmissionAnnotation}
           onOpenClean={onOpenSubmissionClean}
           onContinueAssisted={onContinueFromSubmission}
+          reviewAttemptIdsBySubmission={Object.fromEntries(
+            state.attempts.flatMap((attempt) =>
+              attempt.submissionId
+                ? [[attempt.submissionId, attempt.id] as const]
+                : [],
+            ),
+          )}
+          onOpenSolutionReview={onOpenSolutionReview}
         />
       </main>
     );
@@ -8261,6 +8751,7 @@ function RecordsView({
       <div className="records-section-switch" role="group" aria-label="Records section">
         <button className="is-active" type="button" aria-current="page">Overview</button>
         <button type="button" onClick={() => onSectionChange("submissions")}>Submissions</button>
+        <button type="button" onClick={() => onSectionChange("reviews")}>Solution reviews</button>
       </div>
       <CommunityPanel
         state={state}
@@ -9148,6 +9639,7 @@ function ResultDialog({
   onRandom,
   onRecords,
   onTransferLab,
+  onSolutionReview,
   debrief,
   onSaveDebrief,
   cloud,
@@ -9159,6 +9651,7 @@ function ResultDialog({
   onRandom: () => void;
   onRecords: () => void;
   onTransferLab: () => void;
+  onSolutionReview: () => void;
   debrief?: LearningEvent;
   onSaveDebrief: (input: DebriefInput) => void;
   cloud: CloudRuntime;
@@ -9375,7 +9868,7 @@ function ResultDialog({
             </strong>
           </span>
         </div>
-        {!isConcept && (
+        {!isConcept && !isSolve && (
           <AttemptForensics attempt={result} item={result.item} />
         )}
         {isTransfer && result.item.transfer && (
@@ -9391,7 +9884,7 @@ function ResultDialog({
             </div>
           </section>
         )}
-        {!isConcept && (
+        {!isConcept && !isSolve && (
           <PostAttemptDebrief
             item={result.item}
             stage={result.stage}
@@ -9446,10 +9939,20 @@ function ResultDialog({
           <button className="outline-button" onClick={onRecords}>
             Full analysis
           </button>
+          {isSolve && (
+            <button
+              className="primary-button"
+              data-modal-autofocus="true"
+              autoFocus
+              onClick={onSolutionReview}
+            >
+              Review how this solution works -&gt;
+            </button>
+          )}
           <button
-            className="primary-button"
-            data-modal-autofocus="true"
-            autoFocus
+            className={isSolve ? "outline-button" : "primary-button"}
+            data-modal-autofocus={isSolve ? undefined : "true"}
+            autoFocus={!isSolve}
             onClick={onNext}
           >
             {result.sessionNext

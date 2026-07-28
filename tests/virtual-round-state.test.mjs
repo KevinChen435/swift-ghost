@@ -7,14 +7,14 @@ test("state v23 preserves virtual rounds after the complete v22 fallback", async
     new URL("../app/lib/product.ts", import.meta.url),
     "utf8",
   );
-  assert.match(product, /export type AppState = \{\s+version: 23;/);
+  assert.match(product, /export type AppState = \{\s+version: 24;/);
   assert.match(product, /virtualRoundWorkspace: VirtualRoundWorkspace/);
-  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v23"/);
+  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v24"/);
   assert.match(product, /TWENTY_SECOND_STORAGE_KEY = "swift-ghost-state-v22"/);
   assert.match(product, /TWENTY_FIRST_STORAGE_KEY = "swift-ghost-state-v21"/);
   assert.match(
     product,
-    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_SECOND_STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY/,
+    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_THIRD_STORAGE_KEY,\s+TWENTY_SECOND_STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY/,
   );
   assert.match(product, /virtualRoundWorkspace: createVirtualRoundWorkspace\(\)/);
   assert.match(

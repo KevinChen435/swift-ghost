@@ -458,13 +458,13 @@ def breadth_first_order(graph: dict[str, list[str]], start: str) -> list[str]:
     difficulty: "Easy",
     pattern: "Python Fluency",
     summary:
-      "Return the next tasks ordered by priority, then submission sequence.",
+      "Return the next tasks ordered by priority, submission sequence, then task name.",
     cue: "Put every comparison field before the payload in a heap tuple.",
     invariant:
-      "The heap root is the remaining task with the smallest (priority, sequence) pair.",
+      "The heap root is the remaining task with the smallest (priority, sequence, name) tuple.",
     complexity: "O(n + k log n) time · O(n) space",
     languageNote:
-      "heapq is a min-heap; a sequence field prevents Python from comparing arbitrary payloads when priorities tie.",
+      "heapq compares tuples lexicographically, so the string name is the explicit final tiebreaker after priority and sequence.",
     estimatedMinutes: 5,
     starterCode: `import heapq
 
@@ -533,7 +533,7 @@ def next_tasks(tasks: list[tuple[int, int, str]], limit: int) -> list[str]:
     tags: ["heapq", "tuple", "priority-queue", "heapify"],
     recallChecks: [
       "Which tuple field is compared first by heapq?",
-      "Why include a unique sequence before a non-orderable payload?",
+      "Which field breaks a tie when priority and sequence are both equal?",
       "What is the complexity of heapify compared with n separate pushes?",
     ],
   },
