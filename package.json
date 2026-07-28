@@ -15,6 +15,7 @@
     "build:pages": "node ./node_modules/next/dist/bin/next build",
     "start": "node scripts/start.mjs",
     "test": "npm run build && node --experimental-strip-types --test tests/*.test.mjs",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },
