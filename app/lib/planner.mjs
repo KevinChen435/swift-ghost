@@ -3,6 +3,7 @@ import { supportsConceptPractice } from "./concept-practice.mjs";
 
 const DAY_MS = 86_400_000;
 const REVIEW_DAYS = [1, 3, 7, 14, 30];
+const PLANNER_LANES = ["review", "interview", "python", "ios"];
 
 function clamp(value, fallback, min, max) {
   const number = Number(value);
@@ -259,10 +260,128 @@ function addTask(selected, candidate, budgetMinutes, maxItems) {
   return true;
 }
 
+function requestedShares(profile) {
+  const raw = {
+    python: Number(profile?.pythonShare),
+    review: Number(profile?.reviewShare),
+    ios: Number(profile?.iosShare),
+  };
+  const supplied = Object.values(raw).some(Number.isFinite);
+  if (!supplied) return null;
+  const shares = Object.fromEntries(
+    Object.entries(raw).map(([lane, value]) => [
+      lane,
+      Number.isFinite(value) ? Math.max(0, value) : 0,
+    ]),
+  );
+  const total = shares.python + shares.review + shares.ios;
+  if (!(total > 0)) return null;
+  return {
+    python: shares.python / total,
+    review: shares.review / total,
+    ios: shares.ios / total,
+  };
+}
+
+function emptyLaneMinutes() {
+  return { review: 0, interview: 0, python: 0, ios: 0 };
+}
+
+function recentLaneTotals(value) {
+  const totals = emptyLaneMinutes();
+  const records = Array.isArray(value) ? value : value ? [value] : [];
+  for (const record of records) {
+    const source = record?.laneMinutes ?? record;
+    if (!source || typeof source !== "object") continue;
+    for (const lane of PLANNER_LANES) {
+      const minutes = Number(source[lane]);
+      if (Number.isFinite(minutes) && minutes > 0)
+        totals[lane] += Math.min(minutes, 1_000_000);
+    }
+  }
+  return totals;
+}
+
+function allocationLane(candidate) {
+  if (candidate.lane === "review") return "review";
+  if (candidate.lane === "ios") return "ios";
+  // pythonShare is the whole coding-interview track: fluency warm-ups plus
+  // full interview solves. The public laneMinutes split remains unchanged.
+  return "python";
+}
+
+function allocationTotals(recent, selected) {
+  const totals = {
+    python: recent.python + recent.interview,
+    review: recent.review,
+    ios: recent.ios,
+  };
+  for (const candidate of selected)
+    totals[allocationLane(candidate)] += candidate.estimatedMinutes;
+  return totals;
+}
+
+function selectByRollingAllocation(
+  selected,
+  candidates,
+  shares,
+  recent,
+  budgetMinutes,
+  maxItems,
+) {
+  while (selected.length < maxItems) {
+    const used = selected.reduce(
+      (sum, candidate) => sum + candidate.estimatedMinutes,
+      0,
+    );
+    const fitting = candidates.filter(
+      (candidate) =>
+        !candidate.due &&
+        !selected.some((task) => task.itemId === candidate.itemId) &&
+        used + candidate.estimatedMinutes <= budgetMinutes,
+    );
+    if (!fitting.length) break;
+
+    const availableLanes = new Set(fitting.map(allocationLane));
+    const availableShare = [...availableLanes].reduce(
+      (sum, lane) => sum + shares[lane],
+      0,
+    );
+    const totals = allocationTotals(recent, selected);
+    const historyTotal = [...availableLanes].reduce(
+      (sum, lane) => sum + totals[lane],
+      0,
+    );
+
+    fitting.sort((a, b) => {
+      if (availableShare > 0) {
+        const aLane = allocationLane(a);
+        const bLane = allocationLane(b);
+        const aTarget = shares[aLane] / availableShare;
+        const bTarget = shares[bLane] / availableShare;
+        const aLag = aTarget * historyTotal - totals[aLane];
+        const bLag = bTarget * historyTotal - totals[bLane];
+        if (Math.abs(bLag - aLag) > 1e-9) return bLag - aLag;
+        if (Math.abs(bTarget - aTarget) > 1e-9) return bTarget - aTarget;
+      }
+      return (
+        b.score - a.score ||
+        String(a.itemId).localeCompare(String(b.itemId)) ||
+        a.activityKind.localeCompare(b.activityKind)
+      );
+    });
+    if (!addTask(selected, fitting[0], budgetMinutes, maxItems)) break;
+  }
+}
+
 export function buildDailyPlan(input = {}, options = {}) {
   const { items, attempts, events } = normalizeInputs(input);
   const now = asDate(options.now ?? input.now);
   const profile = input.profile ?? input.trainingProfile ?? {};
+  const shares = requestedShares(profile);
+  const recent = recentLaneTotals(
+    options.recentLaneMinutes ?? input.recentLaneMinutes,
+  );
   const budgetMinutes = Math.round(
     clamp(
       options.budgetMinutes ?? input.budgetMinutes,
@@ -288,34 +407,53 @@ export function buildDailyPlan(input = {}, options = {}) {
 
   const selected = [];
   const due = candidates.filter((candidate) => candidate.due);
-  addTask(selected, due[0], budgetMinutes, maxItems);
+  if (shares) {
+    for (const candidate of due)
+      addTask(selected, candidate, budgetMinutes, maxItems);
+    if (due.length && !selected.length) {
+      selected.push({
+        ...due[0],
+        estimatedMinutes: Math.min(budgetMinutes, due[0].estimatedMinutes),
+      });
+    }
+    selectByRollingAllocation(
+      selected,
+      candidates,
+      shares,
+      recent,
+      budgetMinutes,
+      maxItems,
+    );
+  } else {
+    addTask(selected, due[0], budgetMinutes, maxItems);
 
-  const pythonWarmup = candidates.find(
-    (candidate) =>
-      candidate.language === "python" &&
-      candidate.pattern === "Python Fluency" &&
-      !candidate.due,
-  );
-  addTask(selected, pythonWarmup, budgetMinutes, maxItems);
-
-  const pythonSolve = candidates.find(
-    (candidate) =>
-      candidate.practiceKind === "solving" &&
-      !selected.some((task) => task.itemId === candidate.itemId),
-  );
-  addTask(selected, pythonSolve, budgetMinutes, maxItems);
-
-  if (budgetMinutes >= 30) {
-    const ios = candidates.find(
+    const pythonWarmup = candidates.find(
       (candidate) =>
-        candidate.track === "ios" &&
+        candidate.language === "python" &&
+        candidate.pattern === "Python Fluency" &&
+        !candidate.due,
+    );
+    addTask(selected, pythonWarmup, budgetMinutes, maxItems);
+
+    const pythonSolve = candidates.find(
+      (candidate) =>
+        candidate.practiceKind === "solving" &&
         !selected.some((task) => task.itemId === candidate.itemId),
     );
-    addTask(selected, ios, budgetMinutes, maxItems);
-  }
+    addTask(selected, pythonSolve, budgetMinutes, maxItems);
 
-  for (const candidate of candidates)
-    addTask(selected, candidate, budgetMinutes, maxItems);
+    if (budgetMinutes >= 30) {
+      const ios = candidates.find(
+        (candidate) =>
+          candidate.track === "ios" &&
+          !selected.some((task) => task.itemId === candidate.itemId),
+      );
+      addTask(selected, ios, budgetMinutes, maxItems);
+    }
+
+    for (const candidate of candidates)
+      addTask(selected, candidate, budgetMinutes, maxItems);
+  }
 
   if (!selected.length && candidates.length) {
     const smallest = candidates
@@ -342,12 +480,13 @@ export function buildDailyPlan(input = {}, options = {}) {
     score: task.score,
     track: task.track,
     language: task.language,
+    lane: task.lane,
   }));
   const estimatedMinutes = entries.reduce(
     (sum, task) => sum + task.estimatedMinutes,
     0,
   );
-  const laneMinutes = { review: 0, interview: 0, python: 0, ios: 0 };
+  const laneMinutes = emptyLaneMinutes();
   for (const selectedTask of selected)
     laneMinutes[selectedTask.lane] += selectedTask.estimatedMinutes;
   const selectedDue = selected.filter((task) => task.due).length;

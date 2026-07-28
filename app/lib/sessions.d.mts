@@ -5,6 +5,7 @@ export type SessionTrack = "all" | "interview" | "ios";
 export type SessionLanguage = "all" | "python" | "swift";
 export type SessionStageMode = "recommended" | "recall";
 export type SessionPracticeKind = "typing" | "solving" | "concept";
+export type SessionLane = "review" | "interview" | "python" | "ios";
 export type SessionQueueEntry = {
   itemId: ItemId;
   itemRevision: number;
@@ -14,6 +15,7 @@ export type SessionQueueEntry = {
   practiceKind?: SessionPracticeKind;
   estimatedMinutes?: number;
   rationale?: string;
+  lane?: SessionLane;
 };
 export type SessionSignals = Record<string, {
   due?: boolean;

@@ -156,3 +156,124 @@ test("iOS coaching emits first-class concept practice", () => {
   assert.equal(plan.tasks[0]?.activityKind, "concept");
   assert.equal(plan.tasks[0]?.practiceKind, "concept");
 });
+
+test("requested shares are normalized instead of treated as percentages", () => {
+  const decimal = buildDailyPlan(
+    {
+      items,
+      profile: { pythonShare: 0.8, reviewShare: 0, iosShare: 0.2 },
+      recentLaneMinutes: { python: 20, ios: 5 },
+    },
+    { now, budgetMinutes: 15 },
+  );
+  const whole = buildDailyPlan(
+    {
+      items,
+      profile: { pythonShare: 80, reviewShare: 0, iosShare: 20 },
+      recentLaneMinutes: { python: 20, ios: 5 },
+    },
+    { now, budgetMinutes: 15 },
+  );
+  assert.deepEqual(whole, decimal);
+});
+
+test("rolling allocation approaches a 20 percent iOS share without forcing it into every block", () => {
+  const recentLaneMinutes = [];
+  const blocks = [];
+  for (let index = 0; index < 10; index += 1) {
+    const plan = buildDailyPlan(
+      {
+        items,
+        profile: { pythonShare: 0.8, reviewShare: 0, iosShare: 0.2 },
+        recentLaneMinutes,
+      },
+      { now, budgetMinutes: 15 },
+    );
+    blocks.push(plan);
+    recentLaneMinutes.push(plan.laneMinutes);
+  }
+  const totalMinutes = blocks.reduce(
+    (sum, plan) => sum + plan.estimatedMinutes,
+    0,
+  );
+  const iosMinutes = blocks.reduce(
+    (sum, plan) => sum + plan.laneMinutes.ios,
+    0,
+  );
+  const iosBlocks = blocks.filter((plan) => plan.laneMinutes.ios > 0).length;
+  assert.ok(iosMinutes / totalMinutes >= 0.18);
+  assert.ok(iosMinutes / totalMinutes <= 0.22);
+  assert.ok(iosBlocks > 0);
+  assert.ok(iosBlocks < blocks.length);
+});
+
+test("recent plan wrappers and direct lane-minute records aggregate identically", () => {
+  const direct = buildDailyPlan(
+    {
+      items,
+      profile: { pythonShare: 0.8, reviewShare: 0, iosShare: 0.2 },
+      recentLaneMinutes: [
+        { python: 8, interview: 4, ios: 5 },
+        { python: 8, ios: 0 },
+      ],
+    },
+    { now, budgetMinutes: 15 },
+  );
+  const wrapped = buildDailyPlan(
+    {
+      items,
+      profile: { pythonShare: 0.8, reviewShare: 0, iosShare: 0.2 },
+      recentLaneMinutes: [
+        { laneMinutes: { python: 8, interview: 4, ios: 5 } },
+        { laneMinutes: { python: 8, ios: 0 } },
+      ],
+    },
+    { now, budgetMinutes: 15 },
+  );
+  assert.deepEqual(wrapped, direct);
+});
+
+test("due reviews remain ahead of allocation targets and respect item limits", () => {
+  const plan = buildDailyPlan(
+    {
+      items,
+      attempts: [attempt()],
+      profile: { pythonShare: 1, reviewShare: 0, iosShare: 0 },
+      recentLaneMinutes: { python: 100, review: 0, ios: 0 },
+    },
+    { now, budgetMinutes: 30, maxItems: 1 },
+  );
+  assert.equal(plan.entries.length, 1);
+  assert.equal(plan.entries[0].itemId, "python:1");
+  assert.equal(plan.laneMinutes.review, plan.entries[0].estimatedMinutes);
+  assert.equal(plan.deferredDueCount, 0);
+});
+
+test("a due review larger than the block is time-boxed instead of displaced by new work", () => {
+  const plan = buildDailyPlan(
+    {
+      items,
+      attempts: [attempt()],
+      profile: { pythonShare: 0.8, reviewShare: 0, iosShare: 0.2 },
+    },
+    { now, budgetMinutes: 5 },
+  );
+  assert.equal(plan.entries.length, 1);
+  assert.equal(plan.entries[0].itemId, "python:1");
+  assert.equal(plan.entries[0].estimatedMinutes, 5);
+  assert.equal(plan.laneMinutes.review, 5);
+});
+
+test("rolling allocation remains deterministic, time bounded, and item bounded", () => {
+  const input = {
+    items,
+    profile: { pythonShare: 6, reviewShare: 2, iosShare: 2 },
+    recentLaneMinutes: [{ interview: 60, python: 20, review: 15, ios: 5 }],
+  };
+  const options = { now, budgetMinutes: 15, maxItems: 2 };
+  const first = buildDailyPlan(input, options);
+  const second = buildDailyPlan(input, options);
+  assert.deepEqual(first, second);
+  assert.ok(first.estimatedMinutes <= options.budgetMinutes);
+  assert.ok(first.entries.length <= options.maxItems);
+});

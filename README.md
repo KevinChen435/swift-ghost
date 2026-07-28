@@ -18,6 +18,8 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - A first-class Swift/iOS Concept Recall lane: answer privately, commit before reveal, compare against 48 authored reference answers, optionally type over the grey answer, then self-grade without automated semantic scoring
 - A Today dashboard with a deterministic Daily Type, Python and iOS reactivation exercises, due recall, and resumable drafts
 - An Adaptive Daily Coach that builds deterministic 15-, 30-, or 45-minute plans from overdue work, missing evidence, Python fluency, independent solves, and iOS maintenance
+- Reusable Study Plans with four evidence-based templates, fixed personal collections, 15/30/45-minute focus blocks, due-review priority, rolling Python/Swift/iOS allocation, and honest assisted-versus-independent progress
+- Plan-linked Python and Swift/iOS Interview Studio capstones, with plan structure and session links preserved without turning typing passes into solving mastery
 - Searchable, filterable, sortable problem library
 - Strict and free-correction typing modes with selection-aware character feedback
 - WPM, raw keystrokes, accuracy, corrections, peeks, timing, and consistency records
@@ -58,7 +60,7 @@ Interview content and code-typing products usually exist separately. Swift Ghost
 
 The GitHub Pages edition is entirely local: it has no account requirement, telemetry, cookies, or network-backed progress. Practice history, interview notebooks, source snapshots, rubric responses, and settings stay in the browser's local storage, and a portable JSON export is available in Settings. Python checks execute only inside an isolated browser worker and never send source code to a server. The fast local interpreter covers every shipped exercise and common interview helpers, but it is intentionally labeled as a subset: CPython-only packages and some newer Python language features are outside its scope.
 
-The hosted community edition uses ChatGPT identity. Community uploads are off by default and must be explicitly enabled. Only completed built-in attempt summaries can upload; custom snippets, drafts, source code, email addresses, and key-level telemetry are never public. Public profiles, activity sharing, and leaderboard participation each require a separate opt-in.
+The hosted community edition uses ChatGPT identity. Signed-in learners can privately sync bounded Study Plan structure, collection membership, and plan/session links between devices. Code, transcripts, notebooks, custom testcases, reference answers, and custom snippet contents are excluded from plan sync. Community uploads are off by default and must be explicitly enabled. Only completed built-in attempt summaries can upload; custom snippets, drafts, source code, email addresses, and key-level telemetry are never public. Public profiles, activity sharing, and leaderboard participation each require a separate opt-in.
 
 ## Development
 
@@ -83,7 +85,7 @@ Interview problem names link to their public LeetCode pages; iOS fundamentals li
 
 ## Roadmap
 
-The local-first training core remains the priority. Planned work includes richer hidden boundary suites, authored semantic masks, longitudinal readiness trends, cold-transfer variants, executable Swift solving, and cross-device learning-state sync.
+The local-first training core remains the priority. Planned work includes richer hidden boundary suites, authored semantic masks, longitudinal readiness trends, cold-transfer variants, executable Swift solving, and private cross-device sync for learning evidence beyond the current Study Plan structure.
 
 ## License
 

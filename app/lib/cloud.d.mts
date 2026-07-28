@@ -5,6 +5,7 @@ export type CloudUnavailableReason =
   | "rate-limited"
   | "server-error"
   | "request-failed"
+  | "revision-conflict"
   | "not-public"
   | "invalid-request"
   | "invalid-response"
@@ -18,11 +19,13 @@ export type CloudResult<T> =
       reason: CloudUnavailableReason;
       status?: number;
       retryAfterSeconds?: number;
+      conflict?: CloudStudyWorkspaceConflict;
     };
 
 export type CloudCapabilities = {
   apiVersion: string;
   cloudSync: boolean;
+  studySync: boolean;
   community: boolean;
   leaderboards: boolean;
   auth: "none" | "anonymous" | "session";
@@ -62,6 +65,12 @@ export type CloudSession = {
   authenticated: boolean;
   user: CloudSessionUser | null;
   profile: CloudProfile | null;
+};
+
+export type CloudStudyWorkspace = import("./study-plans.mjs").StudyWorkspace;
+export type CloudStudyWorkspaceConflict = {
+  revision: number;
+  workspace: CloudStudyWorkspace | null;
 };
 
 export type CloudProfilePatch = {
@@ -207,6 +216,13 @@ export type CloudClient = {
     options?: CloudRequestOptions,
   ): Promise<CloudResult<CloudCapabilities>>;
   session(options?: CloudRequestOptions): Promise<CloudResult<CloudSession>>;
+  getStudyWorkspace(
+    options?: CloudRequestOptions,
+  ): Promise<CloudResult<CloudStudyWorkspace | null>>;
+  putStudyWorkspace(
+    workspace: CloudStudyWorkspace,
+    options: CloudRequestOptions & { baseRevision: number },
+  ): Promise<CloudResult<CloudStudyWorkspace>>;
   patchProfile(
     patch: CloudProfilePatch | CloudProfile,
     options?: CloudRequestOptions,
@@ -236,4 +252,5 @@ export function createCloudClient(options?: CloudClientOptions): CloudClient;
 export const CLOUD_LIMITS: Readonly<{
   maxAttemptBatch: number;
   maxListEntries: number;
+  maxStudyWorkspaceBytes: number;
 }>;

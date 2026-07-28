@@ -57,6 +57,10 @@ export function DailyCoach({
             reviewShare: 0.2,
             iosShare: 0.2,
           },
+          recentLaneMinutes: state.sessionHistory
+            .filter((session) => session.laneMinutes)
+            .slice(-12)
+            .map((session) => ({ laneMinutes: session.laneMinutes ?? {} })),
         },
         { now: planningDate, budgetMinutes },
       ),
@@ -69,6 +73,7 @@ export function DailyCoach({
       state.favorites,
       state.settings.dailyGoalMinutes,
       state.settings.preferredLanguage,
+      state.sessionHistory,
     ],
   );
   const active = state.activeSession;

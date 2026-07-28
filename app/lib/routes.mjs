@@ -1,5 +1,6 @@
 export const ROUTE_VIEWS = [
   "today",
+  "plans",
   "practice",
   "sessions",
   "library",

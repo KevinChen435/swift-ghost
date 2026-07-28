@@ -7,6 +7,15 @@ import {
   serializeRoute,
 } from "../app/lib/routes.mjs";
 
+test("study plans have a first-class reload-safe route", () => {
+  const route = parseRoute("/?view=plans");
+  assert.equal(route.view, "plans");
+  assert.equal(
+    serializeRoute(route, "https://example.test/swift-ghost/"),
+    "/swift-ghost/?view=plans",
+  );
+});
+
 const items = [
   {
     itemId: "builtin:1",

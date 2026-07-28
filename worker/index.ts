@@ -17,6 +17,7 @@ import {
   validateAttemptUpload,
   validateHandle,
 } from "../app/lib/community-core.mjs";
+import { normalizeStudyWorkspace } from "../app/lib/study-plans.mjs";
 
 interface Env {
   ASSETS: Fetcher;
@@ -59,10 +60,16 @@ type ProfileRow = {
   show_on_leaderboards: number;
   updated_at: number;
 };
+type StudyWorkspaceRow = {
+  revision: number;
+  payload_json: string;
+  updated_at: number;
+};
 
 const API_PREFIX = "/api/v1";
 const MAX_BATCH = 100;
 const MAX_BODY_BYTES = 512_000;
+const MAX_STUDY_WORKSPACE_BYTES = 256 * 1024;
 const ITEM_CATALOG = new Map(BUILTIN_ITEMS.map((item) => [item.itemId, item]));
 const CHALLENGE_ITEMS = BUILTIN_ITEMS.filter(
   (item) => item.track === "interview" && item.difficulty !== "Hard",
@@ -222,6 +229,220 @@ async function ensurePrivateProfile(
   return row;
 }
 
+function jsonBytes(value: unknown) {
+  try {
+    return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function normalizeIncomingStudyWorkspace(
+  value: unknown,
+  revision: number,
+  now: number,
+) {
+  if (
+    !isRecord(value) ||
+    value.version !== 1 ||
+    jsonBytes(value) > MAX_STUDY_WORKSPACE_BYTES
+  )
+    throw new Error("INVALID_STUDY_WORKSPACE");
+  const updatedAt = new Date(now).toISOString();
+  const workspace = normalizeStudyWorkspace(
+    { ...value, version: 1, revision, updatedAt },
+    { now: updatedAt },
+  );
+  const payloadJson = JSON.stringify(workspace);
+  if (
+    workspace.version !== 1 ||
+    workspace.revision !== revision ||
+    workspace.updatedAt !== updatedAt ||
+    new TextEncoder().encode(payloadJson).byteLength >
+      MAX_STUDY_WORKSPACE_BYTES
+  )
+    throw new Error("INVALID_STUDY_WORKSPACE");
+  return { workspace, payloadJson };
+}
+
+async function getStudyWorkspaceRow(db: D1Database, userId: string) {
+  return db
+    .prepare(
+      `
+    SELECT revision, payload_json, updated_at
+    FROM study_workspaces
+    WHERE user_id = ?
+  `,
+    )
+    .bind(userId)
+    .first<StudyWorkspaceRow>();
+}
+
+function workspaceFromRow(row: StudyWorkspaceRow) {
+  if (
+    !Number.isInteger(row.revision) ||
+    row.revision < 1 ||
+    typeof row.payload_json !== "string" ||
+    new TextEncoder().encode(row.payload_json).byteLength >
+      MAX_STUDY_WORKSPACE_BYTES
+  )
+    throw new Error("INVALID_STUDY_WORKSPACE_ROW");
+  const parsed = JSON.parse(row.payload_json) as unknown;
+  const expectedUpdatedAt = new Date(row.updated_at).toISOString();
+  const workspace = normalizeStudyWorkspace(parsed, { now: expectedUpdatedAt });
+  if (
+    workspace.version !== 1 ||
+    workspace.revision !== row.revision ||
+    workspace.updatedAt !== expectedUpdatedAt
+  )
+    throw new Error("INVALID_STUDY_WORKSPACE_ROW");
+  return workspace;
+}
+
+function revisionConflict(
+  request: Request,
+  row: StudyWorkspaceRow | null,
+) {
+  const workspace = row ? workspaceFromRow(row) : null;
+  return json(
+    request,
+    {
+      error: {
+        code: "REVISION_CONFLICT",
+        message: "The study workspace changed on another device.",
+      },
+      current: { revision: row?.revision ?? 0, workspace },
+    },
+    409,
+  );
+}
+
+async function getStudyWorkspace(request: Request, env: Env) {
+  const user = await authenticatedUser(request);
+  if (!user)
+    return errorResponse(
+      request,
+      401,
+      "AUTH_REQUIRED",
+      "Sign in to sync a study workspace.",
+    );
+  if (!env.DB)
+    return errorResponse(
+      request,
+      503,
+      "STUDY_SYNC_UNAVAILABLE",
+      "Study workspace sync is temporarily unavailable.",
+    );
+  // Deliberately read-only: a signed-in GET never creates a profile row.
+  const row = await getStudyWorkspaceRow(env.DB, user.userId);
+  return json(request, { workspace: row ? workspaceFromRow(row) : null });
+}
+
+async function putStudyWorkspace(request: Request, env: Env) {
+  const user = await authenticatedUser(request);
+  if (!user)
+    return errorResponse(
+      request,
+      401,
+      "AUTH_REQUIRED",
+      "Sign in to sync a study workspace.",
+    );
+  if (!env.DB)
+    return errorResponse(
+      request,
+      503,
+      "STUDY_SYNC_UNAVAILABLE",
+      "Study workspace sync is temporarily unavailable.",
+    );
+  let body: unknown;
+  try {
+    body = await readJson(request);
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "INVALID_JSON";
+    return errorResponse(
+      request,
+      code === "CONTENT_TYPE" ? 415 : 400,
+      code,
+      "Send a bounded JSON study workspace.",
+    );
+  }
+  if (!isRecord(body))
+    return errorResponse(
+      request,
+      400,
+      "INVALID_STUDY_WORKSPACE",
+      "Send a bounded JSON study workspace.",
+    );
+  const baseRevision = body.baseRevision;
+  if (
+    !Number.isInteger(baseRevision) ||
+    (baseRevision as number) < 0 ||
+    (baseRevision as number) > 2_147_483_646
+  )
+    return errorResponse(
+      request,
+      400,
+      "INVALID_BASE_REVISION",
+      "baseRevision must be a non-negative integer.",
+    );
+
+  const now = Date.now();
+  const expectedRevision = baseRevision as number;
+  const nextRevision = expectedRevision + 1;
+  let encoded;
+  try {
+    encoded = normalizeIncomingStudyWorkspace(
+      body.workspace,
+      nextRevision,
+      now,
+    );
+  } catch {
+    return errorResponse(
+      request,
+      400,
+      "INVALID_STUDY_WORKSPACE",
+      `The normalized workspace must be at most ${MAX_STUDY_WORKSPACE_BYTES} bytes.`,
+    );
+  }
+  await ensurePrivateProfile(env.DB, user, now);
+
+  if (expectedRevision === 0) {
+    const inserted = await env.DB.prepare(
+      `
+      INSERT INTO study_workspaces (user_id, revision, payload_json, updated_at)
+      SELECT ?, 1, ?, ?
+      WHERE NOT EXISTS (SELECT 1 FROM study_workspaces WHERE user_id = ?)
+    `,
+    )
+      .bind(user.userId, encoded.payloadJson, now, user.userId)
+      .run();
+    if (Number(inserted.meta.changes) === 0) {
+      const current = await getStudyWorkspaceRow(env.DB, user.userId);
+      return revisionConflict(request, current);
+    }
+    return json(request, { workspace: encoded.workspace });
+  }
+
+  const updated = await env.DB.prepare(
+    `
+    UPDATE study_workspaces
+    SET revision = revision + 1, payload_json = ?, updated_at = ?
+    WHERE user_id = ? AND revision = ?
+  `,
+  )
+    .bind(encoded.payloadJson, now, user.userId, expectedRevision)
+    .run();
+  if (Number(updated.meta.changes) === 0) {
+    const current = await getStudyWorkspaceRow(env.DB, user.userId);
+    return revisionConflict(request, current);
+  }
+  return json(request, { workspace: encoded.workspace });
+}
+
 function limitFrom(url: URL, fallback = 25, maximum = 50) {
   const value = Number(url.searchParams.get("limit") ?? fallback);
   return Number.isInteger(value)
@@ -339,6 +560,7 @@ async function capabilities(request: Request, env: Env) {
     {
       apiVersion: "v1",
       cloudSync: hasCommunityDatabase(env),
+      studySync: hasCommunityDatabase(env),
       community: hasCommunityDatabase(env),
       leaderboards: hasCommunityDatabase(env),
       auth: authenticated ? "session" : "anonymous",
@@ -881,7 +1103,10 @@ async function api(request: Request, env: Env, url: URL) {
     );
   if (request.method === "OPTIONS") {
     const headers = responseHeaders(request);
-    headers.set("Access-Control-Allow-Methods", "GET, PATCH, POST, OPTIONS");
+    headers.set(
+      "Access-Control-Allow-Methods",
+      "GET, PUT, PATCH, POST, OPTIONS",
+    );
     headers.set("Access-Control-Allow-Headers", "Content-Type");
     headers.set("Access-Control-Max-Age", "600");
     return new Response(null, { status: 204, headers });
@@ -892,6 +1117,10 @@ async function api(request: Request, env: Env, url: URL) {
     return capabilities(request, env);
   if (path === "/session" && request.method === "GET")
     return session(request, env);
+  if (path === "/study/workspace" && request.method === "GET")
+    return getStudyWorkspace(request, env);
+  if (path === "/study/workspace" && request.method === "PUT")
+    return putStudyWorkspace(request, env);
   if (path === "/profile" && request.method === "PATCH")
     return updateProfile(request, env);
   if (
