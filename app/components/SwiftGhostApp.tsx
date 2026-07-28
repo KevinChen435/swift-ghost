@@ -23,6 +23,13 @@ import { CommunityPanel } from "./CommunityPanel";
 import { AttemptForensics } from "./AttemptForensics";
 import { LearningAnalytics } from "./LearningAnalytics";
 import { DailyCoach } from "./DailyCoach";
+import {
+  StudyPlans,
+  type StudyCollectionInput,
+  type StudyPlanInput,
+  type StudyPlanPace,
+  type StudyPlanSyncStatus,
+} from "./StudyPlans";
 import { ReadinessAnalytics } from "./ReadinessAnalytics";
 import { ChallengeStatement } from "./ChallengeStatement";
 import { SolveWorkbench, type MobilePane } from "./SolveWorkbench";
@@ -152,6 +159,20 @@ import {
   type LearningEvent,
 } from "../lib/learning-state.mjs";
 import {
+  activateStudyPlan,
+  STUDY_PLAN_LIMITS,
+  createStudyCollection,
+  createStudyPlan,
+  deleteStudyCollection,
+  deleteStudyPlan,
+  instantiateStudyPlanTemplate,
+  linkStudyPlanSession,
+  mergeStudyWorkspaces,
+  pauseStudyPlan,
+  updateStudyCollection,
+  updateStudyPlan,
+} from "../lib/study-plans.mjs";
+import {
   selectConceptCheckIndex,
   supportsConceptPractice,
 } from "../lib/concept-practice.mjs";
@@ -227,6 +248,8 @@ type SessionBuildOptions = {
   pattern: string;
   difficulty: string;
   stageMode: SessionStageMode;
+  studyPlanId?: string;
+  studyCollectionIds?: string[];
 };
 type CloudRuntime = {
   status:
@@ -259,6 +282,7 @@ const THEMES: { id: Theme; label: string; colors: string[] }[] = [
 
 const NAV: { id: View; label: string; icon: string }[] = [
   { id: "today", label: "Today", icon: "◉" },
+  { id: "plans", label: "Plans", icon: "◎" },
   { id: "practice", label: "Practice", icon: "⌨" },
   { id: "sessions", label: "Studio", icon: "≡" },
   { id: "library", label: "Library", icon: "▦" },
@@ -416,6 +440,22 @@ function sessionHistoryRecord(
   outcome: "completed" | "ended" | "expired",
   completedAt = new Date().toISOString(),
 ): SessionHistoryRecord {
+  const laneMinutes = entries.reduce<
+    Record<"review" | "interview" | "python" | "ios", number>
+  >(
+    (totals, entry) => {
+      const lane =
+        entry.lane ??
+        (entry.practiceKind === "concept"
+          ? "ios"
+          : entry.practiceKind === "solving"
+            ? "interview"
+            : "python");
+      totals[lane] += entry.estimatedMinutes ?? 0;
+      return totals;
+    },
+    { review: 0, interview: 0, python: 0, ios: 0 },
+  );
   return {
     id: session.id,
     name: session.name,
@@ -424,6 +464,9 @@ function sessionHistoryRecord(
     completedAt,
     completed: entries.filter((entry) => entry.status === "completed").length,
     total: entries.length,
+    studyPlanId: session.studyPlanId,
+    studyCollectionIds: session.studyCollectionIds,
+    laneMinutes,
     ...(session.kind === "mock"
       ? {
           durationMinutes: session.durationMinutes,
@@ -580,6 +623,11 @@ export default function SwiftGhostApp() {
     dailyChallenge: null,
     refresh: 0,
   });
+  const [studySyncStatus, setStudySyncStatus] =
+    useState<StudyPlanSyncStatus>("checking");
+  const studyServerRevisionRef = useRef(0);
+  const studySyncReadyRef = useRef(false);
+  const studySyncedFingerprintRef = useRef("");
   const importRef = useRef<HTMLInputElement>(null);
   const expireMockInterviewRef = useRef<(sessionId: string) => void>(() => {});
   expireMockInterviewRef.current = expireMockInterview;
@@ -752,6 +800,158 @@ export default function SwiftGhostApp() {
     void connectCloud();
     return () => controller.abort();
   }, [ready, cloud.refresh]);
+
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    if (
+      cloud.status === "local" ||
+      cloud.status === "signed-out" ||
+      !cloud.capabilities?.studySync ||
+      !cloud.session?.authenticated
+    ) {
+      studySyncReadyRef.current = false;
+      studyServerRevisionRef.current = 0;
+      studySyncedFingerprintRef.current = "";
+      const fallbackStatus = cloud.status === "local" ? "local" : "offline";
+      void Promise.resolve().then(() => {
+        if (!cancelled) setStudySyncStatus(fallbackStatus);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+    if (cloud.status !== "connected" && cloud.status !== "syncing") return;
+    const controller = new AbortController();
+    void Promise.resolve().then(() => {
+      if (!cancelled) setStudySyncStatus("checking");
+    });
+    void cloudClient
+      .getStudyWorkspace({ signal: controller.signal })
+      .then(async (result) => {
+        if (!result.available) {
+          if (result.reason !== "aborted") setStudySyncStatus("offline");
+          return;
+        }
+        if (!result.data) {
+          studyServerRevisionRef.current = 0;
+          studySyncReadyRef.current = true;
+          const localWorkspace = stateRef.current.studyWorkspace;
+          const hasLocalStudyData = Boolean(
+            localWorkspace.collections.length ||
+              localWorkspace.plans.length ||
+              localWorkspace.tombstones.length,
+          );
+          studySyncedFingerprintRef.current = hasLocalStudyData
+            ? ""
+            : JSON.stringify(localWorkspace);
+          setStudySyncStatus(hasLocalStudyData ? "syncing" : "synced");
+          return;
+        }
+        studyServerRevisionRef.current = result.data.revision;
+        const merged = mergeStudyWorkspaces(
+          stateRef.current.studyWorkspace,
+          result.data,
+          { now: new Date().toISOString() },
+        );
+        const remoteFingerprint = JSON.stringify(result.data);
+        const mergedFingerprint = JSON.stringify(merged);
+        mutateState((current) => ({ ...current, studyWorkspace: merged }));
+        studySyncReadyRef.current = true;
+        if (mergedFingerprint === remoteFingerprint) {
+          studySyncedFingerprintRef.current = mergedFingerprint;
+          setStudySyncStatus("synced");
+        } else {
+          studySyncedFingerprintRef.current = remoteFingerprint;
+          setStudySyncStatus("syncing");
+        }
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [
+    ready,
+    cloud.status,
+    cloud.capabilities?.studySync,
+    cloud.session?.authenticated,
+  ]);
+
+  useEffect(() => {
+    if (
+      !ready ||
+      !studySyncReadyRef.current ||
+      !cloud.capabilities?.studySync ||
+      !cloud.session?.authenticated ||
+      (cloud.status !== "connected" && cloud.status !== "syncing")
+    )
+      return;
+    const workspace = state.studyWorkspace;
+    const fingerprint = JSON.stringify(workspace);
+    if (fingerprint === studySyncedFingerprintRef.current) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setStudySyncStatus("syncing");
+      const submittedFingerprint = JSON.stringify(workspace);
+      void cloudClient
+        .putStudyWorkspace(workspace, {
+          baseRevision: studyServerRevisionRef.current,
+          signal: controller.signal,
+        })
+        .then((result) => {
+          if (result.available) {
+            studyServerRevisionRef.current = result.data.revision;
+            const live = stateRef.current.studyWorkspace;
+            if (JSON.stringify(live) === submittedFingerprint) {
+              studySyncedFingerprintRef.current = JSON.stringify(result.data);
+              mutateState((current) => ({
+                ...current,
+                studyWorkspace: result.data,
+              }));
+              setStudySyncStatus("synced");
+            } else {
+              const merged = mergeStudyWorkspaces(live, result.data, {
+                now: new Date().toISOString(),
+              });
+              studySyncedFingerprintRef.current = JSON.stringify(result.data);
+              mutateState((current) => ({ ...current, studyWorkspace: merged }));
+            }
+            return;
+          }
+          if (result.reason === "revision-conflict" && result.conflict) {
+            studyServerRevisionRef.current = result.conflict.revision;
+            const current = result.conflict.workspace;
+            const merged = current
+              ? mergeStudyWorkspaces(
+                  stateRef.current.studyWorkspace,
+                  current,
+                  { now: new Date().toISOString() },
+                )
+              : stateRef.current.studyWorkspace;
+            studySyncedFingerprintRef.current = current
+              ? JSON.stringify(current)
+              : "";
+            mutateState((existing) => ({
+              ...existing,
+              studyWorkspace: merged,
+            }));
+            setStudySyncStatus("syncing");
+            return;
+          }
+          if (result.reason !== "aborted") setStudySyncStatus("error");
+        });
+    }, 800);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [
+    ready,
+    state.studyWorkspace,
+    cloud.status,
+    cloud.capabilities?.studySync,
+    cloud.session?.authenticated,
+  ]);
 
   useEffect(() => {
     if (
@@ -1838,6 +2038,190 @@ export default function SwiftGhostApp() {
     openItem(pool[Math.floor(Math.random() * pool.length)]);
   }
 
+  function instantiateStudyTemplate(
+    templateId: string,
+    paceMinutes: StudyPlanPace,
+  ) {
+    if (
+      stateRef.current.studyWorkspace.collections.length >=
+        STUDY_PLAN_LIMITS.maxCollections ||
+      stateRef.current.studyWorkspace.plans.length >= STUDY_PLAN_LIMITS.maxPlans
+    ) {
+      setToast("Study plan limit reached · delete an unused plan or collection first");
+      return;
+    }
+    mutateState((current) => ({
+      ...current,
+      studyWorkspace: instantiateStudyPlanTemplate(
+        current.studyWorkspace,
+        templateId,
+        allItems,
+        { paceMinutes, now: new Date().toISOString() },
+      ),
+    }));
+    setToast("Study plan created · your first focus block is ready");
+  }
+
+  function addStudyCollection(input: StudyCollectionInput) {
+    if (
+      stateRef.current.studyWorkspace.collections.length >=
+      STUDY_PLAN_LIMITS.maxCollections
+    ) {
+      setToast("Collection limit reached · delete an unused collection first");
+      return;
+    }
+    mutateState((current) => ({
+      ...current,
+      studyWorkspace: createStudyCollection(current.studyWorkspace, input, {
+        now: new Date().toISOString(),
+      }),
+    }));
+    setToast("Collection saved");
+  }
+
+  function editStudyCollection(
+    collectionId: string,
+    changes: Partial<StudyCollectionInput>,
+  ) {
+    mutateState((current) => ({
+      ...current,
+      studyWorkspace: updateStudyCollection(
+        current.studyWorkspace,
+        collectionId,
+        changes,
+        { now: new Date().toISOString() },
+      ),
+    }));
+    setToast("Collection updated · enrolled plans keep their snapshot");
+  }
+
+  function removeStudyCollection(collectionId: string) {
+    mutateState((current) => ({
+      ...current,
+      studyWorkspace: deleteStudyCollection(
+        current.studyWorkspace,
+        collectionId,
+        { now: new Date().toISOString() },
+      ),
+    }));
+    setToast("Collection deleted · existing plan snapshots remain intact");
+  }
+
+  function addStudyPlan(input: StudyPlanInput) {
+    if (
+      stateRef.current.studyWorkspace.plans.length >= STUDY_PLAN_LIMITS.maxPlans
+    ) {
+      setToast("Study plan limit reached · delete an unused plan first");
+      return;
+    }
+    mutateState((current) => ({
+      ...current,
+      studyWorkspace: createStudyPlan(current.studyWorkspace, input, {
+        now: new Date().toISOString(),
+      }),
+    }));
+    setToast("Study plan created and made active");
+  }
+
+  function editStudyPlan(
+    planId: string,
+    changes: { title?: string; paceMinutes?: StudyPlanPace },
+  ) {
+    mutateState((current) => ({
+      ...current,
+      studyWorkspace: updateStudyPlan(
+        current.studyWorkspace,
+        planId,
+        changes,
+        { now: new Date().toISOString() },
+      ),
+    }));
+  }
+
+  function removeStudyPlan(planId: string) {
+    mutateState((current) => ({
+      ...current,
+      studyWorkspace: deleteStudyPlan(current.studyWorkspace, planId, {
+        now: new Date().toISOString(),
+      }),
+    }));
+    setToast("Study plan deleted");
+  }
+
+  function makeStudyPlanActive(planId: string) {
+    mutateState((current) => ({
+      ...current,
+      studyWorkspace: activateStudyPlan(current.studyWorkspace, planId, {
+        now: new Date().toISOString(),
+      }),
+    }));
+    setToast("Active study plan changed");
+  }
+
+  function pauseActiveStudyPlan(planId: string) {
+    mutateState((current) => ({
+      ...current,
+      studyWorkspace: pauseStudyPlan(current.studyWorkspace, planId, {
+        now: new Date().toISOString(),
+      }),
+    }));
+    setToast("Plan paused without penalty");
+  }
+
+  function linkPlanSession(
+    workspace: AppState["studyWorkspace"],
+    planId: string | undefined,
+    sessionId: string,
+    kind: "focus" | "studio",
+    at: string,
+  ) {
+    if (!planId) return workspace;
+    return linkStudyPlanSession(
+      workspace,
+      planId,
+      sessionId,
+      kind,
+      { now: at },
+    );
+  }
+
+  function startStudyFocusBlock(
+    planId: string,
+    entries: SessionQueueEntry[],
+    budgetMinutes: StudyPlanPace,
+  ) {
+    const plan = stateRef.current.studyWorkspace.plans.find(
+      (candidate) => candidate.id === planId,
+    );
+    if (!plan) {
+      setToast("That study plan is no longer available");
+      return;
+    }
+    startSession(
+      {
+        name: `${plan.title} · ${budgetMinutes} min`,
+        count: entries.length,
+        source: "mixed",
+        track: "all",
+        language: "all",
+        pattern: "All",
+        difficulty: "All",
+        stageMode: "recommended",
+        studyPlanId: plan.id,
+        studyCollectionIds: plan.collectionIds,
+      },
+      entries,
+    );
+  }
+
+  function startStudyCapstone(
+    planId: string,
+    format: InterviewStudioFormat,
+    mode: InterviewStudioMode,
+  ) {
+    startInterviewStudio(format, mode, 45, planId);
+  }
+
   function startSession(
     options: SessionBuildOptions,
     plannedEntries?: SessionQueueEntry[],
@@ -1895,6 +2279,7 @@ export default function SwiftGhostApp() {
             practiceKind,
             estimatedMinutes: entry.estimatedMinutes,
             rationale: entry.rationale,
+            lane: entry.lane,
           },
         ];
       })
@@ -1917,6 +2302,8 @@ export default function SwiftGhostApp() {
       createdAt: new Date().toISOString(),
       entries,
       currentIndex: 0,
+      studyPlanId: options.studyPlanId,
+      studyCollectionIds: options.studyCollectionIds,
     };
     mutateState((current) => {
       const base = recordAbandon(current);
@@ -1931,6 +2318,13 @@ export default function SwiftGhostApp() {
         ...base,
         activeSession: session,
         sessionHistory,
+        studyWorkspace: linkPlanSession(
+          base.studyWorkspace,
+          options.studyPlanId,
+          session.id,
+          "focus",
+          session.createdAt,
+        ),
         interviewStudio: archiveActiveInterviewStudio(
           base.interviewStudio,
           new Date().toISOString(),
@@ -2052,6 +2446,7 @@ export default function SwiftGhostApp() {
     format: InterviewStudioFormat,
     mode: InterviewStudioMode,
     durationMinutes: 30 | 45 | 60,
+    studyPlanId?: string,
   ) {
     if (
       (state.activeSession || state.interviewStudio.active) &&
@@ -2163,6 +2558,11 @@ export default function SwiftGhostApp() {
             { maxElapsedMs: durationMinutes * 60_000 },
           ),
         ],
+        studyPlanId,
+        studyCollectionIds: studyPlanId
+          ? state.studyWorkspace.plans.find((plan) => plan.id === studyPlanId)
+              ?.collectionIds
+          : undefined,
       };
       mutateState((current) => {
         const base = recordAbandon(current);
@@ -2170,6 +2570,13 @@ export default function SwiftGhostApp() {
         return {
           ...base,
           activeSession: session,
+          studyWorkspace: linkPlanSession(
+            base.studyWorkspace,
+            studyPlanId,
+            sessionId,
+            "studio",
+            startedAt,
+          ),
           sessionHistory: previous
             ? [
                 ...base.sessionHistory,
@@ -2197,6 +2604,13 @@ export default function SwiftGhostApp() {
       return {
         ...base,
         activeSession: null,
+        studyWorkspace: linkPlanSession(
+          base.studyWorkspace,
+          studyPlanId,
+          sessionId,
+          "studio",
+          startedAt,
+        ),
         sessionHistory: previous
           ? [
               ...base.sessionHistory,
@@ -2937,6 +3351,7 @@ export default function SwiftGhostApp() {
           onBrowse={() => navigateView("library")}
           onCreate={() => setCustomEditor("new")}
           onSessions={() => navigateView("sessions")}
+          onPlans={() => navigateView("plans")}
           onStartCoach={(entries, budgetMinutes) =>
             startSession(
               {
@@ -2953,6 +3368,30 @@ export default function SwiftGhostApp() {
             )
           }
           onResumeSession={resumeSession}
+        />
+      )}
+      {view === "plans" && (
+        <StudyPlans
+          workspace={state.studyWorkspace}
+          items={allItems}
+          attempts={state.attempts}
+          learningEvents={state.learningEvents}
+          interviewStudioHistory={state.interviewStudio.history}
+          sessionHistory={state.sessionHistory}
+          activeSession={state.activeSession}
+          syncStatus={studySyncStatus}
+          onInstantiateTemplate={instantiateStudyTemplate}
+          onCreateCollection={addStudyCollection}
+          onUpdateCollection={editStudyCollection}
+          onDeleteCollection={removeStudyCollection}
+          onCreatePlan={addStudyPlan}
+          onUpdatePlan={editStudyPlan}
+          onDeletePlan={removeStudyPlan}
+          onActivatePlan={makeStudyPlanActive}
+          onPausePlan={pauseActiveStudyPlan}
+          onStartFocusBlock={startStudyFocusBlock}
+          onResumeActiveSession={resumeSession}
+          onStartCapstone={startStudyCapstone}
         />
       )}
       {view === "practice" && (
@@ -3038,7 +3477,9 @@ export default function SwiftGhostApp() {
           onReview={() => randomItem("due")}
           onBrowse={() => navigateView("library")}
           onRandom={() => randomItem()}
-          onSession={() => navigateView("sessions")}
+          onSession={() =>
+            navigateView(state.activeSession?.studyPlanId ? "plans" : "sessions")
+          }
           onSkipSession={skipSessionEntry}
           onEndSession={endSession}
         />
@@ -3170,6 +3611,7 @@ function TodayView({
   onBrowse,
   onCreate,
   onSessions,
+  onPlans,
   onStartCoach,
   onResumeSession,
 }: {
@@ -3189,6 +3631,7 @@ function TodayView({
   onBrowse: () => void;
   onCreate: () => void;
   onSessions: () => void;
+  onPlans: () => void;
   onStartCoach: (
     entries: SessionQueueEntry[],
     budgetMinutes: number,
@@ -3244,6 +3687,9 @@ function TodayView({
     : null;
   const minutes = practicedMinutesToday(state);
   const goal = state.settings.dailyGoalMinutes;
+  const activePlan = state.studyWorkspace.plans.find(
+    (plan) => plan.id === state.studyWorkspace.activePlanId && plan.status === "active",
+  );
   return (
     <main id="main-content" tabIndex={-1} className="page-container today-page">
       <PageHeading
@@ -3259,6 +3705,18 @@ function TodayView({
         title="Build recall, one clean pass at a time."
         copy="Reactivate Python for interviews, keep Swift and iOS sharp, and return to each solution on a spaced schedule."
       />
+      {activePlan && (
+        <section className="today-study-plan" aria-label="Active study plan">
+          <div>
+            <span className="eyebrow">Active study plan</span>
+            <h2>{activePlan.title}</h2>
+            <p>{activePlan.outcome}</p>
+          </div>
+          <button className="primary-button" onClick={onPlans}>
+            Continue plan <span>→</span>
+          </button>
+        </section>
+      )}
       <DailyCoach
         ready={ready}
         state={state}
@@ -4053,7 +4511,11 @@ function PracticeView(props: PracticeProps) {
       <aside className="problem-rail">
         <div className="rail-head">
           <span className="eyebrow">
-            {props.activeSession ? "Active session" : "Problem queue"}
+            {props.activeSession?.studyPlanId
+              ? "Study plan focus block"
+              : props.activeSession
+                ? "Active session"
+                : "Problem queue"}
           </span>
           <span className="count-badge">
             {props.activeSession
@@ -4096,7 +4558,7 @@ function PracticeView(props: PracticeProps) {
               );
             })}
             <button className="outline-button" onClick={props.onSession}>
-              View session
+              {props.activeSession.studyPlanId ? "Back to study plan" : "View session"}
             </button>
           </div>
         ) : (
@@ -4246,6 +4708,8 @@ function PracticeView(props: PracticeProps) {
                 <small>
                   {isMock
                     ? "Timed mock interview"
+                    : props.activeSession.studyPlanId
+                      ? `Study plan · task ${props.activeSession.currentIndex + 1} of ${props.activeSession.entries.length}`
                     : `Session ${props.activeSession.currentIndex + 1} of ${props.activeSession.entries.length}`}
                 </small>
                 <strong>{props.activeSession.name}</strong>
@@ -6769,7 +7233,7 @@ function SettingsView({
           <small>Your data</small>
           <h2>Local profile</h2>
           <p>
-            Export a portable v17 JSON backup with Python, Swift, iOS, sessions,
+            Export a portable v18 JSON backup with Python, Swift, iOS, plans, sessions,
             learning debriefs, revisioned snippets, local pacing and weak-line
             analytics, community preferences, structured custom testcases, and
             local submission snapshots, mock notebooks and debriefs, Interview

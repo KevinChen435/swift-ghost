@@ -48,6 +48,11 @@ import {
   normalizeInterviewStudioState,
   type InterviewStudioState,
 } from "./interview-studio.mjs";
+import {
+  createStudyWorkspace,
+  normalizeStudyWorkspace,
+  type StudyWorkspace,
+} from "./study-plans.mjs";
 
 export { analyzeEdit, correctPositionCount } from "./typing-engine.mjs";
 
@@ -85,7 +90,13 @@ export const STAGES = [
 ] as const;
 
 export type View =
-  "today" | "practice" | "sessions" | "library" | "records" | "settings";
+  | "today"
+  | "plans"
+  | "practice"
+  | "sessions"
+  | "library"
+  | "records"
+  | "settings";
 export type Theme =
   "midnight" | "paper" | "forest" | "synthwave" | "ember" | "ocean";
 export type AttemptQualification =
@@ -208,6 +219,8 @@ export type TrainingSession = {
   durationMinutes?: number;
   expiresAt?: string;
   mockProblems?: MockProblemWorkspace[];
+  studyPlanId?: string;
+  studyCollectionIds?: string[];
 };
 
 export type SessionHistoryRecord = {
@@ -224,6 +237,9 @@ export type SessionHistoryRecord = {
   problemCount?: 1 | 2;
   problems?: MockProblemWorkspace[];
   debrief?: MockDebrief;
+  studyPlanId?: string;
+  studyCollectionIds?: string[];
+  laneMinutes?: Partial<Record<"review" | "interview" | "python" | "ios", number>>;
 };
 
 export type CloudPreferences = {
@@ -233,7 +249,7 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 17;
+  version: 18;
   attempts: AttemptRecord[];
   submissionHistory: SubmissionRecord[];
   learningEvents: LearningEvent[];
@@ -248,10 +264,12 @@ export type AppState = {
   activeSession: TrainingSession | null;
   sessionHistory: SessionHistoryRecord[];
   interviewStudio: InterviewStudioState;
+  studyWorkspace: StudyWorkspace;
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v17";
+export const STORAGE_KEY = "swift-ghost-state-v18";
+export const SEVENTEENTH_STORAGE_KEY = "swift-ghost-state-v17";
 export const SIXTEENTH_STORAGE_KEY = "swift-ghost-state-v16";
 export const FIFTEENTH_STORAGE_KEY = "swift-ghost-state-v15";
 export const FOURTEENTH_STORAGE_KEY = "swift-ghost-state-v14";
@@ -268,10 +286,11 @@ export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
-  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
 ];
 export const STATE_STORAGE_KEYS = [
   STORAGE_KEY,
+  SEVENTEENTH_STORAGE_KEY,
   SIXTEENTH_STORAGE_KEY,
   FIFTEENTH_STORAGE_KEY,
   FOURTEENTH_STORAGE_KEY,
@@ -303,7 +322,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 17,
+  version: 18,
   attempts: [],
   submissionHistory: [],
   learningEvents: [],
@@ -318,6 +337,7 @@ export const EMPTY_STATE: AppState = {
   activeSession: null,
   sessionHistory: [],
   interviewStudio: { active: null, history: [] },
+  studyWorkspace: createStudyWorkspace("1970-01-01T00:00:00.000Z"),
   cloud: { communityEnabled: false, uploadedAttemptIds: [] },
 };
 
@@ -674,6 +694,11 @@ function normalizeActiveSession(
               typeof raw.rationale === "string" && raw.rationale.trim()
                 ? raw.rationale.trim().slice(0, 240)
                 : undefined,
+            lane: (["review", "interview", "python", "ios"] as const).includes(
+              raw.lane as "review" | "interview" | "python" | "ios",
+            )
+              ? (raw.lane as "review" | "interview" | "python" | "ios")
+              : undefined,
             rawIndex,
           },
         ];
@@ -797,6 +822,21 @@ function normalizeActiveSession(
     createdAt,
     entries,
     currentIndex,
+    studyPlanId:
+      typeof value.studyPlanId === "string" &&
+      /^[\w:.-]{1,120}$/.test(value.studyPlanId)
+        ? value.studyPlanId
+        : undefined,
+    studyCollectionIds: Array.isArray(value.studyCollectionIds)
+      ? [
+          ...new Set(
+            value.studyCollectionIds.filter(
+              (id): id is string =>
+                typeof id === "string" && /^[\w:.-]{1,120}$/.test(id),
+            ),
+          ),
+        ].slice(0, 20)
+      : undefined,
     ...(kind === "mock"
       ? {
           mockPreset: (["screen", "standard", "stretch"] as const).includes(
@@ -871,6 +911,39 @@ function normalizeSessionHistory(
               : new Date(0).toISOString(),
           completed,
           total,
+          studyPlanId:
+            typeof raw.studyPlanId === "string" &&
+            /^[\w:.-]{1,120}$/.test(raw.studyPlanId)
+              ? raw.studyPlanId
+              : undefined,
+          studyCollectionIds: Array.isArray(raw.studyCollectionIds)
+            ? [
+                ...new Set(
+                  raw.studyCollectionIds.filter(
+                    (id): id is string =>
+                      typeof id === "string" &&
+                      /^[\w:.-]{1,120}$/.test(id),
+                  ),
+                ),
+              ].slice(0, 20)
+            : undefined,
+          laneMinutes: isRecord(raw.laneMinutes)
+            ? Object.fromEntries(
+                (["review", "interview", "python", "ios"] as const).map(
+                  (lane) => [
+                    lane,
+                    Math.round(
+                      finiteNumber(
+                        (raw.laneMinutes as Record<string, unknown>)[lane],
+                        0,
+                        0,
+                        100000,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            : undefined,
           ...(kind === "mock"
             ? {
                 durationMinutes,
@@ -1373,7 +1446,7 @@ export function normalizeState(value: unknown): AppState {
     ? { ...draft, sessionId: draftMatchesSession ? draft.sessionId : undefined }
     : null;
   return {
-    version: 17,
+    version: 18,
     attempts,
     submissionHistory: normalizeSubmissionHistory(
       value.submissionHistory,
@@ -1404,6 +1477,14 @@ export function normalizeState(value: unknown): AppState {
       {
         validItemIds: validIds,
         revisions,
+      },
+    ),
+    studyWorkspace: normalizeStudyWorkspace(
+      Number(value.version) >= 18 ? value.studyWorkspace : undefined,
+      {
+        validItemIds: validIds,
+        revisions,
+        now: "1970-01-01T00:00:00.000Z",
       },
     ),
     cloud: normalizeCloudPreferences(value.cloud),

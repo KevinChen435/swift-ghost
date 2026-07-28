@@ -1,7 +1,10 @@
+import { normalizeStudyWorkspace } from "./study-plans.mjs";
+
 const API_ROOT = "/api/v1";
 const MAX_RESPONSE_CHARACTERS = 512_000;
 const MAX_ATTEMPT_BATCH = 100;
 const MAX_LIST_ENTRIES = 100;
+const MAX_STUDY_WORKSPACE_BYTES = 256 * 1024;
 
 function isRecord(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -242,6 +245,7 @@ function normalizeCapabilities(value) {
   return {
     apiVersion,
     cloudSync: value.cloudSync === true,
+    studySync: value.studySync === true,
     community: value.community === true,
     leaderboards: value.leaderboards === true,
     auth,
@@ -254,6 +258,82 @@ function normalizeCapabilities(value) {
     ),
     privacy,
   };
+}
+
+function jsonByteLength(value) {
+  try {
+    return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+}
+
+function normalizeStudySnapshot(value) {
+  const raw = isRecord(value) && Object.hasOwn(value, "workspace")
+    ? value.workspace
+    : value;
+  if (raw === null) return null;
+  if (!isRecord(raw) || raw.version !== 1) return undefined;
+  const revision = raw.revision;
+  const updatedAt = isoDateTime(raw.updatedAt);
+  if (
+    !Number.isInteger(revision) ||
+    revision < 1 ||
+    revision > 2_147_483_647 ||
+    !updatedAt ||
+    jsonByteLength(raw) > MAX_STUDY_WORKSPACE_BYTES
+  )
+    return undefined;
+  try {
+    const workspace = normalizeStudyWorkspace(raw, { now: updatedAt });
+    if (
+      workspace.revision !== revision ||
+      workspace.updatedAt !== updatedAt ||
+      jsonByteLength(workspace) > MAX_STUDY_WORKSPACE_BYTES
+    )
+      return undefined;
+    return workspace;
+  } catch {
+    return undefined;
+  }
+}
+
+function sanitizeStudyWorkspace(value) {
+  if (
+    !isRecord(value) ||
+    value.version !== 1 ||
+    jsonByteLength(value) > MAX_STUDY_WORKSPACE_BYTES
+  )
+    return undefined;
+  try {
+    const workspace = normalizeStudyWorkspace(value, {
+      now: isoDateTime(value.updatedAt) ?? new Date(0).toISOString(),
+    });
+    return jsonByteLength(workspace) <= MAX_STUDY_WORKSPACE_BYTES
+      ? workspace
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeStudyConflict(value) {
+  const raw = unwrapData(value);
+  if (!isRecord(raw) || !isRecord(raw.error)) return undefined;
+  if (raw.error.code !== "REVISION_CONFLICT" || !isRecord(raw.current))
+    return undefined;
+  const revision = raw.current.revision;
+  if (
+    !Number.isInteger(revision) ||
+    revision < 0 ||
+    revision > 2_147_483_647
+  )
+    return undefined;
+  const workspace = normalizeStudySnapshot(raw.current.workspace);
+  if (workspace === undefined || (workspace === null && revision !== 0))
+    return undefined;
+  if (workspace && workspace.revision !== revision) return undefined;
+  return { revision, workspace };
 }
 
 function normalizeSession(value) {
@@ -570,7 +650,20 @@ export function createCloudClient(options = {}) {
         ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
         ...(init.signal ? { signal: init.signal } : {}),
       });
-      if (!response.ok) return responseFailure(response, init.notFoundReason);
+      if (!response.ok) {
+        if (response.status === 409 && init.normalizeConflict) {
+          const payload = await readJson(response);
+          const conflict = init.normalizeConflict(payload);
+          if (conflict !== undefined)
+            return {
+              available: false,
+              reason: "revision-conflict",
+              status: response.status,
+              conflict,
+            };
+        }
+        return responseFailure(response, init.notFoundReason);
+      }
       const payload = await readJson(response);
       if (payload === undefined)
         return unavailable("invalid-response", response.status);
@@ -594,6 +687,37 @@ export function createCloudClient(options = {}) {
     },
     session({ signal } = {}) {
       return request("/session", { signal }, normalizeSession);
+    },
+    getStudyWorkspace({ signal } = {}) {
+      return request("/study/workspace", { signal }, (value) => {
+        const workspace = normalizeStudySnapshot(value);
+        return workspace === undefined ? undefined : workspace;
+      });
+    },
+    putStudyWorkspace(workspaceInput, { baseRevision, signal } = {}) {
+      const workspace = sanitizeStudyWorkspace(workspaceInput);
+      if (
+        !workspace ||
+        !Number.isInteger(baseRevision) ||
+        baseRevision < 0 ||
+        baseRevision > 2_147_483_646
+      )
+        return Promise.resolve(unavailable("invalid-request"));
+      return request(
+        "/study/workspace",
+        {
+          method: "PUT",
+          body: { baseRevision, workspace },
+          signal,
+          normalizeConflict: normalizeStudyConflict,
+        },
+        (value) => {
+          const snapshot = normalizeStudySnapshot(value);
+          return snapshot === undefined || snapshot === null
+            ? undefined
+            : snapshot;
+        },
+      );
     },
     patchProfile(patch, { signal } = {}) {
       const body = sanitizeProfilePatch(patch);
@@ -745,4 +869,5 @@ export function createCloudClient(options = {}) {
 export const CLOUD_LIMITS = Object.freeze({
   maxAttemptBatch: MAX_ATTEMPT_BATCH,
   maxListEntries: MAX_LIST_ENTRIES,
+  maxStudyWorkspaceBytes: MAX_STUDY_WORKSPACE_BYTES,
 });

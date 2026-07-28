@@ -59,6 +59,7 @@ test("local production capability checks degrade quietly without Worker bindings
   assert.deepEqual(await response.json(), {
     apiVersion: "v1",
     cloudSync: false,
+    studySync: false,
     community: false,
     leaderboards: false,
     auth: "anonymous",
@@ -131,7 +132,8 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v17"/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v18"/);
+  assert.match(product, /SEVENTEENTH_STORAGE_KEY = "swift-ghost-state-v17"/);
   assert.match(product, /SIXTEENTH_STORAGE_KEY = "swift-ghost-state-v16"/);
   assert.match(product, /FIFTEENTH_STORAGE_KEY = "swift-ghost-state-v15"/);
   assert.match(product, /FOURTEENTH_STORAGE_KEY = "swift-ghost-state-v14"/);
@@ -139,7 +141,7 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(product, /TWELFTH_STORAGE_KEY = "swift-ghost-state-v12"/);
   assert.match(product, /PREVIOUS_STORAGE_KEY = "swift-ghost-state-v11"/);
   assert.match(product, /FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2"/);
-  assert.match(product, /version: 17/);
+  assert.match(product, /version: 18/);
   assert.match(product, /swift-ghost-state-v10/);
   assert.match(product, /swift-ghost-state-v9/);
   assert.match(product, /swift-ghost-state-v8/);

@@ -49,6 +49,110 @@ function attempt(index, overrides = {}) {
   };
 }
 
+function studyWorkspace(overrides = {}) {
+  return {
+    version: 1,
+    revision: 0,
+    updatedAt: "2026-07-28T12:00:00.000Z",
+    activePlanId: null,
+    collections: [],
+    plans: [],
+    tombstones: [],
+    ...overrides,
+  };
+}
+
+function inMemoryStudyDatabase() {
+  const profiles = new Map();
+  const workspaces = new Map();
+  return {
+    profiles,
+    workspaces,
+    prepare(sql) {
+      const statement = sql.replace(/\s+/g, " ").trim();
+      return {
+        bind(...values) {
+          return {
+            async first() {
+              if (statement.includes("FROM study_workspaces"))
+                return workspaces.get(values[0]) ?? null;
+              if (
+                statement.includes("FROM community_profiles") &&
+                statement.includes("WHERE user_id = ?")
+              )
+                return profiles.get(values[0]) ?? null;
+              throw new Error(`Unhandled fake D1 first: ${statement}`);
+            },
+            async run() {
+              if (statement.startsWith("INSERT OR IGNORE INTO community_profiles")) {
+                if (!profiles.has(values[0])) {
+                  profiles.set(values[0], {
+                    user_id: values[0],
+                    email: values[1],
+                    handle: values[2],
+                    display_name: values[3],
+                    bio: null,
+                    timezone: null,
+                    is_public: 0,
+                    share_activity: 0,
+                    show_on_leaderboards: 0,
+                    updated_at: values[5],
+                  });
+                }
+                return { meta: { changes: 1 } };
+              }
+              if (statement.startsWith("INSERT INTO study_workspaces")) {
+                const userId = values[0];
+                if (workspaces.has(userId)) return { meta: { changes: 0 } };
+                workspaces.set(userId, {
+                  revision: 1,
+                  payload_json: values[1],
+                  updated_at: values[2],
+                });
+                return { meta: { changes: 1 } };
+              }
+              if (statement.startsWith("UPDATE study_workspaces")) {
+                const [payloadJson, updatedAt, userId, expectedRevision] = values;
+                const current = workspaces.get(userId);
+                if (!current || current.revision !== expectedRevision)
+                  return { meta: { changes: 0 } };
+                workspaces.set(userId, {
+                  revision: expectedRevision + 1,
+                  payload_json: payloadJson,
+                  updated_at: updatedAt,
+                });
+                return { meta: { changes: 1 } };
+              }
+              throw new Error(`Unhandled fake D1 run: ${statement}`);
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
+async function builtWorker() {
+  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
+  workerUrl.searchParams.set("study-sync-test", `${process.pid}-${Date.now()}`);
+  return (await import(workerUrl.href)).default;
+}
+
+async function callStudyApi(worker, db, method, email, body) {
+  return worker.fetch(
+    new Request("http://localhost/api/v1/study/workspace", {
+      method,
+      headers: {
+        ...(email ? { "oai-authenticated-user-email": email } : {}),
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }),
+    { DB: db },
+    { waitUntil() {}, passThroughOnException() {} },
+  );
+}
+
 test("GitHub Pages mode is deliberately quiet and unavailable", async () => {
   let calls = 0;
   const client = createCloudClient({
@@ -72,6 +176,7 @@ test("capabilities uses a same-origin, abortable request and bounds its response
       data: {
         apiVersion: "v1-with-an-unreasonably-long-suffix",
         cloudSync: true,
+        studySync: true,
         community: true,
         leaderboards: true,
         auth: "session",
@@ -87,6 +192,7 @@ test("capabilities uses a same-origin, abortable request and bounds its response
   assert.deepEqual(result.data, {
     apiVersion: "v1-with-an-unrea",
     cloudSync: true,
+    studySync: true,
     community: true,
     leaderboards: true,
     auth: "session",
@@ -101,6 +207,198 @@ test("capabilities uses a same-origin, abortable request and bounds its response
   assert.equal(mock.calls[0].init.credentials, "same-origin");
   assert.equal(mock.calls[0].init.cache, "no-store");
   assert.equal(mock.calls[0].init.signal, controller.signal);
+});
+
+test("study workspace sync is network-quiet on static builds", async () => {
+  let calls = 0;
+  const client = createCloudClient({
+    location: { hostname: "kevinchen435.github.io" },
+    fetchImpl: async () => {
+      calls += 1;
+      throw new Error("must not fetch");
+    },
+  });
+  assert.deepEqual(await client.getStudyWorkspace(), {
+    available: false,
+    reason: "disabled",
+  });
+  assert.deepEqual(await client.putStudyWorkspace(studyWorkspace(), { baseRevision: 0 }), {
+    available: false,
+    reason: "disabled",
+  });
+  assert.equal(calls, 0);
+});
+
+test("study workspace methods normalize private snapshots and send optimistic revisions", async () => {
+  const serverTime = "2026-07-28T12:30:00.000Z";
+  const mock = recorder((url, init, call) => {
+    if (call === 1) return json({ workspace: null });
+    const body = JSON.parse(init.body);
+    assert.equal(body.baseRevision, 0);
+    assert.equal(body.workspace.version, 1);
+    assert.equal(Object.hasOwn(body.workspace, "privateExtra"), false);
+    return json({
+      workspace: {
+        ...body.workspace,
+        revision: 1,
+        updatedAt: serverTime,
+        privateServerExtra: "drop-me",
+      },
+    });
+  });
+  const client = createCloudClient({
+    fetchImpl: mock.fetchImpl,
+    location: { hostname: "swift.test" },
+  });
+
+  assert.deepEqual(await client.getStudyWorkspace(), {
+    available: true,
+    status: 200,
+    data: null,
+  });
+  const result = await client.putStudyWorkspace(
+    studyWorkspace({ privateExtra: "drop-me" }),
+    { baseRevision: 0 },
+  );
+  assert.equal(result.available, true);
+  assert.equal(result.data.revision, 1);
+  assert.equal(result.data.updatedAt, serverTime);
+  assert.equal(Object.hasOwn(result.data, "privateServerExtra"), false);
+  assert.equal(mock.calls[1].url, "/api/v1/study/workspace");
+  assert.equal(mock.calls[1].init.method, "PUT");
+  assert.equal(mock.calls[1].init.credentials, "same-origin");
+});
+
+test("study workspace transport rejects oversized input and surfaces bounded revision conflicts", async () => {
+  let calls = 0;
+  const current = studyWorkspace({
+    revision: 3,
+    updatedAt: "2026-07-28T12:45:00.000Z",
+  });
+  const client = createCloudClient({
+    location: { hostname: "swift.test" },
+    fetchImpl: async () => {
+      calls += 1;
+      return json(
+        {
+          error: {
+            code: "REVISION_CONFLICT",
+            message: "private diagnostic",
+          },
+          current: { revision: 3, workspace: current },
+        },
+        409,
+      );
+    },
+  });
+  assert.deepEqual(
+    await client.putStudyWorkspace(
+      studyWorkspace({ oversized: "x".repeat(CLOUD_LIMITS.maxStudyWorkspaceBytes) }),
+      { baseRevision: 0 },
+    ),
+    { available: false, reason: "invalid-request" },
+  );
+  assert.equal(calls, 0);
+
+  const conflict = await client.putStudyWorkspace(studyWorkspace(), {
+    baseRevision: 2,
+  });
+  assert.deepEqual(conflict, {
+    available: false,
+    reason: "revision-conflict",
+    status: 409,
+    conflict: { revision: 3, workspace: current },
+  });
+  assert.equal(JSON.stringify(conflict).includes("private diagnostic"), false);
+});
+
+test("study workspace responses fail closed on mismatched revision metadata", async () => {
+  const client = createCloudClient({
+    location: { hostname: "swift.test" },
+    fetchImpl: async () =>
+      json({
+        workspace: studyWorkspace({
+          revision: 2,
+          updatedAt: "not-a-date",
+        }),
+      }),
+  });
+  assert.deepEqual(await client.getStudyWorkspace(), {
+    available: false,
+    reason: "invalid-response",
+    status: 200,
+  });
+});
+
+test("study workspace API requires auth, keeps GET read-only and private, and returns the current conflict snapshot", async () => {
+  const worker = await builtWorker();
+  const db = inMemoryStudyDatabase();
+  const capabilityResponse = await worker.fetch(
+    new Request("http://localhost/api/v1/capabilities"),
+    { DB: db },
+    { waitUntil() {}, passThroughOnException() {} },
+  );
+  assert.equal(capabilityResponse.status, 200);
+  assert.equal((await capabilityResponse.json()).studySync, true);
+  const unauthenticated = await callStudyApi(worker, db, "GET");
+  assert.equal(unauthenticated.status, 401);
+  assert.equal((await unauthenticated.json()).error.code, "AUTH_REQUIRED");
+
+  const initial = await callStudyApi(
+    worker,
+    db,
+    "GET",
+    "alice@example.com",
+  );
+  assert.equal(initial.status, 200);
+  assert.deepEqual(await initial.json(), { workspace: null });
+  assert.equal(db.profiles.size, 0, "GET must not create a profile");
+
+  const created = await callStudyApi(
+    worker,
+    db,
+    "PUT",
+    "alice@example.com",
+    { baseRevision: 0, workspace: studyWorkspace() },
+  );
+  assert.equal(created.status, 200);
+  const createdWorkspace = (await created.json()).workspace;
+  assert.equal(createdWorkspace.revision, 1);
+  assert.equal(db.profiles.size, 1);
+  assert.equal([...db.profiles.values()][0].is_public, 0);
+
+  const otherUser = await callStudyApi(
+    worker,
+    db,
+    "GET",
+    "bob@example.com",
+  );
+  assert.equal(otherUser.status, 200);
+  assert.deepEqual(await otherUser.json(), { workspace: null });
+  assert.equal(db.profiles.size, 1, "another user's GET must remain read-only");
+
+  const stale = await callStudyApi(
+    worker,
+    db,
+    "PUT",
+    "alice@example.com",
+    { baseRevision: 0, workspace: studyWorkspace() },
+  );
+  assert.equal(stale.status, 409);
+  const conflict = await stale.json();
+  assert.equal(conflict.error.code, "REVISION_CONFLICT");
+  assert.equal(conflict.current.revision, 1);
+  assert.deepEqual(conflict.current.workspace, createdWorkspace);
+
+  const updated = await callStudyApi(
+    worker,
+    db,
+    "PUT",
+    "alice@example.com",
+    { baseRevision: 1, workspace: createdWorkspace },
+  );
+  assert.equal(updated.status, 200);
+  assert.equal((await updated.json()).workspace.revision, 2);
 });
 
 test("missing local endpoints and transport errors resolve without throwing", async () => {

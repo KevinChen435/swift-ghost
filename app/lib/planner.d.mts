@@ -5,6 +5,10 @@ import type { LearningEvent } from "./learning-state.mjs";
 
 export type PlannerActivityKind = "syntax" | "solve" | "concept";
 export type PlannerLane = "review" | "interview" | "python" | "ios";
+export type PlannerLaneMinutes = Partial<Record<PlannerLane, number>>;
+export type PlannerLaneHistoryEntry =
+  | PlannerLaneMinutes
+  | { laneMinutes: PlannerLaneMinutes };
 export type TrainingProfile = {
   preferredLanguage?: "python" | "swift";
   dailyGoalMinutes?: number;
@@ -20,6 +24,7 @@ export type DailyPlanTask = SessionQueueEntry & {
   score: number;
   track: "interview" | "ios";
   language: "python" | "swift";
+  lane: PlannerLane;
 };
 export type DailyPlan = {
   date: string;
@@ -44,6 +49,7 @@ export type DailyPlanInput = {
   now?: Date | string | number;
   budgetMinutes?: number;
   maxItems?: number;
+  recentLaneMinutes?: PlannerLaneHistoryEntry | PlannerLaneHistoryEntry[];
 };
 export function buildDailyPlan(
   input: DailyPlanInput,
@@ -51,5 +57,6 @@ export function buildDailyPlan(
     now?: Date | string | number;
     budgetMinutes?: number;
     maxItems?: number;
+    recentLaneMinutes?: PlannerLaneHistoryEntry | PlannerLaneHistoryEntry[];
   },
 ): DailyPlan;
