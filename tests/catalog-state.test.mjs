@@ -6,22 +6,23 @@ import {
   normalizeCatalogWorkspace,
 } from "../app/lib/catalog-discovery.mjs";
 
-test("state v20 persists catalog saved views after every v19 field", async () => {
+test("state v21 persists catalog saved views after every v20 field", async () => {
   const product = await readFile(
     new URL("../app/lib/product.ts", import.meta.url),
     "utf8",
   );
-  assert.match(product, /export type AppState = \{\s+version: 20;/);
+  assert.match(product, /export type AppState = \{\s+version: 21;/);
   assert.match(product, /catalogWorkspace: CatalogWorkspace/);
-  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v20"/);
+  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v21"/);
+  assert.match(product, /TWENTIETH_STORAGE_KEY = "swift-ghost-state-v20"/);
   assert.match(product, /NINETEENTH_STORAGE_KEY = "swift-ghost-state-v19"/);
   assert.match(
     product,
-    /SUPPORTED_STATE_VERSIONS[\s\S]*2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20/,
+    /SUPPORTED_STATE_VERSIONS[\s\S]*2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21/,
   );
   assert.match(
     product,
-    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+NINETEENTH_STORAGE_KEY,\s+EIGHTEENTH_STORAGE_KEY/,
+    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTIETH_STORAGE_KEY,\s+NINETEENTH_STORAGE_KEY,\s+EIGHTEENTH_STORAGE_KEY/,
   );
   assert.match(
     product,

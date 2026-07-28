@@ -54,6 +54,12 @@ import {
   type StudyWorkspace,
 } from "./study-plans.mjs";
 import {
+  createTransferWorkspace,
+  deriveTransferProgress,
+  normalizeTransferWorkspace,
+  type TransferWorkspace,
+} from "./transfer-lab.mjs";
+import {
   createAssessmentWorkspace,
   normalizeAssessmentWorkspace,
   type AssessmentWorkspace,
@@ -264,7 +270,7 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 20;
+  version: 21;
   attempts: AttemptRecord[];
   submissionHistory: SubmissionRecord[];
   learningEvents: LearningEvent[];
@@ -282,10 +288,12 @@ export type AppState = {
   assessments: AssessmentWorkspace;
   studyWorkspace: StudyWorkspace;
   catalogWorkspace: CatalogWorkspace;
+  transferWorkspace: TransferWorkspace;
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v20";
+export const STORAGE_KEY = "swift-ghost-state-v21";
+export const TWENTIETH_STORAGE_KEY = "swift-ghost-state-v20";
 export const NINETEENTH_STORAGE_KEY = "swift-ghost-state-v19";
 export const EIGHTEENTH_STORAGE_KEY = "swift-ghost-state-v18";
 export const SEVENTEENTH_STORAGE_KEY = "swift-ghost-state-v17";
@@ -305,10 +313,11 @@ export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
-  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
 ];
 export const STATE_STORAGE_KEYS = [
   STORAGE_KEY,
+  TWENTIETH_STORAGE_KEY,
   NINETEENTH_STORAGE_KEY,
   EIGHTEENTH_STORAGE_KEY,
   SEVENTEENTH_STORAGE_KEY,
@@ -343,7 +352,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 20,
+  version: 21,
   attempts: [],
   submissionHistory: [],
   learningEvents: [],
@@ -361,6 +370,7 @@ export const EMPTY_STATE: AppState = {
   assessments: createAssessmentWorkspace(),
   studyWorkspace: createStudyWorkspace("1970-01-01T00:00:00.000Z"),
   catalogWorkspace: createCatalogWorkspace("1970-01-01T00:00:00.000Z"),
+  transferWorkspace: createTransferWorkspace("1970-01-01T00:00:00.000Z"),
   cloud: { communityEnabled: false, uploadedAttemptIds: [] },
 };
 
@@ -635,7 +645,7 @@ function normalizeCustomItems(value: unknown): PracticeItem[] {
 function itemIdFromRaw(value: unknown): ItemId | null {
   if (
     typeof value === "string" &&
-    /^(builtin:\d+|python:\d+|ios:[\w-]+|custom:[\w-]+)$/.test(value)
+    /^(builtin:\d+|python:\d+|transfer:\d+|ios:[\w-]+|custom:[\w-]+)$/.test(value)
   )
     return value as ItemId;
   if (typeof value === "number" && Number.isFinite(value))
@@ -1485,7 +1495,7 @@ export function normalizeState(value: unknown): AppState {
     ? { ...draft, sessionId: draftMatchesSession ? draft.sessionId : undefined }
     : null;
   return {
-    version: 20,
+    version: 21,
     attempts,
     submissionHistory: normalizeSubmissionHistory(
       value.submissionHistory,
@@ -1531,6 +1541,10 @@ export function normalizeState(value: unknown): AppState {
     ),
     catalogWorkspace: normalizeCatalogWorkspace(
       Number(value.version) >= 20 ? value.catalogWorkspace : undefined,
+    ),
+    transferWorkspace: normalizeTransferWorkspace(
+      Number(value.version) >= 21 ? value.transferWorkspace : undefined,
+      { now: "1970-01-01T00:00:00.000Z" },
     ),
     cloud: normalizeCloudPreferences(value.cloud),
   };
@@ -1891,16 +1905,13 @@ export function milestones(state: AppState): Milestone[] {
   const independent = completed.filter(
     (attempt) => attempt.qualification === "independent",
   );
-  const qualifiedPatterns = new Set(
-    BUILTIN_ITEMS.filter(
-      (item) =>
-        item.track === "interview" &&
-        completed.some(
-          (attempt) =>
-            attempt.itemId === item.itemId && eligibleAttempt(attempt),
-        ),
-    ).map((item) => item.pattern),
-  );
+  const hasProvenTransfer = deriveTransferProgress({
+    variants: BUILTIN_ITEMS.filter((item) => Boolean(item.transfer)),
+    workspace: state.transferWorkspace,
+    attempts: state.attempts,
+    submissions: state.submissionHistory,
+    now: new Date().toISOString(),
+  }).some((entry) => entry.isProven);
   const recovered = state.attempts.some(
     (attempt, index) =>
       attempt.outcome === "completed" &&
@@ -1929,9 +1940,9 @@ export function milestones(state: AppState): Milestone[] {
     },
     {
       id: "pattern-transfer",
-      title: "Pattern transfer",
-      note: "Qualify across three interview patterns.",
-      achieved: qualifiedPatterns.size >= 3,
+      title: "Cold transfer evidence",
+      note: "Verify one original transfer variant without recorded help.",
+      achieved: hasProvenTransfer,
     },
     {
       id: "recovery",

@@ -251,6 +251,7 @@ function AssessmentReportView({
 export function AssessmentCenter({
   workspace,
   items,
+  transferSummary,
   selectedAssessment,
   activeDraft,
   onSelect,
@@ -262,9 +263,16 @@ export function AssessmentCenter({
   onFinish,
   onCreatePlan,
   onArchive,
+  onOpenTransferLab,
 }: {
   workspace: AssessmentWorkspace;
   items: PracticeItem[];
+  transferSummary: {
+    total: number;
+    unseen: number;
+    due: number;
+    proven: number;
+  };
   selectedAssessment?: string;
   activeDraft: { assessmentRunId?: string; assessmentProbeId?: string } | null;
   onSelect: (assessmentId?: string) => void;
@@ -280,6 +288,7 @@ export function AssessmentCenter({
   onFinish: (runId: string) => void;
   onCreatePlan: (runId: string) => void;
   onArchive: (runId: string) => void;
+  onOpenTransferLab: () => void;
 }) {
   const selectedRun = useMemo(
     () => workspace.runs.find((run) => run.id === selectedAssessment) ?? null,
@@ -315,6 +324,36 @@ export function AssessmentCenter({
       </header>
 
       <section className="assessment-program-grid" aria-label="Assessment programs">
+        <article className="assessment-transfer-card">
+          <div className="assessment-program-topline">
+            <span>Python transfer</span>
+            <small>{transferSummary.unseen} locally unseen</small>
+          </div>
+          <h2>Transfer Lab</h2>
+          <p>
+            Solve original variants unseen in Swift Ghost history on this device,
+            without a pattern label. After the attempt, compare the new prompt
+            with the invariant you were expected to transfer.
+          </p>
+          <div className="assessment-program-stats">
+            <span><strong>{transferSummary.total}</strong> variants</span>
+            <span><strong>{transferSummary.proven}</strong> proven</span>
+            <span><strong>{transferSummary.due}</strong> due</span>
+          </div>
+          <small className="assessment-program-disclaimer">
+            First exposure is tracked locally. Hints and answer reveals remain
+            visible in the evidence record.
+          </small>
+          <div className="assessment-card-actions">
+            <button
+              className="primary-button"
+              type="button"
+              onClick={onOpenTransferLab}
+            >
+              Open Transfer Lab →
+            </button>
+          </div>
+        </article>
         {ASSESSMENT_PROGRAMS.map((program) => {
           const programAvailable = program.probes.every((probe) =>
             availableItemIds.has(probe.itemId as PracticeItem["itemId"]),

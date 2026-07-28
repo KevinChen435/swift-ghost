@@ -24,7 +24,7 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - Strict and free-correction typing modes with selection-aware character feedback
 - WPM, raw keystrokes, accuracy, corrections, peeks, timing, and consistency records
 - Per-attempt pace timelines, line-level error forensics, and three-pass weak-line repair drills
-- Real browser-side Python checks for every built-in Python solution, isolated in a fresh Web Worker with a pinned, self-hosted runtime and a catalog-wide 48/48 compatibility test
+- Real browser-side Python checks for every built-in Python solution, isolated in a fresh Web Worker with a pinned, self-hosted runtime and compatibility tests covering all 48 core exercises plus all 8 transfer variants
 - A first-class Python Solve lane with a lazily loaded CodeMirror editor, Python syntax highlighting, indentation, bracket tools, search, history, practice-only fluency completions, source-bound verification, and solve evidence kept separate from typing records
 - Five-stage per-problem recall ladder with honest mastery and qualified personal bests
 - Post-attempt pace charts, missed-line forensics, same-stage retries, and exact item/revision/stage community benchmark previews
@@ -41,6 +41,7 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - Separate mock and coach modes: mock interviews lock hints, while coach-mode hints are progressively revealed and permanently recorded in the local transcript
 - Reload-safe local interview transcripts, Python runner evidence, accepted-submission requirements, authored review criteria, and replayable interview history without automated semantic or pass/fail scoring
 - A self-contained Python Challenge Lab across all 48 exercises, with original task statements, callable contracts, parameters, constraints, public examples, persistent custom JSON cases, keyboard-first runs, and aggregate hidden-suite submissions
+- A device-local Transfer Lab with 8 original concealed-identity Python variants, exact-revision prompt and hint exposure tracking, independent/assisted/proven/due evidence, conservative 1/3/7/14/30-day rechecks, and post-attempt contrastive debriefs
 - A Hacker-style solve workbench with resizable Prompt/Notebook and Code panels on desktop, focused Problem/Notes/Code/Tests tabs on mobile, and independently scrolling panes
 - A tabbed Testcases/Custom/Result/Submissions console with safe aggregate judge feedback, cancelable isolated runs, and a structured per-parameter testcase builder with Raw JSON fallback
 - Bounded device-local submission history with lazy source inspection, current-draft comparison, prompt/judge revision warnings, and exact snapshot restore that is tracked as assisted practice
@@ -85,7 +86,7 @@ Interview problem names link to their public LeetCode pages; iOS fundamentals li
 
 ## Roadmap
 
-The local-first training core remains the priority. Planned work includes richer hidden boundary suites, authored semantic masks, longitudinal readiness trends, cold-transfer variants, executable Swift solving, and private cross-device sync for learning evidence beyond the current Study Plan structure.
+The local-first training core remains the priority. Planned work includes richer hidden boundary suites, authored semantic masks, longitudinal readiness trends, server-assigned private transfer judging, executable Swift solving, and private cross-device sync for learning evidence beyond the current Study Plan structure.
 
 ## License
 

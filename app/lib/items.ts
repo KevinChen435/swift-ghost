@@ -2,6 +2,7 @@ import { PROBLEMS, type Pattern, type Problem } from "../data/problems";
 import { FUNDAMENTALS } from "../data/fundamentals";
 import { PYTHON_PROBLEMS } from "../data/python-problems";
 import { ADVANCED_PYTHON_PROBLEMS } from "../data/advanced-python-problems";
+import { TRANSFER_PROBLEMS } from "../data/transfer-problems";
 import {
   getPythonChallenge,
   type PythonChallengeMetadata,
@@ -13,8 +14,18 @@ export type CodeLanguage = "swift" | "python";
 export type ItemId =
   | `builtin:${number}`
   | `python:${number}`
+  | `transfer:${number}`
   | `ios:${string}`
   | `custom:${string}`;
+
+export type TransferMetadata = {
+  id: string;
+  family: string;
+  sourceItemIds: readonly ItemId[];
+  postAttemptPatternLabel: Pattern;
+  contrastExplanation: string;
+  teachBackQuestion: string;
+};
 
 export type PracticeItem = Omit<Problem, "swiftNote"> & {
   itemId: ItemId;
@@ -33,6 +44,7 @@ export type PracticeItem = Omit<Problem, "swiftNote"> & {
   verification?: PythonVerification;
   starterCode?: string;
   challenge?: PythonChallengeMetadata;
+  transfer?: TransferMetadata;
 };
 
 export const INTERVIEW_ITEMS: PracticeItem[] = PROBLEMS.map(
@@ -82,6 +94,25 @@ export const PYTHON_ITEMS: PracticeItem[] = [
   contentRevision: 1,
 }));
 
+export const TRANSFER_ITEMS: PracticeItem[] = TRANSFER_PROBLEMS.map(
+  (problem) => ({
+    ...problem,
+    verification: {
+      ...problem.verification,
+      revision: PYTHON_JUDGE_REVISION,
+    },
+    itemId: `transfer:${problem.id}` as ItemId,
+    track: "interview",
+    language: "python",
+    source: "builtin",
+    contentRevision: 1,
+    transfer: {
+      ...problem.transfer,
+      sourceItemIds: problem.transfer.sourceItemIds as readonly ItemId[],
+    },
+  }),
+);
+
 export const IOS_ITEMS: PracticeItem[] = FUNDAMENTALS.map(
   ({ swiftNote, ...fundamental }, index) => ({
     ...fundamental,
@@ -99,6 +130,7 @@ export const BUILTIN_ITEMS: PracticeItem[] = [
   ...PYTHON_ITEMS,
   ...INTERVIEW_ITEMS,
   ...IOS_ITEMS,
+  ...TRANSFER_ITEMS,
 ];
 
 export function itemIdFor(problem: Pick<PracticeItem, "itemId">) {
@@ -107,6 +139,12 @@ export function itemIdFor(problem: Pick<PracticeItem, "itemId">) {
 
 export function itemDisplayId(item: PracticeItem) {
   if (item.source === "custom") return "Custom";
+  if (item.transfer) {
+    const index = TRANSFER_ITEMS.findIndex(
+      (candidate) => candidate.itemId === item.itemId,
+    );
+    return `Transfer ${String(index + 1).padStart(2, "0")}`;
+  }
   if (item.language === "python")
     return item.id >= 10000
       ? `Py Lab ${String(item.id - 10000).padStart(2, "0")}`
