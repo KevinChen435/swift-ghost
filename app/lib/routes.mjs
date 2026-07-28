@@ -18,7 +18,12 @@ export const ROUTE_VIEWS = [
   "settings",
 ];
 export const COMMUNITY_TABS = ["recent", "records", "daily", "profile"];
-export const RECORDS_SECTIONS = ["overview", "submissions", "reviews"];
+export const RECORDS_SECTIONS = [
+  "overview",
+  "trends",
+  "submissions",
+  "reviews",
+];
 export const ROUTE_LANGUAGES = ["python", "swift"];
 
 function sourceParams(input) {
@@ -317,6 +322,9 @@ export function serializeRoute(
     url.searchParams.set("section", "reviews");
     const reviewAttemptId = cleanReviewAttemptId(route?.reviewAttemptId);
     if (reviewAttemptId) url.searchParams.set("attempt", reviewAttemptId);
+  }
+  if (view === "records" && route?.recordsSection === "trends") {
+    url.searchParams.set("section", "trends");
   }
   const assessment =
     view === "assessments" ? cleanAssessmentId(route?.assessment) : undefined;

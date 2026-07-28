@@ -31,6 +31,7 @@ import {
   type StudyPlanSyncStatus,
 } from "./StudyPlans";
 import { ReadinessAnalytics } from "./ReadinessAnalytics";
+import { ReadinessTrends } from "./ReadinessTrends";
 import { AssessmentCenter } from "./AssessmentCenter";
 import {
   VirtualRounds,
@@ -288,6 +289,7 @@ import {
 } from "../lib/challenge-lab.mjs";
 import {
   deriveTransferProgress,
+  recordTransferDebriefReveal,
   recordTransferHint,
   recordTransferOpened,
   selectNextTransferVariant,
@@ -842,6 +844,15 @@ export default function SwiftGhostApp() {
             recordsSection: "reviews",
             reviewAttemptId: route.reviewAttemptId,
           },
+          window.location.href,
+        );
+        const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        if (canonicalHref !== currentHref)
+          window.history.replaceState({}, "", canonicalHref);
+      }
+      if (route.view === "records" && route.recordsSection === "trends") {
+        const canonicalHref = serializeRoute(
+          { view: "records", recordsSection: "trends" },
           window.location.href,
         );
         const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
@@ -1588,7 +1599,9 @@ export default function SwiftGhostApp() {
           }
         : nextSection === "reviews"
           ? { view: "records", recordsSection: "reviews" }
-          : { view: "records", recordsSection: "overview" };
+          : nextSection === "trends"
+            ? { view: "records", recordsSection: "trends" }
+            : { view: "records", recordsSection: "overview" };
     const href = serializeRoute(route, window.location.href);
     const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
     if (href === currentHref) return;
@@ -2616,6 +2629,17 @@ export default function SwiftGhostApp() {
     attempt: AttemptRecord,
     learningEvent?: LearningEvent,
   ) {
+    const attemptCompletedAt = Date.parse(attempt.completedAt);
+    const transferDebriefRevealedAt = item.transfer
+      ? new Date(
+          Math.max(
+            Date.now(),
+            Number.isFinite(attemptCompletedAt)
+              ? attemptCompletedAt + 1
+              : Date.now(),
+          ),
+        ).toISOString()
+      : null;
     const previousBest =
       attempt.practiceKind === "typing"
         ? personalBest(state, selectedId, stage, attempt.mode)
@@ -2626,6 +2650,12 @@ export default function SwiftGhostApp() {
       learningEvents: learningEvent
         ? upsertLearningEvent(state.learningEvents, learningEvent)
         : state.learningEvents,
+      transferWorkspace: transferDebriefRevealedAt
+        ? recordTransferDebriefReveal(state.transferWorkspace, item.itemId, {
+            now: transferDebriefRevealedAt,
+            variantRevision: item.contentRevision,
+          })
+        : state.transferWorkspace,
       draft: null,
     };
     let sessionNext: Result["sessionNext"];
@@ -2683,6 +2713,16 @@ export default function SwiftGhostApp() {
         learningEvents: learningEvent
           ? upsertLearningEvent(current.learningEvents, learningEvent)
           : current.learningEvents,
+        transferWorkspace: transferDebriefRevealedAt
+          ? recordTransferDebriefReveal(
+              current.transferWorkspace,
+              item.itemId,
+              {
+                now: transferDebriefRevealedAt,
+                variantRevision: item.contentRevision,
+              },
+            )
+          : current.transferWorkspace,
         draft:
           current.draft?.itemId === next.itemId &&
           current.draft.itemRevision === next.itemRevision &&
@@ -4007,7 +4047,7 @@ export default function SwiftGhostApp() {
     )
       return;
     const signals = Object.fromEntries(
-      allItems.map((candidate) => {
+      curriculumItems.map((candidate) => {
         const itemProgress = itemStats(state, candidate.itemId);
         return [
           candidate.itemId,
@@ -4023,11 +4063,12 @@ export default function SwiftGhostApp() {
     );
     const planned = plannedEntries
       ?.flatMap((entry): SessionQueueEntry[] => {
-        const candidate = allItems.find(
+        const candidate = curriculumItems.find(
           (item) => item.itemId === entry.itemId,
         );
         if (
           !candidate ||
+          candidate.transfer ||
           (options.track !== "all" && candidate.track !== options.track) ||
           (options.language !== "all" &&
             candidate.language !== options.language)
@@ -4059,7 +4100,7 @@ export default function SwiftGhostApp() {
       .slice(0, 20);
     const entries = planned?.length
       ? planned
-      : buildSessionQueue(allItems, signals, options);
+      : buildSessionQueue(curriculumItems, signals, options);
     if (!entries.length) {
       setToast("No items match that session setup");
       return;
@@ -4954,6 +4995,47 @@ export default function SwiftGhostApp() {
 
   function handleResultRetry() {
     if (!result) return;
+    if (result.item.transfer) {
+      if (stateRef.current.virtualRoundWorkspace.active) {
+        setToast(
+          "Finish or archive the active virtual round before reconstructing this variant",
+        );
+        return;
+      }
+      const transferItem = result.item;
+      mutateState((current) => {
+        const abandoned = recordAbandon(current);
+        return {
+          ...abandoned,
+          draft: {
+            ...freshDraft(
+              transferItem.itemId,
+              5,
+              transferItem.contentRevision,
+              undefined,
+              undefined,
+              "solving",
+              transferItem.starterCode ?? "",
+            ),
+            peeks: 1,
+          },
+          lastItemId: transferItem.itemId,
+          lastStage: 5,
+        };
+      });
+      setSelectedId(transferItem.itemId);
+      setStage(5);
+      setPracticeKind("solving");
+      setPracticeEpoch((current) => current + 1);
+      setReveal(false);
+      setResult(null);
+      setView("practice");
+      writeRoute(routeForItem(transferItem, 5, "solving"));
+      setToast(
+        "Reconstruction opened · this revealed retry is recorded as assisted",
+      );
+      return;
+    }
     openItem(
       result.item,
       result.stage,
@@ -6925,6 +7007,15 @@ function PracticeView(props: PracticeProps) {
             <button onClick={props.onRandom}>Random</button>
           )}
         </nav>
+        {isTransfer && (
+          <button
+            className="transfer-workbench-back"
+            type="button"
+            onClick={props.onSession}
+          >
+            ← Back to Transfer Lab
+          </button>
+        )}
         {props.activeSession &&
           props.draft.sessionId === props.activeSession.id && (
             <div className={`session-strip ${isMock ? "mock" : ""}`}>
@@ -8473,6 +8564,29 @@ function RecordsView({
   onCloseSolutionReview: () => void;
   onRetrySolutionReview: (attemptId: string) => void;
 }) {
+  const curriculumRecordItems = items.filter((item) => !item.transfer);
+  if (section === "trends") {
+    return (
+      <main id="main-content" tabIndex={-1} className="page-container">
+        <PageHeading
+          eyebrow="Private longitudinal evidence"
+          title="See the shape of your practice."
+          copy="Compare current-revision evidence across time without collapsing independent solves, retrieval, explanations, and language balance into a misleading readiness score."
+        />
+        <div className="records-section-switch" role="group" aria-label="Records section">
+          <button type="button" onClick={() => onSectionChange("overview")}>Overview</button>
+          <button className="is-active" type="button" aria-current="page">Trends</button>
+          <button type="button" onClick={() => onSectionChange("submissions")}>Submissions</button>
+          <button type="button" onClick={() => onSectionChange("reviews")}>Solution reviews</button>
+        </div>
+        <ReadinessTrends
+          state={state}
+          items={curriculumRecordItems}
+          now={now}
+        />
+      </main>
+    );
+  }
   if (section === "reviews") {
     const reviewableAttempts = state.attempts
       .filter(
@@ -8538,6 +8652,7 @@ function RecordsView({
         />
         <div className="records-section-switch" role="group" aria-label="Records section">
           <button type="button" onClick={() => onSectionChange("overview")}>Overview</button>
+          <button type="button" onClick={() => onSectionChange("trends")}>Trends</button>
           <button type="button" onClick={() => onSectionChange("submissions")}>Submissions</button>
           <button className="is-active" type="button" aria-current="page">Solution reviews</button>
         </div>
@@ -8592,6 +8707,7 @@ function RecordsView({
         />
         <div className="records-section-switch" role="group" aria-label="Records section">
           <button type="button" onClick={() => onSectionChange("overview")}>Overview</button>
+          <button type="button" onClick={() => onSectionChange("trends")}>Trends</button>
           <button className="is-active" type="button" aria-current="page">Submissions</button>
           <button type="button" onClick={() => onSectionChange("reviews")}>Solution reviews</button>
         </div>
@@ -8617,7 +8733,6 @@ function RecordsView({
       </main>
     );
   }
-  const curriculumRecordItems = items.filter((item) => !item.transfer);
   const attempts = completedAttempts(state);
   const typingAttempts = attempts.filter(
     (attempt) => attempt.practiceKind === "typing",
@@ -8750,6 +8865,7 @@ function RecordsView({
       />
       <div className="records-section-switch" role="group" aria-label="Records section">
         <button className="is-active" type="button" aria-current="page">Overview</button>
+        <button type="button" onClick={() => onSectionChange("trends")}>Trends</button>
         <button type="button" onClick={() => onSectionChange("submissions")}>Submissions</button>
         <button type="button" onClick={() => onSectionChange("reviews")}>Solution reviews</button>
       </div>
@@ -9914,7 +10030,7 @@ function ResultDialog({
           {isTransfer ? (
             <>
               <button className="outline-button" onClick={onRetry}>
-                Retry this revealed variant
+                Reconstruct this revealed variant
               </button>
               <button className="outline-button" onClick={onRecords}>
                 View transfer evidence

@@ -30,6 +30,7 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - Post-attempt pace charts, missed-line forensics, same-stage retries, and exact item/revision/stage community benchmark previews
 - Optional 30-second typing and concept debriefs that record retrieval difficulty, cognitive friction, confidence, and an authored teach-back response; these stay local and feed the next Daily Coach plan
 - A 30-day readiness evidence view that keeps hint-free verified solves, retrieval quality, debrief coverage, recurring friction, practice mix, and review burden separate instead of collapsing them into a misleading score
+- A dedicated 90-day readiness timeline with 13 chronological activity blocks, current-versus-prior 30-day evidence comparisons, Python/Swift/iOS time balance, sparse-data disclosure, and no composite readiness score
 - Local attempt history, streaks, daily goals, pattern coverage, and progress charts
 - Spaced review at 1, 3, 7, 14, and 30 days, with lapses returning tomorrow
 - Device-local custom Python or Swift snippets with safe content revisions and learning milestones
@@ -41,7 +42,7 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - Separate mock and coach modes: mock interviews lock hints, while coach-mode hints are progressively revealed and permanently recorded in the local transcript
 - Reload-safe local interview transcripts, Python runner evidence, accepted-submission requirements, authored review criteria, and replayable interview history without automated semantic or pass/fail scoring
 - A self-contained Python Challenge Lab across all 48 exercises, with original task statements, callable contracts, parameters, constraints, public examples, persistent custom JSON cases, keyboard-first runs, and aggregate unshown-check submissions; those checks ship in the local client and are not a security boundary
-- A device-local Transfer Lab with 8 original concealed-identity Python variants, exact-revision prompt and hint exposure tracking, independent/assisted/proven/due evidence, conservative 1/3/7/14/30-day rechecks, and post-attempt contrastive debriefs
+- A device-local Transfer Lab with 8 original concealed-identity Python variants, exact-revision prompt and hint exposure tracking, independent/assisted/proven/due evidence, conservative 1/3/7/14/30-day rechecks, and post-attempt contrastive debriefs; sealed variants stay out of generic sessions, and revealed reconstructions are recorded as assisted
 - Device-local Virtual Rounds with fixed 45/75/105-minute two-to-four problem formats, free problem switching and flags, per-problem source preservation, partial local scoring, five-minute solved-problem penalties, deadline-safe pending submissions, and immutable round reports without rank or readiness claims
 - A Hacker-style solve workbench with resizable Prompt/Notebook and Code panels on desktop, focused Problem/Notes/Code/Tests tabs on mobile, and independently scrolling panes
 - A tabbed Testcases/Custom/Result/Submissions console with safe aggregate judge feedback, cancelable isolated runs, and a structured per-parameter testcase builder with Raw JSON fallback
@@ -88,7 +89,7 @@ Interview problem names link to their public LeetCode pages; iOS fundamentals li
 
 ## Roadmap
 
-The local-first training core remains the priority. Planned work includes richer boundary suites, authored semantic masks, longitudinal readiness trends, server-assigned private transfer judging, executable Swift solving, and private cross-device sync for learning evidence beyond the current Study Plan structure.
+The local-first training core remains the priority. Planned work includes richer boundary suites, authored semantic masks, server-assigned private transfer judging, executable Swift solving, and private cross-device sync for learning evidence beyond the current Study Plan structure.
 
 ## License
 

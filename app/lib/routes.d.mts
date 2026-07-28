@@ -5,7 +5,11 @@ import type { CatalogQuery } from "./catalog-discovery.mjs";
 import type { SubmissionWorkLogQuery } from "./submission-work-log.mjs";
 
 export type CommunityTab = "recent" | "records" | "daily" | "profile";
-export type RecordsSection = "overview" | "submissions" | "reviews";
+export type RecordsSection =
+  | "overview"
+  | "trends"
+  | "submissions"
+  | "reviews";
 export type AppRoute = {
   view: View;
   language?: CodeLanguage;
