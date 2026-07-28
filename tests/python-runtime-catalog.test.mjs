@@ -5,15 +5,38 @@ import { ADVANCED_PYTHON_PROBLEMS } from "../app/data/advanced-python-problems.t
 import { PYTHON_PROBLEMS } from "../app/data/python-problems.ts";
 import { buildPythonHarness } from "../app/lib/python-runner.mjs";
 
-async function execute(source, verification) {
-  const runtime = await loadMicroPython({
+let runtimePromise;
+
+function sharedRuntime() {
+  runtimePromise ??= loadMicroPython({
     heapsize: 32 * 1024 * 1024,
     stdout: () => {},
     stderr: () => {},
   });
-  runtime.runPython(buildPythonHarness({ source, verification }));
+  return runtimePromise;
+}
+
+async function execute(source, verification, executionMode = "verify") {
+  const runtime = await sharedRuntime();
+  runtime.runPython(buildPythonHarness({ source, verification, executionMode }));
   return JSON.parse(runtime.globals.get("_RESULT_JSON"));
 }
+
+test("custom execution returns actual output without fabricating an assertion", async () => {
+  const result = await execute(
+    "def add(left, right):\n    return left + right",
+    {
+      revision: 2,
+      entrypoint: { kind: "function", name: "add" },
+      cases: [{ name: "custom", args: [3, 4] }],
+    },
+    "run",
+  );
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.kind, "execution");
+  assert.equal(result.cases[0].actual, 7);
+  assert.equal(result.cases[0].passed, true);
+});
 
 test("every shipped Python reference solution passes in the bundled runtime", async () => {
   const catalog = [...PYTHON_PROBLEMS, ...ADVANCED_PYTHON_PROBLEMS];

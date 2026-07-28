@@ -24,6 +24,7 @@ import { AttemptForensics } from "./AttemptForensics";
 import { LearningAnalytics } from "./LearningAnalytics";
 import { DailyCoach } from "./DailyCoach";
 import { ReadinessAnalytics } from "./ReadinessAnalytics";
+import { ChallengeStatement } from "./ChallengeStatement";
 import {
   ConceptPractice,
   type ConceptCompletionInput,
@@ -93,6 +94,7 @@ import {
   SECOND_VERSION_STORAGE_KEY,
   STAGES,
   STORAGE_KEY,
+  TWELFTH_STORAGE_KEY,
   activeStreak,
   analyzeEdit,
   completedAttempts,
@@ -146,6 +148,12 @@ import {
   selectMockInterviewItem,
   type MockInterviewPresetId,
 } from "../lib/mock-interview.mjs";
+import {
+  challengeVerificationForPurpose,
+  customCaseVerification,
+  defaultCustomCaseInput,
+  isRecordableChallengeResult,
+} from "../lib/challenge-lab.mjs";
 
 type Result = AttemptRecord & {
   item: PracticeItem;
@@ -289,6 +297,8 @@ function freshDraft(
     lineErrors: {},
     timeline: [],
     testRuns: 0,
+    submissions: 0,
+    customCaseInput: "",
     challengeDate,
     sessionId,
   };
@@ -301,19 +311,6 @@ function formatDate(value: string) {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
-}
-
-function formatMockEntrypoint(item: PracticeItem) {
-  const entrypoint = item.verification?.entrypoint;
-  if (!entrypoint) return "Implement the requested Python function.";
-  if (entrypoint.kind === "method") {
-    return `Implement ${entrypoint.className}.${entrypoint.name}(...)`;
-  }
-  return `Implement ${entrypoint.name}(...)`;
-}
-
-function formatMockArgs(args: readonly unknown[]) {
-  return args.map((arg) => JSON.stringify(arg)).join(", ");
 }
 
 function sessionHistoryRecord(
@@ -972,6 +969,21 @@ export default function SwiftGhostApp() {
     }));
   }
 
+  function updateCustomCaseInput(customCaseInput: string) {
+    const bounded = customCaseInput.slice(0, 12000);
+    mutateState((current) => ({
+      ...current,
+      customCaseInputs: {
+        ...current.customCaseInputs,
+        [item.itemId]: bounded,
+      },
+      draft:
+        current.draft?.itemId === item.itemId
+          ? { ...current.draft, customCaseInput: bounded }
+          : current.draft,
+    }));
+  }
+
   function completeAttempt(
     next: Draft,
     attempt: AttemptRecord,
@@ -1025,7 +1037,52 @@ export default function SwiftGhostApp() {
         };
       }
     }
-    mutateState(() => projected);
+    mutateState((current) => {
+      let committed: AppState = {
+        ...current,
+        attempts: [...current.attempts, attempt].slice(-1000),
+        learningEvents: learningEvent
+          ? upsertLearningEvent(current.learningEvents, learningEvent)
+          : current.learningEvents,
+        draft:
+          current.draft?.itemId === next.itemId &&
+          current.draft.itemRevision === next.itemRevision &&
+          current.draft.practiceKind === next.practiceKind
+            ? null
+            : current.draft,
+      };
+      const liveSession = current.activeSession;
+      if (liveSession && next.sessionId === liveSession.id) {
+        const entries = liveSession.entries.map((entry, index) =>
+          index === liveSession.currentIndex
+            ? { ...entry, status: "completed" as const, attemptId: attempt.id }
+            : entry,
+        );
+        const nextIndex = entries.findIndex(
+          (entry, index) =>
+            index > liveSession.currentIndex && entry.status === "pending",
+        );
+        committed =
+          nextIndex >= 0
+            ? {
+                ...committed,
+                activeSession: {
+                  ...liveSession,
+                  entries,
+                  currentIndex: nextIndex,
+                },
+              }
+            : {
+                ...committed,
+                activeSession: null,
+                sessionHistory: [
+                  ...committed.sessionHistory,
+                  sessionHistoryRecord(liveSession, entries, "completed"),
+                ].slice(-25),
+              };
+      }
+      return committed;
+    });
     setResult({
       ...attempt,
       item,
@@ -1196,6 +1253,8 @@ export default function SwiftGhostApp() {
     source: string,
     verificationResult: PythonVerificationResult,
     runs: number,
+    submissions = 1,
+    purpose: "submit" | "full" = "submit",
   ) {
     const activeMock =
       state.activeSession?.kind === "mock" &&
@@ -1209,7 +1268,11 @@ export default function SwiftGhostApp() {
     if (
       practiceKind !== "solving" ||
       !item.verification ||
-      !verificationResult.ok
+      !isRecordableChallengeResult(
+        verificationResult,
+        purpose,
+        Boolean(activeMock),
+      )
     )
       return;
     const next: Draft = {
@@ -1219,13 +1282,15 @@ export default function SwiftGhostApp() {
       value: source,
       startedAt: draft.startedAt ?? Date.now(),
       testRuns: Math.max(draft.testRuns, runs),
+      submissions: Math.max(draft.submissions, submissions),
     };
     finish(next, {
-      revision: item.contentRevision,
+      revision: item.verification.revision ?? 1,
       passed: verificationResult.cases.filter((testCase) => testCase.passed)
         .length,
       total: verificationResult.cases.length,
       runs: Math.max(1, runs),
+      submissions: Math.max(1, submissions),
     });
   }
 
@@ -1787,7 +1852,7 @@ export default function SwiftGhostApp() {
       if (
         !parsed ||
         typeof parsed !== "object" ||
-        ![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(
+        ![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].includes(
           Number((parsed as { version?: unknown }).version),
         )
       )
@@ -1826,6 +1891,7 @@ export default function SwiftGhostApp() {
     )
       return;
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(TWELFTH_STORAGE_KEY);
     localStorage.removeItem(PREVIOUS_STORAGE_KEY);
     localStorage.removeItem(LEGACY_STORAGE_KEY);
     localStorage.removeItem(OLDER_STORAGE_KEY);
@@ -2059,6 +2125,15 @@ export default function SwiftGhostApp() {
               testRuns: draft.testRuns + 1,
             })
           }
+          onSubmissionRun={() =>
+            updateDraft({
+              ...draft,
+              startedAt: draft.startedAt ?? Date.now(),
+              testRuns: draft.testRuns + 1,
+              submissions: draft.submissions + 1,
+            })
+          }
+          onCustomCaseChange={updateCustomCaseInput}
           onUseHint={() => updateDraft({ ...draft, peeks: draft.peeks + 1 })}
           onSolveComplete={finishSolve}
           onConceptChange={updateConceptResponse}
@@ -2458,11 +2533,15 @@ type PracticeProps = {
   onPaste: (event: ReactClipboardEvent<HTMLTextAreaElement>) => void;
   onReset: () => void;
   onTestRun: () => void;
+  onSubmissionRun: () => void;
+  onCustomCaseChange: (value: string) => void;
   onUseHint: () => void;
   onSolveComplete: (
     source: string,
     result: PythonVerificationResult,
     runs: number,
+    submissions?: number,
+    purpose?: "submit" | "full",
   ) => void;
   onConceptChange: (value: string) => void;
   onConceptReveal: (assisted: boolean, responseSnapshot: string) => void;
@@ -2484,14 +2563,24 @@ function PracticeView(props: PracticeProps) {
   const [verificationState, setVerificationState] = useState<{
     itemId: ItemId;
     status: "idle" | "loading" | "running" | "passed" | "failed" | "error";
+    purpose?: "examples" | "submit" | "full";
     result?: PythonVerificationResult;
     message?: string;
     source?: string;
     runs?: number;
   }>({ itemId: props.item.itemId, status: "idle" });
+  const [customExecutionState, setCustomExecutionState] = useState<{
+    itemId: ItemId;
+    status: "idle" | "loading" | "running" | "passed" | "error";
+    result?: PythonVerificationResult;
+    message?: string;
+  }>({ itemId: props.item.itemId, status: "idle" });
   const [solveHintLevel, setSolveHintLevel] = useState(0);
+  const [runnerActive, setRunnerActive] = useState(false);
   const pythonRunner = useRef<PythonRunner | null>(null);
   const verificationRunId = useRef(0);
+  const customExecutionRunId = useRef(0);
+  const runnerBusy = useRef(false);
   const [lastRunnableSource, setLastRunnableSource] = useState<{
     itemId: ItemId;
     source: string;
@@ -2499,6 +2588,10 @@ function PracticeView(props: PracticeProps) {
   const visibleVerificationState =
     verificationState.itemId === props.item.itemId
       ? verificationState
+      : { itemId: props.item.itemId, status: "idle" as const };
+  const visibleCustomExecutionState =
+    customExecutionState.itemId === props.item.itemId
+      ? customExecutionState
       : { itemId: props.item.itemId, status: "idle" as const };
   const isMock = Boolean(
     props.activeSession?.kind === "mock" &&
@@ -2514,6 +2607,10 @@ function PracticeView(props: PracticeProps) {
     },
     [],
   );
+  useEffect(() => {
+    verificationRunId.current += 1;
+    customExecutionRunId.current += 1;
+  }, [props.item.itemId]);
   const visible = useMemo(
     () =>
       props.items
@@ -2547,6 +2644,15 @@ function PracticeView(props: PracticeProps) {
         : lastRunnableSource?.itemId === props.item.itemId
           ? lastRunnableSource.source
           : "";
+  const customCaseInput =
+    props.state.customCaseInputs[props.item.itemId] ??
+    props.draft.customCaseInput;
+  const checksAreBusy =
+    runnerActive ||
+    visibleVerificationState.status === "loading" ||
+    visibleVerificationState.status === "running" ||
+    visibleCustomExecutionState.status === "loading" ||
+    visibleCustomExecutionState.status === "running";
   async function copyPracticeLink() {
     const url = window.location.href;
     let didCopy = false;
@@ -2570,12 +2676,20 @@ function PracticeView(props: PracticeProps) {
     }
   }
 
-  async function runPythonChecks() {
+  async function runPythonChecks(
+    purpose: "examples" | "submit" | "full" = "full",
+  ) {
     if (!props.item.verification || !runnerSource.trim()) return;
+    if (runnerBusy.current) return;
+    runnerBusy.current = true;
+    setRunnerActive(true);
     const sourceToVerify = runnerSource;
     const runs = props.draft.testRuns + 1;
+    const submissions =
+      props.draft.submissions + (purpose === "submit" ? 1 : 0);
     const runId = ++verificationRunId.current;
-    props.onTestRun();
+    if (purpose === "submit") props.onSubmissionRun();
+    else props.onTestRun();
     try {
       const runner = pythonRunner.current ?? createPythonRunner();
       pythonRunner.current = runner;
@@ -2583,30 +2697,104 @@ function PracticeView(props: PracticeProps) {
         itemId: props.item.itemId,
         status:
           visibleVerificationState.status === "idle" ? "loading" : "running",
+        purpose,
       });
       const result = await runner.verify(
         sourceToVerify,
-        props.item.verification,
+        challengeVerificationForPurpose(props.item.verification, purpose),
       );
       if (runId !== verificationRunId.current) return;
+      if (result.kind !== "verification")
+        throw new Error("Python runner returned an unexpected result");
       setVerificationState({
         itemId: props.item.itemId,
         status: result.ok ? "passed" : "failed",
+        purpose,
         result,
         source: sourceToVerify,
         runs,
       });
+      if (isRecordableChallengeResult(result, purpose, isMock)) {
+        props.onSolveComplete(
+          sourceToVerify,
+          result,
+          runs,
+          submissions,
+          purpose === "full" ? "full" : "submit",
+        );
+      }
     } catch (error) {
       if (runId !== verificationRunId.current) return;
       setVerificationState({
         itemId: props.item.itemId,
         status: "error",
+        purpose,
         message:
           error instanceof Error
             ? error.message
             : "Python checks could not run.",
       });
+    } finally {
+      runnerBusy.current = false;
+      setRunnerActive(false);
     }
+  }
+
+  async function runCustomCase() {
+    if (!props.item.verification || !runnerSource.trim()) return;
+    if (runnerBusy.current) return;
+    const customInput = customCaseInput.trim()
+      ? customCaseInput
+      : defaultCustomCaseInput(props.item.verification);
+    let execution;
+    try {
+      execution = customCaseVerification(props.item.verification, customInput);
+    } catch (error) {
+      setCustomExecutionState({
+        itemId: props.item.itemId,
+        status: "error",
+        message: error instanceof Error ? error.message : "Invalid custom testcase",
+      });
+      return;
+    }
+    runnerBusy.current = true;
+    setRunnerActive(true);
+    const runId = ++customExecutionRunId.current;
+    props.onTestRun();
+    try {
+      const runner = pythonRunner.current ?? createPythonRunner();
+      pythonRunner.current = runner;
+      setCustomExecutionState({
+        itemId: props.item.itemId,
+        status:
+          visibleCustomExecutionState.status === "idle" ? "loading" : "running",
+      });
+      const result = await runner.run(runnerSource, execution);
+      if (runId !== customExecutionRunId.current) return;
+      if (result.kind !== "execution")
+        throw new Error("Python runner returned an unexpected result");
+      setCustomExecutionState({
+        itemId: props.item.itemId,
+        status: "passed",
+        result,
+      });
+    } catch (error) {
+      setCustomExecutionState({
+        itemId: props.item.itemId,
+        status: "error",
+        message:
+          error instanceof Error ? error.message : "Custom testcase could not run",
+      });
+    } finally {
+      runnerBusy.current = false;
+      setRunnerActive(false);
+    }
+  }
+
+  function changeCustomCaseInput(value: string) {
+    customExecutionRunId.current += 1;
+    setCustomExecutionState({ itemId: props.item.itemId, status: "idle" });
+    props.onCustomCaseChange(value.slice(0, 12000));
   }
 
   function handleEditorChange(event: ChangeEvent<HTMLTextAreaElement>) {
@@ -2628,7 +2816,9 @@ function PracticeView(props: PracticeProps) {
     }
     if (accepted) {
       verificationRunId.current += 1;
+      customExecutionRunId.current += 1;
       setVerificationState({ itemId: props.item.itemId, status: "idle" });
+      setCustomExecutionState({ itemId: props.item.itemId, status: "idle" });
     }
     props.onChange(event);
   }
@@ -2643,8 +2833,27 @@ function PracticeView(props: PracticeProps) {
       setLastRunnableSource(null);
     }
     verificationRunId.current += 1;
+    customExecutionRunId.current += 1;
     setVerificationState({ itemId: props.item.itemId, status: "idle" });
+    setCustomExecutionState({ itemId: props.item.itemId, status: "idle" });
     props.onReset();
+  }
+
+  function handleEditorKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (
+      props.practiceKind === "solving" &&
+      (event.ctrlKey || event.metaKey) &&
+      event.key === "Enter"
+    ) {
+      event.preventDefault();
+      if (event.shiftKey && !isMock) {
+        void runPythonChecks("submit");
+      } else {
+        void runPythonChecks(isMock ? "full" : "examples");
+      }
+      return;
+    }
+    props.onKeyDown(event);
   }
   return (
     <main id="main-content" tabIndex={-1} className="practice-layout">
@@ -2905,8 +3114,9 @@ function PracticeView(props: PracticeProps) {
             <span>Interview mode locked</span>
             <strong>Solve from the prompt and executable feedback only.</strong>
             <small>
-              Pattern guidance, hints, the reference solution, and expected test
-              values stay hidden until this mock ends.
+              Pattern guidance, hints, the reference solution, and hidden judge
+              values stay out of the interview view until this mock ends. Sample
+              outputs remain part of the prompt.
             </small>
           </div>
         ) : (
@@ -2974,26 +3184,8 @@ function PracticeView(props: PracticeProps) {
           />
         ) : (
           <>
-        {isMock && props.item.verification && (
-          <section className="mock-prompt-card" aria-labelledby="mock-prompt-title">
-            <div>
-              <span className="eyebrow">Interview prompt</span>
-              <h2 id="mock-prompt-title">{formatMockEntrypoint(props.item)}</h2>
-              <p>{props.item.summary}</p>
-            </div>
-            <div className="mock-visible-cases">
-              <strong>Visible inputs</strong>
-              <ul>
-                {props.item.verification.cases.slice(0, 3).map((testCase) => (
-                  <li key={testCase.name}>
-                    <span>{testCase.name}</span>
-                    <code>input: {formatMockArgs(testCase.args)}</code>
-                    <small>Expected output hidden during the mock</small>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </section>
+        {props.practiceKind === "solving" && props.item.verification && (
+          <ChallengeStatement item={props.item} />
         )}
         {!isMock && <div className="insight-grid">
           <article>
@@ -3167,6 +3359,10 @@ function PracticeView(props: PracticeProps) {
                   <strong>{props.draft.testRuns}</strong>
                 </span>
                 <span>
+                  <small>Submissions</small>
+                  <strong>{props.draft.submissions}</strong>
+                </span>
+                <span>
                   <small>{isMock ? "Guidance" : "Hints"}</small>
                   <strong>{isMock ? "Locked" : props.draft.peeks}</strong>
                 </span>
@@ -3222,7 +3418,7 @@ function PracticeView(props: PracticeProps) {
             <textarea
               value={props.draft.value}
               onChange={handleEditorChange}
-              onKeyDown={props.onKeyDown}
+              onKeyDown={handleEditorKeyDown}
               onPaste={props.onPaste}
               spellCheck={false}
               autoCapitalize="off"
@@ -3260,34 +3456,133 @@ function PracticeView(props: PracticeProps) {
           )}
         </div>
         {props.item.verification && (
-          <section className="python-verification" aria-live="polite">
+          <section
+            className={`python-verification ${props.practiceKind === "solving" ? "challenge-console" : ""}`}
+          >
             <div>
               <span className="eyebrow">Browser Python · local subset</span>
               <h2>
                 {props.practiceKind === "solving"
-                  ? "Verify your implementation."
+                  ? "Cases and submission"
                   : "Run the solution against real checks."}
               </h2>
               <p>
-                Your code stays on this device. Every check starts in a fresh
-                Python worker; the first one loads the bundled runtime. The
-                full exercise catalog is tested here, while CPython-only
-                packages and a few newer language features are intentionally
-                outside this fast local subset.
                 {props.practiceKind === "solving"
-                  ? " A passing solve can be recorded as independent problem-solving evidence, separate from typing speed and rankings."
-                  : " Checks never affect mastery or public rankings."}
+                  ? "Your code stays on this device. Run examples while iterating; Submit uses the complete judge suite. Only an accepted submission records independent problem-solving evidence."
+                  : "Your code stays on this device. Checks run in a fresh browser Python worker and never affect mastery or public rankings."}
               </p>
             </div>
+            {props.practiceKind === "solving" && !isMock && (
+              <div className="custom-case-panel">
+                <div className="custom-case-head">
+                  <span>
+                    <small>Custom testcase</small>
+                    <strong>Run your own arguments</strong>
+                  </span>
+                  <button
+                    className="text-button"
+                    onClick={() =>
+                      changeCustomCaseInput(
+                        defaultCustomCaseInput(props.item.verification!),
+                      )
+                    }
+                  >
+                    Load example
+                  </button>
+                </div>
+                <label>
+                  JSON arguments
+                  <textarea
+                    value={customCaseInput}
+                    onChange={(event) =>
+                      changeCustomCaseInput(event.target.value)
+                    }
+                    placeholder={defaultCustomCaseInput(props.item.verification)}
+                    spellCheck={false}
+                    aria-label="Custom testcase arguments as JSON"
+                  />
+                </label>
+                <div className="custom-case-actions">
+                  <button
+                    className="outline-button"
+                    disabled={
+                      !runnerSource.trim() ||
+                      checksAreBusy
+                    }
+                    onClick={() => void runCustomCase()}
+                  >
+                    {visibleCustomExecutionState.status === "loading"
+                      ? "Loading Python..."
+                      : visibleCustomExecutionState.status === "running"
+                        ? "Running testcase..."
+                        : "Run custom testcase"}
+                  </button>
+                  <small>This run shows output but never records mastery.</small>
+                </div>
+                {visibleCustomExecutionState.result && (
+                  <div className="custom-case-result">
+                    <span>Output</span>
+                    {visibleCustomExecutionState.result.cases.map((testCase) => (
+                      <div key={testCase.name}>
+                        <strong>{testCase.name}</strong>
+                        {testCase.error ? (
+                          <code>{testCase.error}</code>
+                        ) : (
+                          <pre>{JSON.stringify(testCase.actual, null, 2)}</pre>
+                        )}
+                      </div>
+                    ))}
+                    <small>{visibleCustomExecutionState.result.durationMs} ms</small>
+                  </div>
+                )}
+                {visibleCustomExecutionState.status === "error" && (
+                  <div className="custom-case-result failed">
+                    <strong>Custom testcase could not run</strong>
+                    <code>{visibleCustomExecutionState.message}</code>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="python-verification-actions">
+              {props.practiceKind === "solving" && !isMock && (
+                <>
+                  <button
+                    className="outline-button"
+                    disabled={
+                      !runnerSource.trim() ||
+                      checksAreBusy
+                    }
+                    onClick={() => void runPythonChecks("examples")}
+                  >
+                    {visibleVerificationState.status === "running" &&
+                    visibleVerificationState.purpose === "examples"
+                      ? "Running examples..."
+                      : "Run examples"}
+                  </button>
+                  <button
+                    className="primary-button submit-solution"
+                    disabled={
+                      !runnerSource.trim() ||
+                      checksAreBusy
+                    }
+                    onClick={() => void runPythonChecks("submit")}
+                  >
+                    {visibleVerificationState.status === "running" &&
+                    visibleVerificationState.purpose === "submit"
+                      ? "Judging solution..."
+                      : "Submit solution"}
+                  </button>
+                  <small>Ctrl/Cmd+Enter runs examples; add Shift to submit</small>
+                </>
+              )}
+              {(props.practiceKind !== "solving" || isMock) && (
               <button
                 className="primary-button"
                 disabled={
                   !runnerSource.trim() ||
-                  visibleVerificationState.status === "loading" ||
-                  visibleVerificationState.status === "running"
+                  checksAreBusy
                 }
-                onClick={runPythonChecks}
+                onClick={() => void runPythonChecks("full")}
               >
                 {visibleVerificationState.status === "loading"
                   ? "Loading Python…"
@@ -3295,6 +3590,7 @@ function PracticeView(props: PracticeProps) {
                     ? "Running checks…"
                     : "Run checks"}
               </button>
+              )}
               {!runnerSource.trim() && (
                 <small>Type some code before running checks.</small>
               )}
@@ -3303,9 +3599,14 @@ function PracticeView(props: PracticeProps) {
                 runnerSource.trim() && (
                   <small>Using your most recent completed solution.</small>
                 )}
-              {props.practiceKind === "solving" &&
+              {isMock &&
                 visibleVerificationState.status === "passed" &&
-                visibleVerificationState.result?.ok &&
+                visibleVerificationState.result &&
+                isRecordableChallengeResult(
+                  visibleVerificationState.result,
+                  visibleVerificationState.purpose ?? "full",
+                  true,
+                ) &&
                 visibleVerificationState.source === runnerSource && (
                   <button
                     className="primary-button record-solve"
@@ -3314,6 +3615,8 @@ function PracticeView(props: PracticeProps) {
                         runnerSource,
                         visibleVerificationState.result as PythonVerificationResult,
                         visibleVerificationState.runs ?? props.draft.testRuns,
+                        Math.max(1, props.draft.submissions),
+                        "full",
                       )
                     }
                   >
@@ -3324,11 +3627,18 @@ function PracticeView(props: PracticeProps) {
             {visibleVerificationState.result && (
               <div
                 className={`python-verification-results ${visibleVerificationState.result.ok ? "passed" : "failed"}`}
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
               >
                 <strong>
-                  {visibleVerificationState.result.ok
-                    ? `All ${visibleVerificationState.result.cases.length} checks passed`
-                    : `${visibleVerificationState.result.cases.filter((testCase) => testCase.passed).length}/${visibleVerificationState.result.cases.length} checks passed`}
+                  {visibleVerificationState.purpose === "submit"
+                    ? visibleVerificationState.result.ok
+                      ? "Accepted"
+                      : "Not accepted"
+                    : visibleVerificationState.result.ok
+                      ? `All ${visibleVerificationState.result.cases.length} checks passed`
+                      : `${visibleVerificationState.result.cases.filter((testCase) => testCase.passed).length}/${visibleVerificationState.result.cases.length} checks passed`}
                 </strong>
                 <small>
                   {visibleVerificationState.result.durationMs} ms after runtime
@@ -3337,11 +3647,10 @@ function PracticeView(props: PracticeProps) {
                 {visibleVerificationState.result.setupError && (
                   <code>{visibleVerificationState.result.setupError}</code>
                 )}
-                {isMock ? (
+                {isMock || visibleVerificationState.purpose === "submit" ? (
                   <p className="mock-test-note">
-                    Individual inputs and expected values are withheld during
-                    the mock. Use the aggregate result to test your own edge
-                    cases.
+                    Hidden judge details stay out of the interface. Use the
+                    aggregate local result to revise your edge cases.
                   </p>
                 ) : (
                 <ul>
@@ -3520,7 +3829,7 @@ function SessionsView({
       <section className="mock-interview-center">
         <div className="mock-interview-copy">
           <span className="eyebrow">Interview simulator</span>
-          <h2>One cold problem. A real countdown. No answer access.</h2>
+          <h2>One cold problem. A real countdown. No in-app answer reveal.</h2>
           <p>
             Each preset chooses under-practiced verified Python work. The timer
             survives reloads, pattern guidance stays hidden, and only a clean
@@ -4965,10 +5274,10 @@ function SettingsView({
           <small>Your data</small>
           <h2>Local profile</h2>
           <p>
-            Export a portable v12 JSON backup with Python, Swift, iOS, sessions,
+            Export a portable v13 JSON backup with Python, Swift, iOS, sessions,
             learning debriefs, revisioned snippets, local pacing and weak-line
-            analytics, and
-            community preferences—or restore any v2–v9 backup.
+            analytics, community preferences, and challenge testcases, or restore
+            any v2-v13 backup.
           </p>
         </div>
         <div className="data-actions">
@@ -5400,6 +5709,10 @@ function ResultDialog({
               <span>
                 <small>Runs</small>
                 <strong>{result.verification?.runs ?? 0}</strong>
+              </span>
+              <span>
+                <small>Submissions</small>
+                <strong>{result.verification?.submissions ?? 1}</strong>
               </span>
             </>
           ) : (

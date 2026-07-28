@@ -8,6 +8,8 @@ export type PythonEntrypoint =
   | { kind: "method"; className: string; name: string };
 
 export type PythonVerificationCase = {
+  id?: string;
+  visibility?: "sample" | "hidden";
   name: string;
   args: readonly unknown[];
   argCodecs?: readonly PythonCodec[];
@@ -17,8 +19,22 @@ export type PythonVerificationCase = {
 };
 
 export type PythonVerification = {
+  revision?: number;
   entrypoint: PythonEntrypoint;
   cases: readonly PythonVerificationCase[];
+};
+
+export type PythonExecutionCase = {
+  name: string;
+  args: readonly unknown[];
+  argCodecs?: readonly PythonCodec[];
+  outputCodec?: PythonCodec;
+};
+
+export type PythonExecution = {
+  revision?: number;
+  entrypoint: PythonEntrypoint;
+  cases: readonly PythonExecutionCase[];
 };
 
 export type PythonCaseResult = {
@@ -29,6 +45,7 @@ export type PythonCaseResult = {
 };
 
 export type PythonVerificationResult = {
+  kind: "verification" | "execution";
   ok: boolean;
   setupError: string | null;
   cases: PythonCaseResult[];
@@ -50,12 +67,17 @@ export class PythonRunner {
     source: string,
     verification: PythonVerification,
   ): Promise<PythonVerificationResult>;
+  run(
+    source: string,
+    execution: PythonExecution,
+  ): Promise<PythonVerificationResult>;
   dispose(): void;
 }
 
 export function buildPythonHarness(input: {
   source: string;
-  verification: PythonVerification;
+  verification: PythonVerification | PythonExecution;
+  executionMode?: "verify" | "run";
 }): string;
 export function createPythonRunner(options?: PythonRunnerOptions): PythonRunner;
 export const PYTHON_RUNNER_LIMITS: Readonly<{

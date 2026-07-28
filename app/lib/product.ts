@@ -73,6 +73,7 @@ export type VerificationSummary = {
   passed: number;
   total: number;
   runs: number;
+  submissions: number;
 };
 
 export type Settings = {
@@ -137,6 +138,8 @@ export type Draft = {
   lineErrors: Record<string, number>;
   timeline: TimelineSample[];
   testRuns: number;
+  submissions: number;
+  customCaseInput: string;
   conceptCommittedAt?: number;
   conceptCommittedResponse?: string;
   challengeDate?: string;
@@ -178,11 +181,12 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 12;
+  version: 13;
   attempts: AttemptRecord[];
   learningEvents: LearningEvent[];
   favorites: ItemId[];
   customItems: PracticeItem[];
+  customCaseInputs: Partial<Record<ItemId, string>>;
   settings: Settings;
   draft: Draft | null;
   lastItemId: ItemId;
@@ -192,7 +196,8 @@ export type AppState = {
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v12";
+export const STORAGE_KEY = "swift-ghost-state-v13";
+export const TWELFTH_STORAGE_KEY = "swift-ghost-state-v12";
 export const PREVIOUS_STORAGE_KEY = "swift-ghost-state-v11";
 export const LEGACY_STORAGE_KEY = "swift-ghost-state-v10";
 export const OLDER_STORAGE_KEY = "swift-ghost-state-v9";
@@ -218,11 +223,12 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 12,
+  version: 13,
   attempts: [],
   learningEvents: [],
   favorites: [],
   customItems: [],
+  customCaseInputs: {},
   settings: DEFAULT_SETTINGS,
   draft: null,
   lastItemId: BUILTIN_ITEMS[0].itemId,
@@ -272,6 +278,9 @@ function normalizeVerificationSummary(value: unknown) {
     passed,
     total,
     runs: Math.round(finiteNumber(value.runs, 1, 1, 100000)),
+    submissions: Math.round(
+      finiteNumber(value.submissions, 1, 1, 100000),
+    ),
   };
 }
 
@@ -929,6 +938,13 @@ export function normalizeState(value: unknown): AppState {
           lineErrors: normalizeLineErrors(rawDraft.lineErrors),
           timeline: normalizeTimelineSamples(rawDraft.timeline),
           testRuns: Math.round(finiteNumber(rawDraft.testRuns, 0, 0, 100000)),
+          submissions: Math.round(
+            finiteNumber(rawDraft.submissions, 0, 0, 100000),
+          ),
+          customCaseInput:
+            typeof rawDraft.customCaseInput === "string"
+              ? rawDraft.customCaseInput.slice(0, 12000)
+              : "",
           conceptCommittedAt:
             typeof rawDraft.conceptCommittedAt === "number" &&
             Number.isFinite(rawDraft.conceptCommittedAt)
@@ -959,6 +975,25 @@ export function normalizeState(value: unknown): AppState {
         ),
       ]
     : [];
+  const customCaseInputs = isRecord(value.customCaseInputs)
+    ? Object.fromEntries(
+        Object.entries(value.customCaseInputs)
+          .flatMap(([rawItemId, rawInput]) => {
+            const itemId = itemIdFromRaw(rawItemId);
+            return itemId && activeIds.has(itemId) && typeof rawInput === "string"
+              ? [[itemId, rawInput.slice(0, 12000)]]
+              : [];
+          })
+          .slice(0, 200),
+      )
+    : {};
+  if (
+    draftItemId &&
+    draft?.customCaseInput &&
+    customCaseInputs[draftItemId] === undefined
+  ) {
+    customCaseInputs[draftItemId] = draft.customCaseInput;
+  }
   const activeSession = normalizeActiveSession(
     value.activeSession,
     activeIds,
@@ -983,7 +1018,7 @@ export function normalizeState(value: unknown): AppState {
     ? { ...draft, sessionId: draftMatchesSession ? draft.sessionId : undefined }
     : null;
   return {
-    version: 12,
+    version: 13,
     attempts,
     learningEvents: normalizeLearningEvents(value.learningEvents, {
       validItemIds: validIds,
@@ -991,6 +1026,7 @@ export function normalizeState(value: unknown): AppState {
     }),
     favorites,
     customItems,
+    customCaseInputs,
     settings: normalizeSettings(value.settings),
     draft: normalizedDraft,
     lastItemId:
@@ -1011,6 +1047,7 @@ export function loadState(): AppState {
   try {
     for (const key of [
       STORAGE_KEY,
+      TWELFTH_STORAGE_KEY,
       PREVIOUS_STORAGE_KEY,
       LEGACY_STORAGE_KEY,
       OLDER_STORAGE_KEY,
@@ -1043,7 +1080,7 @@ function hasSupportedStateVersion(
 ): value is Record<string, unknown> {
   return (
     isRecord(value) &&
-    [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(Number(value.version))
+    [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13].includes(Number(value.version))
   );
 }
 

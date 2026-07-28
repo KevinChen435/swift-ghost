@@ -102,10 +102,11 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v12"/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v13"/);
+  assert.match(product, /TWELFTH_STORAGE_KEY = "swift-ghost-state-v12"/);
   assert.match(product, /PREVIOUS_STORAGE_KEY = "swift-ghost-state-v11"/);
   assert.match(product, /FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2"/);
-  assert.match(product, /version: 12/);
+  assert.match(product, /version: 13/);
   assert.match(product, /swift-ghost-state-v10/);
   assert.match(product, /swift-ghost-state-v9/);
   assert.match(product, /swift-ghost-state-v8/);
@@ -196,6 +197,12 @@ test("ships the full five-stage practice model and original problem links", asyn
   );
   assert.match(page, /Run the solution against real checks/);
   assert.match(page, /Write any passing Python solution/);
+  assert.match(page, /Run examples/);
+  assert.match(page, /Submit solution/);
+  assert.match(page, /Run custom testcase/);
+  assert.match(page, /challengeVerificationForPurpose/);
+  assert.match(page, /isRecordableChallengeResult/);
+  assert.match(page, /purpose === "submit"/);
   assert.match(page, /Record verified solve/);
   assert.match(page, /expected:/);
   assert.match(page, /Skip to practice content/);
@@ -269,11 +276,9 @@ test("ships reload-safe timed mock interviews", async () => {
   assert.match(mock, /mockInterviewRemainingMs/);
   assert.match(app, /One cold problem\. A real countdown\. No answer access\./);
   assert.match(app, /Interview mode locked/);
-  assert.match(app, /Interview prompt/);
-  assert.match(app, /formatMockEntrypoint/);
-  assert.match(app, /Expected output hidden during the mock/);
+  assert.match(app, /<ChallengeStatement item=\{props\.item\}/);
   assert.match(app, /prompt && !isMock/);
-  assert.match(app, /Individual inputs and expected values are withheld/);
+  assert.match(app, /Hidden judge details stay out of the interface/);
   assert.match(app, /role="timer"/);
 });
 

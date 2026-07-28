@@ -2,6 +2,10 @@ import { PROBLEMS, type Pattern, type Problem } from "../data/problems";
 import { FUNDAMENTALS } from "../data/fundamentals";
 import { PYTHON_PROBLEMS } from "../data/python-problems";
 import { ADVANCED_PYTHON_PROBLEMS } from "../data/advanced-python-problems";
+import {
+  getPythonChallenge,
+  type PythonChallengeMetadata,
+} from "../data/python-challenges";
 import type { PythonVerification } from "./python-runner.mjs";
 
 export type PracticeTrack = "interview" | "ios";
@@ -28,6 +32,7 @@ export type PracticeItem = Omit<Problem, "swiftNote"> & {
   conceptAnswers?: readonly [string, string, string];
   verification?: PythonVerification;
   starterCode?: string;
+  challenge?: PythonChallengeMetadata;
 };
 
 export const INTERVIEW_ITEMS: PracticeItem[] = PROBLEMS.map(
@@ -43,11 +48,33 @@ export const INTERVIEW_ITEMS: PracticeItem[] = PROBLEMS.map(
   }),
 );
 
+const PYTHON_JUDGE_REVISION = 2;
+
+function pythonCaseId(problemId: number, name: string, index: number) {
+  const stableName = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return `${problemId}:${stableName || index + 1}`;
+}
+
 export const PYTHON_ITEMS: PracticeItem[] = [
   ...PYTHON_PROBLEMS,
   ...ADVANCED_PYTHON_PROBLEMS,
 ].map((problem) => ({
   ...problem,
+  challenge: getPythonChallenge(problem.id),
+  verification: {
+    ...problem.verification,
+    revision: PYTHON_JUDGE_REVISION,
+    cases: problem.verification.cases.map((testCase, index) => ({
+      ...testCase,
+      id: pythonCaseId(problem.id, testCase.name, index),
+      visibility: index < Math.min(2, problem.verification.cases.length - 1)
+        ? "sample" as const
+        : "hidden" as const,
+    })),
+  },
   itemId: `python:${problem.id}` as ItemId,
   track: "interview",
   language: "python",
