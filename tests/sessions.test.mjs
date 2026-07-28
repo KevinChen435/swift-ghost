@@ -10,6 +10,7 @@ const items = [
   { itemId: "builtin:2", pattern: "Two Pointers", difficulty: "Medium", source: "builtin", track: "interview", language: "swift" },
   { itemId: "ios:1", pattern: "Concurrency", difficulty: "Medium", source: "builtin", track: "ios", language: "swift" },
   { itemId: "custom:one", pattern: "Arrays & Hashing", difficulty: "Easy", source: "custom", track: "interview", language: "swift" },
+  { itemId: "transfer:sealed", pattern: "Graphs", difficulty: "Medium", source: "builtin", track: "interview", language: "python", transfer: { id: "sealed" } },
 ];
 
 const signals = {
@@ -17,12 +18,37 @@ const signals = {
   "builtin:2": { due: false, favorite: true, completions: 0, recommendedStage: 1 },
   "custom:one": { due: false, favorite: true, completions: 1, recommendedStage: 4 },
   "ios:1": { due: false, favorite: false, completions: 0, recommendedStage: 2 },
+  "transfer:sealed": { due: true, favorite: true, completions: 0, recommendedStage: 5 },
 };
 
 test("mixed sessions put due work before new and practiced work", () => {
   const queue = buildSessionQueue(items, signals, { count: 4, source: "mixed", track: "all", language: "all", pattern: "All", difficulty: "All", stageMode: "recommended" }, () => 0.5);
   assert.deepEqual(queue.map((entry) => entry.itemId), ["builtin:1", "builtin:2", "ios:1", "custom:one"]);
   assert.deepEqual(queue.map((entry) => entry.stage), [3, 1, 2, 4]);
+});
+
+test("generic session sources never surface sealed transfer variants", () => {
+  for (const source of ["mixed", "new", "due", "favorites"]) {
+    const queue = buildSessionQueue(
+      items,
+      signals,
+      {
+        count: 20,
+        source,
+        track: "all",
+        language: "all",
+        pattern: "All",
+        difficulty: "All",
+        stageMode: "recommended",
+      },
+      () => 0.2,
+    );
+    assert.equal(
+      queue.some((entry) => entry.itemId === "transfer:sealed"),
+      false,
+      `${source} leaked a transfer variant`,
+    );
+  }
 });
 
 test("filters and recall mode create a bounded blank-editor queue", () => {

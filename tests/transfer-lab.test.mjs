@@ -7,6 +7,7 @@ import {
   createTransferWorkspace,
   deriveTransferProgress,
   normalizeTransferWorkspace,
+  recordTransferDebriefReveal,
   recordTransferHint,
   recordTransferOpened,
   selectNextTransferVariant,
@@ -339,6 +340,59 @@ test("later reference exposure remains visible without erasing an earlier clean 
   assert.equal(progress.status, "proven");
   assert.equal(progress.isProven, true);
   assert.equal(progress.isAssisted, true);
+});
+
+test("post-attempt debrief preserves the cold solve but blocks revealed retries from advancing proof", () => {
+  const item = variant("v:debrief-boundary");
+  let workspace = recordTransferOpened(
+    createTransferWorkspace(t0),
+    item.variantId,
+    { now: t0 },
+  );
+  workspace = recordTransferDebriefReveal(workspace, item.variantId, {
+    now: at(hour + 1),
+  });
+  const progress = progressFor(item, {
+    workspace,
+    attempts: [
+      solve(item.variantId, at(hour), { id: "cold-solve" }),
+      solve(item.variantId, at(4 * day), { id: "revealed-retry" }),
+    ],
+    now: at(5 * day),
+  });
+
+  assert.equal(progress.isProven, true);
+  assert.equal(progress.isAssisted, true);
+  assert.equal(progress.independentSolveCount, 1);
+  assert.equal(progress.spacedSolveCount, 1);
+  assert.equal(progress.firstProvenAt, at(hour));
+  assert.equal(progress.lastProvenAt, at(hour));
+  assert.equal(progress.dueAt, at(hour + day));
+});
+
+test("a revealed retry cannot launder an assisted first attempt into cold proof", () => {
+  const item = variant("v:assisted-debrief-boundary");
+  let workspace = recordTransferOpened(
+    createTransferWorkspace(t0),
+    item.variantId,
+    { now: t0 },
+  );
+  workspace = recordTransferHint(workspace, item.variantId, 1, {
+    now: at(hour),
+  });
+  workspace = recordTransferDebriefReveal(workspace, item.variantId, {
+    now: at(2 * hour),
+  });
+  const progress = progressFor(item, {
+    workspace,
+    attempts: [solve(item.variantId, at(4 * day))],
+    now: at(5 * day),
+  });
+
+  assert.equal(progress.status, "assisted");
+  assert.equal(progress.isProven, false);
+  assert.equal(progress.independentSolveCount, 0);
+  assert.equal(progress.spacedSolveCount, 0);
 });
 
 test("failed submissions are attempted evidence, never proven evidence", () => {

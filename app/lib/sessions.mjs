@@ -24,6 +24,10 @@ export function buildSessionQueue(items, signals, options, random = Math.random)
   const stageMode = SESSION_STAGE_MODES.includes(options.stageMode) ? options.stageMode : "recommended";
   const candidates = items.filter((item) => {
     const signal = signals[item.itemId] ?? {};
+    // Transfer variants are intentionally sealed inside Transfer Lab. Generic
+    // practice queues must never surface them before their dedicated exposure
+    // contract records the prompt opening.
+    if (item.transfer) return false;
     if (track !== "all" && item.track !== track) return false;
     if (language !== "all" && item.language !== language) return false;
     if (options.pattern && options.pattern !== "All" && item.pattern !== options.pattern) return false;

@@ -413,3 +413,21 @@ test("ships resumable assessment navigation without changing refresher mode", as
   assert.match(app, /\{!isLocked && \(/);
   assert.match(app, /modules,/);
 });
+
+test("keeps sealed transfer variants out of generic sessions and labels revealed reconstruction honestly", async () => {
+  const app = await readFile(
+    new URL("../app/components/SwiftGhostApp.tsx", import.meta.url),
+    "utf8",
+  );
+  const sessions = await readFile(
+    new URL("../app/lib/sessions.mjs", import.meta.url),
+    "utf8",
+  );
+  assert.match(sessions, /if \(item\.transfer\) return false/);
+  assert.match(app, /candidate\.transfer/);
+  assert.match(app, /recordTransferDebriefReveal/);
+  assert.match(app, /Reconstruct this revealed variant/);
+  assert.match(app, /this revealed retry is recorded as assisted/);
+  assert.match(app, /className="transfer-workbench-back"/);
+  assert.match(app, /← Back to Transfer Lab/);
+});

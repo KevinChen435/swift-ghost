@@ -165,6 +165,12 @@ export function recordTransferHint(
   },
 ): TransferWorkspace;
 
+export function recordTransferDebriefReveal(
+  workspace: unknown,
+  variantId: string,
+  options?: { now?: string | Date | number; variantRevision?: number },
+): TransferWorkspace;
+
 export function deriveTransferProgress(
   input?: TransferProgressInput,
 ): TransferVariantProgress[];

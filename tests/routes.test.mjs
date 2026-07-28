@@ -105,6 +105,24 @@ test("solution review routes preserve a bounded attempt identity", () => {
   );
 });
 
+test("longitudinal readiness trends have a canonical Records route", () => {
+  const route = parseRoute(
+    "/swift-ghost/?view=records&section=trends&attempt=ignored&verdict=accepted",
+  );
+  assert.equal(route.view, "records");
+  assert.equal(route.recordsSection, "trends");
+  assert.equal(route.reviewAttemptId, undefined);
+  assert.equal(route.submissions, undefined);
+  assert.equal(
+    serializeRoute(route, "https://example.test/swift-ghost/?stale=1"),
+    "/swift-ghost/?view=records&section=trends",
+  );
+  assert.equal(
+    parseRoute("/?view=library&section=trends").recordsSection,
+    undefined,
+  );
+});
+
 const items = [
   {
     itemId: "builtin:1",

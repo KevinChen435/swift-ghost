@@ -290,6 +290,25 @@ export function recordTransferHint(workspace, variantId, hintLevel, options = {}
   }));
 }
 
+/**
+ * Marks the post-attempt identity/contrast reveal. It deliberately reuses the
+ * durable reference-exposure boundary so later reconstruction cannot be
+ * mistaken for a first cold transfer, while an earlier clean solve remains
+ * valid evidence.
+ */
+export function recordTransferDebriefReveal(
+  workspace,
+  variantId,
+  options = {},
+) {
+  const revealedAt = mutationNow(options, ISO_EPOCH);
+  return recordTransferHint(workspace, variantId, 0, {
+    ...options,
+    now: revealedAt,
+    referenceRevealedAt: revealedAt,
+  });
+}
+
 function evidenceVariantId(value) {
   return cleanId(isRecord(value) ? value.variantId ?? value.itemId : "");
 }
