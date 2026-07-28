@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type KeyboardEvent } from "react";
+import { useId, useState, type KeyboardEvent } from "react";
 import { challengeSpecForItem } from "../lib/challenge-lab.mjs";
 import type { PracticeItem } from "../lib/items";
 
@@ -23,6 +23,12 @@ export function ChallengeStatement({
   const [tab, setTab] = useState<"description" | "examples" | "constraints">(
     "description",
   );
+  const idPrefix = `challenge-${useId().replace(/:/g, "")}`;
+  const titleId = `${idPrefix}-title`;
+  const tabId = (value: (typeof CHALLENGE_TABS)[number]) =>
+    `${idPrefix}-${value}-tab`;
+  const panelId = (value: (typeof CHALLENGE_TABS)[number]) =>
+    `${idPrefix}-${value}-panel`;
   const challenge = challengeSpecForItem(item);
   if (!challenge) return null;
 
@@ -47,18 +53,18 @@ export function ChallengeStatement({
     const nextTab = CHALLENGE_TABS[nextIndex];
     setTab(nextTab);
     window.requestAnimationFrame(() =>
-      document.getElementById(`challenge-tab-${nextTab}`)?.focus(),
+      document.getElementById(tabId(nextTab))?.focus(),
     );
   }
 
   return (
-    <section className="challenge-statement" aria-labelledby="challenge-title">
+    <section className="challenge-statement" aria-labelledby={titleId}>
       <header>
         <div>
           <span className="eyebrow">
             {hideExpected ? "Interview prompt" : "Challenge statement"}
           </span>
-          <h2 id="challenge-title">{challenge.entrypoint}</h2>
+          <h2 id={titleId}>{challenge.entrypoint}</h2>
         </div>
         <span className="hidden-check-count">
           {challenge.hiddenCaseCount} hidden check
@@ -69,9 +75,9 @@ export function ChallengeStatement({
         {CHALLENGE_TABS.map((value) => (
           <button
             key={value}
-            id={`challenge-tab-${value}`}
+            id={tabId(value)}
             role="tab"
-            aria-controls={`challenge-panel-${value}`}
+            aria-controls={panelId(value)}
             aria-selected={tab === value}
             tabIndex={tab === value ? 0 : -1}
             className={tab === value ? "active" : ""}
@@ -79,16 +85,16 @@ export function ChallengeStatement({
             onKeyDown={(event) => selectAdjacentTab(event, value)}
           >
             {value[0].toUpperCase() + value.slice(1)}
-            {value === "examples" && ` · ${challenge.examples.length}`}
+            {value === "examples" && ` - ${challenge.examples.length}`}
           </button>
         ))}
       </div>
       {tab === "description" && (
         <div
           className="challenge-copy"
-          id="challenge-panel-description"
+          id={panelId("description")}
           role="tabpanel"
-          aria-labelledby="challenge-tab-description"
+          aria-labelledby={tabId("description")}
         >
           <p>{challenge.statement}</p>
           <dl>
@@ -120,9 +126,9 @@ export function ChallengeStatement({
       {tab === "examples" && (
         <div
           className="challenge-examples"
-          id="challenge-panel-examples"
+          id={panelId("examples")}
           role="tabpanel"
-          aria-labelledby="challenge-tab-examples"
+          aria-labelledby={tabId("examples")}
         >
           {challenge.examples.map((example, index) => (
             <article key={example.name}>
@@ -152,9 +158,9 @@ export function ChallengeStatement({
       {tab === "constraints" && (
         <ul
           className="challenge-constraints"
-          id="challenge-panel-constraints"
+          id={panelId("constraints")}
           role="tabpanel"
-          aria-labelledby="challenge-tab-constraints"
+          aria-labelledby={tabId("constraints")}
         >
           {challenge.constraints.map((constraint) => (
             <li key={constraint}>{constraint}</li>
