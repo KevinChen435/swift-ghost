@@ -58,6 +58,11 @@ import {
   normalizeAssessmentWorkspace,
   type AssessmentWorkspace,
 } from "./assessments.mjs";
+import {
+  createCatalogWorkspace,
+  normalizeCatalogWorkspace,
+  type CatalogWorkspace,
+} from "./catalog-discovery.mjs";
 
 export { analyzeEdit, correctPositionCount } from "./typing-engine.mjs";
 
@@ -259,7 +264,7 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 19;
+  version: 20;
   attempts: AttemptRecord[];
   submissionHistory: SubmissionRecord[];
   learningEvents: LearningEvent[];
@@ -276,10 +281,12 @@ export type AppState = {
   interviewStudio: InterviewStudioState;
   assessments: AssessmentWorkspace;
   studyWorkspace: StudyWorkspace;
+  catalogWorkspace: CatalogWorkspace;
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v19";
+export const STORAGE_KEY = "swift-ghost-state-v20";
+export const NINETEENTH_STORAGE_KEY = "swift-ghost-state-v19";
 export const EIGHTEENTH_STORAGE_KEY = "swift-ghost-state-v18";
 export const SEVENTEENTH_STORAGE_KEY = "swift-ghost-state-v17";
 export const SIXTEENTH_STORAGE_KEY = "swift-ghost-state-v16";
@@ -298,10 +305,11 @@ export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
-  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
 ];
 export const STATE_STORAGE_KEYS = [
   STORAGE_KEY,
+  NINETEENTH_STORAGE_KEY,
   EIGHTEENTH_STORAGE_KEY,
   SEVENTEENTH_STORAGE_KEY,
   SIXTEENTH_STORAGE_KEY,
@@ -335,7 +343,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 19,
+  version: 20,
   attempts: [],
   submissionHistory: [],
   learningEvents: [],
@@ -352,6 +360,7 @@ export const EMPTY_STATE: AppState = {
   interviewStudio: { active: null, history: [] },
   assessments: createAssessmentWorkspace(),
   studyWorkspace: createStudyWorkspace("1970-01-01T00:00:00.000Z"),
+  catalogWorkspace: createCatalogWorkspace("1970-01-01T00:00:00.000Z"),
   cloud: { communityEnabled: false, uploadedAttemptIds: [] },
 };
 
@@ -1476,7 +1485,7 @@ export function normalizeState(value: unknown): AppState {
     ? { ...draft, sessionId: draftMatchesSession ? draft.sessionId : undefined }
     : null;
   return {
-    version: 19,
+    version: 20,
     attempts,
     submissionHistory: normalizeSubmissionHistory(
       value.submissionHistory,
@@ -1519,6 +1528,9 @@ export function normalizeState(value: unknown): AppState {
         revisions,
         now: "1970-01-01T00:00:00.000Z",
       },
+    ),
+    catalogWorkspace: normalizeCatalogWorkspace(
+      Number(value.version) >= 20 ? value.catalogWorkspace : undefined,
     ),
     cloud: normalizeCloudPreferences(value.cloud),
   };

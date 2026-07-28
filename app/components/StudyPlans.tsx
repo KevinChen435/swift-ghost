@@ -1,7 +1,11 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import type { PracticeItem, ItemId } from "../lib/items";
+import { itemDisplayId, type PracticeItem, type ItemId } from "../lib/items";
+import {
+  discoverCatalog,
+  type CatalogRecord,
+} from "../lib/catalog-discovery.mjs";
 import type {
   AttemptRecord,
   SessionHistoryRecord,
@@ -15,6 +19,7 @@ import type {
 } from "../lib/interview-studio.mjs";
 import type { SessionQueueEntry } from "../lib/sessions.mjs";
 import {
+  STUDY_PLAN_LIMITS,
   STUDY_PLAN_TEMPLATES,
   buildNextFocusBlock,
   deriveStudyPlanProgress,
@@ -26,10 +31,8 @@ import {
 } from "../lib/study-plans.mjs";
 
 const PACE_OPTIONS = [15, 30, 45] as const;
-const MAX_COLLECTION_NAME = 60;
-const MAX_COLLECTION_DESCRIPTION = 240;
 const MAX_SEARCH_LENGTH = 80;
-const MAX_COLLECTION_ITEMS = 80;
+const COLLECTION_PAGE_SIZE = 50;
 
 export type StudyPlanPace = (typeof PACE_OPTIONS)[number];
 export type StudyPlanSyncStatus =
@@ -131,6 +134,10 @@ type BlockView = {
   estimatedMinutes: number;
   deferredDueCount: number;
   rationale: string;
+};
+
+type CollectionCatalogRecord = CatalogRecord & {
+  item: PracticeItem;
 };
 
 function planView(value: StudyPlan): PlanView {
@@ -246,6 +253,25 @@ function laneForItem(item: PracticeItem) {
   return item.language === "python" ? "python" : "swift";
 }
 
+function collectionCatalogRecord(item: PracticeItem): CollectionCatalogRecord {
+  return {
+    item,
+    itemId: item.itemId,
+    displayId: itemDisplayId(item),
+    numericId: item.id,
+    title: item.title,
+    lane: laneForItem(item),
+    pattern: item.pattern,
+    difficulty: item.difficulty,
+    tags: [...new Set([...item.tags, item.difficulty])],
+    cue: item.cue ?? "",
+    lineCount: item.code.split(/\r?\n/).length,
+    estimatedMinutes: item.estimatedMinutes,
+    statuses: ["new"],
+    collectionIds: [],
+  };
+}
+
 function laneLabel(value: string) {
   if (value === "ios") return "iOS concepts";
   if (value === "python") return "Python";
@@ -327,6 +353,7 @@ export function StudyPlans({
   const [collectionDescription, setCollectionDescription] = useState("");
   const [collectionSearch, setCollectionSearch] = useState("");
   const [collectionLane, setCollectionLane] = useState<"all" | "python" | "swift" | "ios">("all");
+  const [collectionPage, setCollectionPage] = useState(1);
   const [selectedItemIds, setSelectedItemIds] = useState<ItemId[]>([]);
 
   const evidenceContext = {
@@ -354,20 +381,23 @@ export function StudyPlans({
       )
     : null;
 
-  const filteredItems = useMemo(() => {
-    const query = collectionSearch.trim().toLocaleLowerCase();
-    return items
-      .filter((item) => !item.archivedAt)
-      .filter((item) => collectionLane === "all" || laneForItem(item) === collectionLane)
-      .filter((item) => {
-        if (!query) return true;
-        return [item.title, item.pattern, item.difficulty, ...item.tags]
-          .join(" ")
-          .toLocaleLowerCase()
-          .includes(query);
-      })
-      .slice(0, 100);
-  }, [collectionLane, collectionSearch, items]);
+  const collectionCatalog = useMemo(
+    () =>
+      discoverCatalog(
+        items
+          .filter((item) => !item.archivedAt)
+          .map(collectionCatalogRecord),
+        {
+          text: collectionSearch,
+          lanes: collectionLane === "all" ? [] : [collectionLane],
+          sort: "recommended",
+          direction: "asc",
+          page: collectionPage,
+          pageSize: COLLECTION_PAGE_SIZE,
+        },
+      ),
+    [collectionLane, collectionPage, collectionSearch, items],
+  );
 
   const templateSources = STUDY_PLAN_TEMPLATES;
   const templates = Array.from({ length: 4 }, (_, index) =>
@@ -378,7 +408,7 @@ export function StudyPlans({
   function toggleSelected(itemId: ItemId) {
     setSelectedItemIds((current) => {
       if (current.includes(itemId)) return current.filter((id) => id !== itemId);
-      if (current.length >= MAX_COLLECTION_ITEMS) return current;
+      if (current.length >= STUDY_PLAN_LIMITS.maxItemsPerCollection) return current;
       return [...current, itemId];
     });
   }
@@ -388,25 +418,27 @@ export function StudyPlans({
     setCollectionDescription("");
     setCollectionSearch("");
     setCollectionLane("all");
+    setCollectionPage(1);
     setSelectedItemIds([]);
     setEditingCollectionId(null);
   }
 
   function openCollectionEditor(collection: CollectionView) {
     setEditingCollectionId(collection.id);
-    setCollectionName(collection.title.slice(0, MAX_COLLECTION_NAME));
+    setCollectionName(collection.title.slice(0, STUDY_PLAN_LIMITS.maxName));
     setCollectionDescription(
-      collection.description.slice(0, MAX_COLLECTION_DESCRIPTION),
+      collection.description.slice(0, STUDY_PLAN_LIMITS.maxDescription),
     );
     setSelectedItemIds(
       collection.itemIds
         .filter((itemId): itemId is ItemId =>
           items.some((item) => item.itemId === itemId),
         )
-        .slice(0, MAX_COLLECTION_ITEMS),
+        .slice(0, STUDY_PLAN_LIMITS.maxItemsPerCollection),
     );
     setCollectionSearch("");
     setCollectionLane("all");
+    setCollectionPage(1);
     setBuilderOpen(true);
   }
 
@@ -417,7 +449,7 @@ export function StudyPlans({
     const input = {
       title,
       description: collectionDescription.trim(),
-      itemIds: selectedItemIds.slice(0, MAX_COLLECTION_ITEMS),
+      itemIds: selectedItemIds.slice(0, STUDY_PLAN_LIMITS.maxItemsPerCollection),
     };
     if (editingCollectionId)
       onUpdateCollection(editingCollectionId, input);
@@ -830,16 +862,17 @@ export function StudyPlans({
               <p>
                 This creates a fixed list from the selected catalog items. It
                 does not copy answer code or silently add future search results.
+                An enrolled plan keeps its own snapshot if this collection changes.
               </p>
               <label>
                 <span>Collection name</span>
-                <input required maxLength={MAX_COLLECTION_NAME} value={collectionName} onChange={(event) => setCollectionName(event.target.value.slice(0, MAX_COLLECTION_NAME))} placeholder="Arrays I want to reconstruct" />
-                <small>{collectionName.length}/{MAX_COLLECTION_NAME}</small>
+                <input required maxLength={STUDY_PLAN_LIMITS.maxName} value={collectionName} onChange={(event) => setCollectionName(event.target.value.slice(0, STUDY_PLAN_LIMITS.maxName))} placeholder="Arrays I want to reconstruct" />
+                <small>{collectionName.length}/{STUDY_PLAN_LIMITS.maxName}</small>
               </label>
               <label>
                 <span>Description</span>
-                <textarea rows={4} maxLength={MAX_COLLECTION_DESCRIPTION} value={collectionDescription} onChange={(event) => setCollectionDescription(event.target.value.slice(0, MAX_COLLECTION_DESCRIPTION))} placeholder="Why this group matters and when I want to use it." />
-                <small>{collectionDescription.length}/{MAX_COLLECTION_DESCRIPTION}</small>
+                <textarea rows={4} maxLength={STUDY_PLAN_LIMITS.maxDescription} value={collectionDescription} onChange={(event) => setCollectionDescription(event.target.value.slice(0, STUDY_PLAN_LIMITS.maxDescription))} placeholder="Why this group matters and when I want to use it." />
+                <small>{collectionDescription.length}/{STUDY_PLAN_LIMITS.maxDescription}</small>
               </label>
               <button className="primary-button" type="submit" disabled={!collectionName.trim() || !selectedItemIds.length}>
                 {editingCollectionId ? "Save collection" : "Create fixed collection"} · {selectedItemIds.length} selected
@@ -849,11 +882,17 @@ export function StudyPlans({
               <div className="study-builder-filters">
                 <label>
                   <span>Search catalog</span>
-                  <input type="search" value={collectionSearch} maxLength={MAX_SEARCH_LENGTH} onChange={(event) => setCollectionSearch(event.target.value.slice(0, MAX_SEARCH_LENGTH))} placeholder="Title, pattern, tag, or difficulty" />
+                  <input type="search" value={collectionSearch} maxLength={MAX_SEARCH_LENGTH} onChange={(event) => {
+                    setCollectionSearch(event.target.value.slice(0, MAX_SEARCH_LENGTH));
+                    setCollectionPage(1);
+                  }} placeholder="ID, title, pattern, cue, tag, or difficulty" />
                 </label>
                 <label>
                   <span>Lane</span>
-                  <select value={collectionLane} onChange={(event) => setCollectionLane(event.target.value as typeof collectionLane)}>
+                  <select value={collectionLane} onChange={(event) => {
+                    setCollectionLane(event.target.value as typeof collectionLane);
+                    setCollectionPage(1);
+                  }}>
                     <option value="all">All lanes</option>
                     <option value="python">Python</option>
                     <option value="swift">Swift algorithms</option>
@@ -862,18 +901,20 @@ export function StudyPlans({
                 </label>
               </div>
               <p className="study-selection-summary" aria-live="polite">
-                {selectedItemIds.length}/{MAX_COLLECTION_ITEMS} selected · {filteredItems.length} shown
+                {selectedItemIds.length}/{STUDY_PLAN_LIMITS.maxItemsPerCollection} selected · {collectionCatalog.from}–{collectionCatalog.to} of {collectionCatalog.total}
               </p>
               <fieldset className="study-item-selector">
                 <legend>Choose exercises for this fixed collection</legend>
-                {filteredItems.length ? filteredItems.map((item) => {
+                {collectionCatalog.items.length ? collectionCatalog.items.map((record) => {
+                  const item = record.item;
                   const checked = selectedItemIds.includes(item.itemId);
-                  const disabled = !checked && selectedItemIds.length >= MAX_COLLECTION_ITEMS;
+                  const disabled = !checked && selectedItemIds.length >= STUDY_PLAN_LIMITS.maxItemsPerCollection;
+                  const selectionLabel = `${record.displayId} ${item.title}`;
                   return (
                     <label key={item.itemId} className={checked ? "is-selected" : ""}>
-                      <input type="checkbox" checked={checked} disabled={disabled} onChange={() => toggleSelected(item.itemId)} />
+                      <input type="checkbox" checked={checked} disabled={disabled} aria-label={`${checked ? "Remove" : "Add"} ${selectionLabel} ${checked ? "from" : "to"} collection`} onChange={() => toggleSelected(item.itemId)} />
                       <span>
-                        <strong>{item.title}</strong>
+                        <strong>{record.displayId} {item.title}</strong>
                         <small>{laneLabel(laneForItem(item))} · {item.pattern} · {item.difficulty}</small>
                       </span>
                       <em>{item.estimatedMinutes}m</em>
@@ -881,6 +922,15 @@ export function StudyPlans({
                   );
                 }) : <p>No exercises match these filters.</p>}
               </fieldset>
+              <nav className="study-builder-pagination" aria-label="Collection catalog pages">
+                <button className="text-button" type="button" disabled={collectionCatalog.page <= 1} onClick={() => setCollectionPage(collectionCatalog.page - 1)}>
+                  Previous
+                </button>
+                <span>{collectionCatalog.from}–{collectionCatalog.to} of {collectionCatalog.total}</span>
+                <button className="text-button" type="button" disabled={collectionCatalog.page >= collectionCatalog.pageCount} onClick={() => setCollectionPage(collectionCatalog.page + 1)}>
+                  Next
+                </button>
+              </nav>
             </div>
           </form>
         )}

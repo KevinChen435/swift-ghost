@@ -33,6 +33,7 @@ export function normalizeStudyWorkspace(value: unknown, options?: { validItemIds
 export function mergeStudyWorkspaces(local: unknown, remote: unknown, options?: { now?: string | Date | number }): StudyWorkspace;
 export function linkStudyPlanSession(workspace: StudyWorkspace, planId: string, sessionId: string, kind?: "focus" | "studio", options?: { now?: string | Date | number }): StudyWorkspace;
 export function createStudyCollection(workspace: StudyWorkspace, input: { title: string; description?: string; outcome?: string; itemIds: ItemId[]; modules?: StudyModule[]; source?: "builtin" | "custom" }, options?: { id?: string; now?: string | Date | number }): StudyWorkspace;
+export function appendStudyCollectionItems(workspace: StudyWorkspace, collectionId: string, requestedItemIds: readonly ItemId[], options?: { now?: string | Date | number }): StudyWorkspace;
 export function updateStudyCollection(workspace: StudyWorkspace, collectionId: string, patch: Partial<Pick<StudyCollection, "title" | "description" | "outcome" | "itemIds" | "modules">>, options?: { now?: string | Date | number }): StudyWorkspace;
 export function deleteStudyCollection(workspace: StudyWorkspace, collectionId: string, options?: { now?: string | Date | number }): StudyWorkspace;
 export function createStudyPlan(workspace: StudyWorkspace, input: { collectionId: string; title?: string; description?: string; paceMinutes?: StudyPlanPace; blocksPerWeek?: number; status?: "active" | "paused" }, options?: { id?: string; now?: string | Date | number }): StudyWorkspace;

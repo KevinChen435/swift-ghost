@@ -36,6 +36,7 @@ import { ChallengeStatement } from "./ChallengeStatement";
 import { SolveWorkbench, type MobilePane } from "./SolveWorkbench";
 import { MockNotebook } from "./MockNotebook";
 import { MockDebriefDialog } from "./MockDebriefDialog";
+import { CatalogLibrary } from "./CatalogLibrary";
 import {
   InterviewStudioPanel,
   type InterviewPanelSession,
@@ -92,12 +93,14 @@ import {
   buildLeaderboardPreview,
 } from "../lib/competitive.mjs";
 import {
-  LINE_RANGE_OPTIONS,
-  TIME_RANGE_OPTIONS,
-  matchesCatalogRanges,
-  type LineRange,
-  type TimeRange,
-} from "../lib/catalog-filters.mjs";
+  CATALOG_LIMITS,
+  DEFAULT_CATALOG_QUERY,
+  deleteCatalogView,
+  normalizeCatalogQuery,
+  saveCatalogView,
+  updateCatalogView,
+  type CatalogQuery,
+} from "../lib/catalog-discovery.mjs";
 import {
   EMPTY_STATE,
   STATE_STORAGE_KEYS,
@@ -161,6 +164,7 @@ import {
 } from "../lib/learning-state.mjs";
 import {
   activateStudyPlan,
+  appendStudyCollectionItems,
   STUDY_PLAN_LIMITS,
   createStudyCollection,
   createStudyPlan,
@@ -253,7 +257,6 @@ type Result = AttemptRecord & {
   sessionComplete?: boolean;
   mockInterview?: boolean;
 };
-type Sort = "recommended" | "number" | "title" | "difficulty";
 type SessionBuildOptions = {
   name: string;
   count: number;
@@ -322,12 +325,6 @@ const LANGUAGE_META: Record<
     file: "Solution.swift",
     note: "Swift note",
   },
-};
-
-const DIFFICULTY_RANK: Record<Difficulty, number> = {
-  Easy: 0,
-  Medium: 1,
-  Hard: 2,
 };
 
 function laneLabel(item: Pick<PracticeItem, "track" | "language">) {
@@ -620,6 +617,9 @@ export default function SwiftGhostApp() {
   stateRef.current = state;
   const [ready, setReady] = useState(false);
   const [view, setView] = useState<View>("today");
+  const [catalogQuery, setCatalogQuery] = useState<CatalogQuery>(() =>
+    normalizeCatalogQuery(DEFAULT_CATALOG_QUERY),
+  );
   const [assessmentRouteId, setAssessmentRouteId] = useState<string>();
   const [selectedId, setSelectedId] = useState<ItemId>(BUILTIN_ITEMS[0].itemId);
   const [stage, setStage] = useState(1);
@@ -684,6 +684,9 @@ export default function SwiftGhostApp() {
       stateRef.current = restored;
       setState(restored);
       setView(route.view);
+      setCatalogQuery(
+        normalizeCatalogQuery(route.catalog ?? DEFAULT_CATALOG_QUERY),
+      );
       setAssessmentRouteId(route.assessment);
       setSelectedId(initialItem.itemId);
       setStage(
@@ -694,6 +697,15 @@ export default function SwiftGhostApp() {
             : (route.stage ?? (restored.lastStage || 1)),
       );
       setPracticeKind(initialPracticeKind);
+      if (route.view === "library") {
+        const canonicalHref = serializeRoute(
+          { view: "library", catalog: route.catalog },
+          window.location.href,
+        );
+        const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        if (canonicalHref !== currentHref)
+          window.history.replaceState({}, "", canonicalHref);
+      }
       setNow(Date.now());
       setReady(true);
     }, 0);
@@ -714,6 +726,9 @@ export default function SwiftGhostApp() {
         route.practiceKind,
       );
       setView(route.view);
+      setCatalogQuery(
+        normalizeCatalogQuery(route.catalog ?? DEFAULT_CATALOG_QUERY),
+      );
       setAssessmentRouteId(route.assessment);
       if (routed) setSelectedId(routed.itemId);
       if (nextPracticeKind === "solving") setStage(5);
@@ -1103,7 +1118,31 @@ export default function SwiftGhostApp() {
     setView(nextView);
     setAssessmentRouteId(undefined);
     setResult(null);
-    writeRoute({ view: nextView });
+    writeRoute(
+      nextView === "library"
+        ? { view: "library", catalog: catalogQuery }
+        : { view: nextView },
+    );
+  }
+
+  function updateCatalogRoute(
+    nextQuery: CatalogQuery,
+    history: "push" | "replace",
+  ) {
+    const normalized = normalizeCatalogQuery(nextQuery);
+    setCatalogQuery(normalized);
+    setView("library");
+    const href = serializeRoute(
+      { view: "library", catalog: normalized },
+      window.location.href,
+    );
+    const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (href === currentHref) return;
+    window.history[history === "replace" ? "replaceState" : "pushState"](
+      {},
+      "",
+      href,
+    );
   }
 
   function createAttempt(
@@ -2328,6 +2367,98 @@ export default function SwiftGhostApp() {
       }),
     }));
     setToast("Collection saved");
+  }
+
+  function appendCatalogSelectionToCollection(
+    collectionId: string,
+    itemIds: ItemId[],
+  ) {
+    const collection = stateRef.current.studyWorkspace.collections.find(
+      (entry) => entry.id === collectionId,
+    );
+    if (!collection) {
+      setToast("That collection is no longer available");
+      return;
+    }
+    const existing = new Set(collection.itemIds);
+    const additions = [...new Set(itemIds)].filter((id) => !existing.has(id));
+    if (!additions.length) {
+      setToast("Every selected item is already in that collection");
+      return;
+    }
+    if (
+      collection.itemIds.length + additions.length >
+      STUDY_PLAN_LIMITS.maxItemsPerCollection
+    ) {
+      setToast(
+        `Collection capacity exceeded · ${STUDY_PLAN_LIMITS.maxItemsPerCollection} items maximum`,
+      );
+      return;
+    }
+    mutateState((current) => ({
+      ...current,
+      studyWorkspace: appendStudyCollectionItems(
+        current.studyWorkspace,
+        collectionId,
+        additions,
+        { now: new Date().toISOString() },
+      ),
+    }));
+    setToast(
+      `${additions.length} ${additions.length === 1 ? "item" : "items"} added to ${collection.title}`,
+    );
+  }
+
+  function createCatalogSelectionCollection(name: string, itemIds: ItemId[]) {
+    addStudyCollection({
+      title: name,
+      description: "Fixed selection created from the Library workspace.",
+      itemIds: [...new Set(itemIds)].slice(
+        0,
+        STUDY_PLAN_LIMITS.maxItemsPerCollection,
+      ),
+    });
+  }
+
+  function saveCatalogSavedView(name: string, query: CatalogQuery) {
+    if (
+      stateRef.current.catalogWorkspace.savedViews.length >=
+      CATALOG_LIMITS.maxSavedViews
+    ) {
+      setToast("Saved-view limit reached · delete a view before adding another");
+      return;
+    }
+    mutateState((current) => ({
+      ...current,
+      catalogWorkspace: saveCatalogView(current.catalogWorkspace, {
+        name,
+        query,
+      }),
+    }));
+    setToast("Library view saved on this device");
+  }
+
+  function updateCatalogSavedView(
+    id: string,
+    patch: { name?: string; query?: CatalogQuery },
+  ) {
+    mutateState((current) => ({
+      ...current,
+      catalogWorkspace: updateCatalogView(
+        current.catalogWorkspace,
+        id,
+        patch,
+      ),
+    }));
+    setToast(patch.query ? "Saved view updated" : "Saved view renamed");
+  }
+
+  function deleteCatalogSavedView(id: string) {
+    mutateState((current) => ({
+      ...current,
+      catalogWorkspace: deleteCatalogView(current.catalogWorkspace, id),
+    }));
+    setToast("Saved view deleted");
   }
 
   function editStudyCollection(
@@ -3778,14 +3909,22 @@ export default function SwiftGhostApp() {
         />
       )}
       {view === "library" && (
-        <LibraryView
+        <CatalogLibrary
           state={state}
           items={allItems}
+          now={Math.floor(now / 60_000) * 60_000}
+          query={catalogQuery}
+          onQueryChange={updateCatalogRoute}
           onOpen={openItem}
           onFavorite={toggleFavorite}
-          onCreate={() => setCustomEditor("new")}
-          onEdit={setCustomEditor}
-          onArchive={archiveCustom}
+          onCreateSnippet={() => setCustomEditor("new")}
+          onEditSnippet={setCustomEditor}
+          onArchiveSnippet={archiveCustom}
+          onSaveView={saveCatalogSavedView}
+          onUpdateView={updateCatalogSavedView}
+          onDeleteView={deleteCatalogSavedView}
+          onAppendToCollection={appendCatalogSelectionToCollection}
+          onCreateCollection={createCatalogSelectionCollection}
         />
       )}
       {view === "records" && (
@@ -6465,429 +6604,6 @@ function SessionsView({
   );
 }
 
-function LibraryView({
-  state,
-  items,
-  onOpen,
-  onFavorite,
-  onCreate,
-  onEdit,
-  onArchive,
-}: {
-  state: AppState;
-  items: PracticeItem[];
-  onOpen: (
-    item: PracticeItem,
-    stage?: number,
-    challengeDate?: string,
-    sessionId?: string,
-    practiceKind?: PracticeKind,
-  ) => void;
-  onFavorite: (id: ItemId) => void;
-  onCreate: () => void;
-  onEdit: (item: PracticeItem) => void;
-  onArchive: (id: ItemId) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const [lane, setLane] = useState<"All" | "python" | "swift" | "ios">("All");
-  const [pattern, setPattern] = useState<Pattern | "All">("All");
-  const [difficulty, setDifficulty] = useState<Difficulty | "All">("All");
-  const [lineRange, setLineRange] = useState<LineRange>("all");
-  const [timeRange, setTimeRange] = useState<TimeRange>("all");
-  const [status, setStatus] = useState<
-    "All" | "New" | "Learning" | "Owned" | "Due" | "Favorites" | "My snippets"
-  >("All");
-  const [sort, setSort] = useState<Sort>("recommended");
-  useEffect(() => {
-    function syncLane() {
-      const route = parseRoute(window.location.href);
-      setLane(
-        route.track === "ios"
-          ? "ios"
-          : route.language === "python" || route.language === "swift"
-            ? route.language
-            : "All",
-      );
-      setPattern("All");
-    }
-    const tabs = document.querySelector<HTMLElement>(".track-tabs.four");
-    function syncClick(event: Event) {
-      const button =
-        event.target instanceof Element ? event.target.closest("button") : null;
-      const buttons = tabs ? [...tabs.querySelectorAll("button")] : [];
-      const index = button ? buttons.indexOf(button) : -1;
-      const lanes = ["All", "python", "swift", "ios"] as const;
-      if (index >= 0) {
-        const value = lanes[index];
-        const route: AppRoute =
-          value === "All"
-            ? { view: "library" }
-            : value === "ios"
-              ? { view: "library", language: "swift", track: "ios" }
-              : { view: "library", language: value, track: "interview" };
-        window.history.pushState(
-          {},
-          "",
-          serializeRoute(route, window.location.href),
-        );
-      }
-    }
-    syncLane();
-    window.addEventListener("popstate", syncLane);
-    tabs?.addEventListener("click", syncClick);
-    return () => {
-      window.removeEventListener("popstate", syncLane);
-      tabs?.removeEventListener("click", syncClick);
-    };
-  }, []);
-  const filtered = useMemo(
-    () =>
-      items
-        .filter((item) => {
-          const stats = itemStats(state, item.itemId);
-          const text =
-            `${itemDisplayId(item)} ${item.title} ${item.pattern} ${item.cue} ${item.tags.join(" ")}`
-              .toLowerCase()
-              .includes(query.toLowerCase());
-          const statusMatch =
-            status === "All" ||
-            (status === "New" && !stats.completions) ||
-            (status === "Learning" && stats.highestStage > 0 && !stats.owned) ||
-            (status === "Owned" && stats.owned) ||
-            (status === "Due" && isReviewDue(state, item.itemId)) ||
-            (status === "Favorites" && state.favorites.includes(item.itemId)) ||
-            (status === "My snippets" && item.source === "custom");
-          return (
-            text &&
-            matchesLane(item, lane) &&
-            (pattern === "All" || item.pattern === pattern) &&
-            (difficulty === "All" || item.difficulty === difficulty) &&
-            matchesCatalogRanges(
-              {
-                lineCount: problemLineCount(item),
-                estimatedMinutes: item.estimatedMinutes,
-              },
-              lineRange,
-              timeRange,
-            ) &&
-            statusMatch
-          );
-        })
-        .sort((a, b) =>
-          sort === "number"
-            ? a.id - b.id
-            : sort === "title"
-              ? a.title.localeCompare(b.title)
-              : sort === "difficulty"
-                ? DIFFICULTY_RANK[a.difficulty] - DIFFICULTY_RANK[b.difficulty]
-                : itemStats(state, a.itemId).highestStage -
-                    itemStats(state, b.itemId).highestStage ||
-                  a.title.localeCompare(b.title),
-        ),
-    [
-      items,
-      state,
-      query,
-      lane,
-      pattern,
-      difficulty,
-      lineRange,
-      timeRange,
-      status,
-      sort,
-    ],
-  );
-  const activeFilterCount = [
-    query.trim() ? query : "",
-    lane !== "All" ? lane : "",
-    pattern !== "All" ? pattern : "",
-    difficulty !== "All" ? difficulty : "",
-    lineRange !== "all" ? lineRange : "",
-    timeRange !== "all" ? timeRange : "",
-    status !== "All" ? status : "",
-  ].filter(Boolean).length;
-
-  function clearFilters() {
-    setQuery("");
-    setLane("All");
-    setPattern("All");
-    setDifficulty("All");
-    setLineRange("all");
-    setTimeRange("all");
-    setStatus("All");
-    setSort("recommended");
-  }
-  return (
-    <main id="main-content" tabIndex={-1} className="page-container">
-      <div className="heading-actions">
-        <PageHeading
-          eyebrow="Python, Swift, and iOS catalog"
-          title="Choose what to own next."
-          copy="Python interview fluency, Swift algorithms, and practical iOS fundamentals share one progressive recall ladder."
-        />
-        <button className="primary-button" onClick={onCreate}>
-          + Add code snippet
-        </button>
-      </div>
-      <div className="track-tabs four" aria-label="Curriculum lane">
-        {(["All", "python", "swift", "ios"] as const).map((value) => (
-          <button
-            key={value}
-            aria-pressed={lane === value}
-            className={lane === value ? "active" : ""}
-            onClick={() => {
-              setLane(value);
-              setPattern("All");
-            }}
-          >
-            {value === "All"
-              ? "All practice"
-              : value === "ios"
-                ? "iOS & Swift"
-                : `${LANGUAGE_META[value].label} interview`}
-            <small>
-              {items.filter((item) => matchesLane(item, value)).length}
-            </small>
-          </button>
-        ))}
-      </div>
-      <div className="library-toolbar">
-        <label className="search-box wide">
-          <span>⌕</span>
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={`Search ${items.length} items, patterns, or cues`}
-          />
-        </label>
-        <label className="filter-field">
-          <span>Pattern</span>
-          <select
-            value={pattern}
-            onChange={(event) =>
-              setPattern(event.target.value as Pattern | "All")
-            }
-          >
-            <option>All</option>
-            {(lane === "python"
-              ? PYTHON_PATTERN_ORDER
-              : lane === "swift"
-                ? INTERVIEW_PATTERN_ORDER
-                : lane === "ios"
-                  ? IOS_PATTERN_ORDER
-                  : PATTERN_ORDER
-            ).map((value) => (
-              <option key={value}>{value}</option>
-            ))}
-          </select>
-        </label>
-        <label className="filter-field">
-          <span>Difficulty</span>
-          <select
-            value={difficulty}
-            onChange={(event) =>
-              setDifficulty(event.target.value as Difficulty | "All")
-            }
-          >
-            <option>All</option>
-            <option>Easy</option>
-            <option>Medium</option>
-            <option>Hard</option>
-          </select>
-        </label>
-        <label className="filter-field">
-          <span>Length</span>
-          <select
-            value={lineRange}
-            onChange={(event) => setLineRange(event.target.value as LineRange)}
-          >
-            {LINE_RANGE_OPTIONS.map((option) => (
-              <option value={option.value} key={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="filter-field">
-          <span>Estimated time</span>
-          <select
-            value={timeRange}
-            onChange={(event) => setTimeRange(event.target.value as TimeRange)}
-          >
-            {TIME_RANGE_OPTIONS.map((option) => (
-              <option value={option.value} key={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="filter-field sort-filter">
-          <span>Sort</span>
-          <select
-            value={sort}
-            onChange={(event) => setSort(event.target.value as Sort)}
-          >
-            <option value="recommended">Recommended</option>
-            <option value="number">Catalog order</option>
-            <option value="title">Title</option>
-            <option value="difficulty">Difficulty</option>
-          </select>
-        </label>
-      </div>
-      <div className="filter-chips">
-        {(
-          [
-            "All",
-            "New",
-            "Learning",
-            "Owned",
-            "Due",
-            "Favorites",
-            "My snippets",
-          ] as const
-        ).map((value) => (
-          <button
-            className={status === value ? "active" : ""}
-            aria-pressed={status === value}
-            onClick={() => setStatus(value)}
-            key={value}
-          >
-            {value}
-            {value === "Due" &&
-              ` (${items.filter((item) => isReviewDue(state, item.itemId)).length})`}
-          </button>
-        ))}
-      </div>
-      <div className="library-summary">
-        <strong>{filtered.length}</strong> results <span />
-        <small>Ownership requires clean recall or a verified solve</small>
-        {activeFilterCount > 0 && (
-          <button className="clear-filters" onClick={clearFilters}>
-            Clear {activeFilterCount} filter
-            {activeFilterCount === 1 ? "" : "s"}
-          </button>
-        )}
-      </div>
-      <div className="problem-grid">
-        {filtered.map((item) => {
-          const stats = itemStats(state, item.itemId);
-          const due = reviewDueAt(state, item.itemId);
-          return (
-            <article className="problem-card" key={item.itemId}>
-              <div className="problem-card-top">
-                <span className="problem-number">
-                  {itemDisplayId(item)}
-                  {item.source === "custom"
-                    ? ` · LOCAL R${item.contentRevision}`
-                    : ""}
-                </span>
-                <div>
-                  <button
-                    onClick={() => onFavorite(item.itemId)}
-                    aria-label="Toggle favorite"
-                  >
-                    {state.favorites.includes(item.itemId) ? "★" : "☆"}
-                  </button>
-                  {item.source === "custom" && (
-                    <button
-                      className="edit-button"
-                      onClick={() => onEdit(item)}
-                      aria-label="Edit snippet"
-                    >
-                      Edit
-                    </button>
-                  )}
-                  {item.source === "custom" && (
-                    <button
-                      className="archive-button"
-                      onClick={() => onArchive(item.itemId)}
-                      aria-label="Archive snippet"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-              </div>
-              <h2>{item.title}</h2>
-              <div className="problem-tags">
-                <span className={`difficulty ${item.difficulty.toLowerCase()}`}>
-                  {item.difficulty}
-                </span>
-                <span>{laneLabel(item)}</span>
-                <span>{item.pattern}</span>
-              </div>
-              <p>{item.cue}</p>
-              <div className="mini-stage-track">
-                {STAGES.map((step) => (
-                  <i
-                    key={step.id}
-                    className={
-                      step.id <= stats.highestStage
-                        ? "complete"
-                        : step.id === stats.highestStage + 1
-                          ? "next"
-                          : ""
-                    }
-                  />
-                ))}
-              </div>
-              <div className="problem-card-meta">
-                <span>
-                  {item.track === "ios" && stats.completions
-                    ? `${stats.conceptCompletions} concept recalls · ${stats.strongConceptCompletions} strong retrievals`
-                    : stats.completions
-                      ? `${stats.completions} attempts · ${stats.solveCompletions} verified solves · ${stats.bestWpm} best WPM`
-                    : `${problemLineCount(item)} lines · ~${item.estimatedMinutes} min`}
-                </span>
-                {due && (
-                  <span
-                    className={isReviewDue(state, item.itemId) ? "due" : ""}
-                  >
-                    {isReviewDue(state, item.itemId)
-                      ? "Due now"
-                      : `Review ${formatDay(due)}`}
-                  </span>
-                )}
-              </div>
-              <div className="problem-card-actions">
-                <button className="primary-button" onClick={() => onOpen(item)}>
-                  {item.track === "ios"
-                    ? stats.conceptCompletions
-                      ? "Continue concept recall"
-                      : "Start concept recall"
-                    : stats.owned
-                    ? "Practice independent recall"
-                    : stats.highestStage
-                      ? `Continue at stage ${Math.min(5, stats.highestStage + 1)}`
-                      : "Start with full ghost"}
-                  <span>→</span>
-                </button>
-                {item.verification && (
-                  <button
-                    className="outline-button solve-card-action"
-                    onClick={() =>
-                      onOpen(item, 5, undefined, undefined, "solving")
-                    }
-                  >
-                    Solve from starter
-                  </button>
-                )}
-              </div>
-            </article>
-          );
-        })}
-      </div>
-      {!filtered.length && (
-        <div className="empty-state">
-          <span>⌕</span>
-          <h2>No matching items</h2>
-          <p>Try a broader filter or add your own Python or Swift snippet.</p>
-        </div>
-      )}
-    </main>
-  );
-}
-
 function RecordsView({
   state,
   items,
@@ -7614,11 +7330,11 @@ function SettingsView({
           <small>Your data</small>
           <h2>Local profile</h2>
           <p>
-            Export a portable v19 JSON backup with Python, Swift, iOS, assessments, plans, sessions,
+            Export a portable v20 JSON backup with Python, Swift, iOS, assessments, plans, sessions,
             learning debriefs, revisioned snippets, local pacing and weak-line
             analytics, community preferences, structured custom testcases, and
             local submission snapshots, mock notebooks and debriefs, Interview
-            Studio transcripts and criteria, or restore any v2-v18 backup.
+            Studio transcripts and criteria, or restore any v2-v19 backup.
           </p>
         </div>
         <div className="data-actions">

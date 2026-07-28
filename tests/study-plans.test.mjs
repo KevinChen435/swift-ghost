@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  STUDY_PLAN_LIMITS,
   STUDY_PLAN_TEMPLATES,
   activateStudyPlan,
+  appendStudyCollectionItems,
   buildNextFocusBlock,
   createStudyCollection,
   createStudyPlan,
@@ -189,6 +191,143 @@ test("editing or deleting a collection never silently mutates an enrolled plan s
   assert.deepEqual(workspace.plans[0].collectionSnapshot, before);
 });
 
+test("appending collection items preserves order, dedupes normalized IDs, and is immutable", () => {
+  const original = createStudyCollection(
+    createStudyWorkspace(at),
+    {
+      title: "Scoped",
+      itemIds: ["python:1"],
+      modules: [{ id: "core", title: "Core", outcome: "Prove the core.", itemIds: ["python:1"] }],
+    },
+    { id: "collection:append", now: at },
+  );
+  const originalSnapshot = structuredClone(original);
+  const originalCollection = original.collections[0];
+  const nextAt = "2026-07-28T13:00:00.000Z";
+  const appended = appendStudyCollectionItems(
+    original,
+    "collection:append",
+    ["python:3", "python:1", "python:3", " bad ", " ios:arc "],
+    { now: nextAt },
+  );
+
+  assert.deepEqual(original, originalSnapshot);
+  assert.notStrictEqual(appended, original);
+  assert.notStrictEqual(appended.collections, original.collections);
+  assert.deepEqual(appended.collections[0].itemIds, ["python:1", "python:3", "ios:arc"]);
+  assert.equal(appended.revision, original.revision + 1);
+  assert.equal(appended.updatedAt, nextAt);
+  assert.equal(appended.collections[0].revision, originalCollection.revision + 1);
+  assert.equal(appended.collections[0].updatedAt, nextAt);
+  assert.strictEqual(appended.collections[0].modules, originalCollection.modules);
+  assert.strictEqual(appended.plans, original.plans);
+});
+
+test("collection append accepts exact capacity and rejects overflow atomically", () => {
+  const startingIds = Array.from({ length: STUDY_PLAN_LIMITS.maxItemsPerCollection - 1 }, (_, index) => `python:${index + 1}`);
+  const original = createStudyCollection(
+    createStudyWorkspace(at),
+    { title: "Nearly full", itemIds: startingIds },
+    { id: "collection:capacity", now: at },
+  );
+  const exact = appendStudyCollectionItems(
+    original,
+    "collection:capacity",
+    ["python:999"],
+    { now: "2026-07-28T13:00:00.000Z" },
+  );
+  assert.equal(exact.collections[0].itemIds.length, STUDY_PLAN_LIMITS.maxItemsPerCollection);
+  assert.equal(exact.collections[0].itemIds.at(-1), "python:999");
+
+  const exactSnapshot = structuredClone(exact);
+  const overflow = appendStudyCollectionItems(
+    exact,
+    "collection:capacity",
+    ["python:1000", "python:1001"],
+    { now: "2026-07-28T14:00:00.000Z" },
+  );
+  assert.strictEqual(overflow, exact);
+  assert.deepEqual(overflow, exactSnapshot);
+});
+
+test("invalid, duplicate-only, and missing collection appends are exact no-ops", () => {
+  const workspace = fixedPlan();
+  assert.strictEqual(
+    appendStudyCollectionItems(workspace, "collection:core", ["", "not-an-item", "python:1"], { now: "2026-07-29T12:00:00.000Z" }),
+    workspace,
+  );
+  assert.strictEqual(
+    appendStudyCollectionItems(workspace, "collection:missing", ["python:3"], { now: "2026-07-29T12:00:00.000Z" }),
+    workspace,
+  );
+});
+
+test("collection appends preserve enrolled snapshots while later plans snapshot additions", () => {
+  const original = fixedPlan();
+  const enrolledSnapshot = structuredClone(original.plans[0].collectionSnapshot);
+  const appended = appendStudyCollectionItems(
+    original,
+    "collection:core",
+    ["python:3"],
+    { now: "2026-07-29T12:00:00.000Z" },
+  );
+  assert.deepEqual(appended.plans[0].collectionSnapshot, enrolledSnapshot);
+  assert.strictEqual(appended.plans[0], original.plans[0]);
+
+  const withLaterPlan = createStudyPlan(
+    appended,
+    { collectionId: "collection:core", title: "Later plan", status: "paused" },
+    { id: "plan:later", now: "2026-07-29T13:00:00.000Z" },
+  );
+  assert.deepEqual(
+    withLaterPlan.plans.find((plan) => plan.id === "plan:later").collectionSnapshot.itemIds,
+    ["python:1", "ios:arc", "python:3"],
+  );
+});
+
+test("derived module scope ignores removed IDs and schedules unassigned collection additions", () => {
+  let workspace = createStudyCollection(
+    createStudyWorkspace(at),
+    {
+      title: "Re-scoped",
+      itemIds: ["python:3"],
+      modules: [{ id: "collection-additions", title: "Removed", outcome: "Historical scope.", itemIds: ["python:1"] }],
+    },
+    { id: "collection:rescoped", now: at },
+  );
+  workspace = createStudyPlan(
+    workspace,
+    { collectionId: "collection:rescoped", title: "Re-scoped plan" },
+    { id: "plan:rescoped", now: at },
+  );
+  const evidence = {
+    items,
+    attempts: [],
+    learningEvents: [],
+    interviewStudioHistory: [],
+    sessionHistory: [],
+    now: at,
+  };
+  const progress = deriveStudyPlanProgress(workspace.plans[0], workspace, evidence);
+  assert.deepEqual(progress.modules.map((module) => ({ id: module.id, itemIds: module.itemIds, evidenceMet: module.evidenceMet })), [
+    { id: "authored-collection-additions-1", itemIds: [], evidenceMet: true },
+    { id: "collection-additions", itemIds: ["python:3"], evidenceMet: false },
+  ]);
+  assert.equal(new Set(progress.modules.map((module) => module.id)).size, progress.modules.length);
+  assert.equal(progress.currentModule.id, "collection-additions");
+  assert.deepEqual(workspace.plans[0].collectionSnapshot.modules[0], {
+    id: "collection-additions",
+    title: "Removed",
+    outcome: "Historical scope.",
+    itemIds: ["python:1"],
+    patterns: [],
+  });
+
+  const block = buildNextFocusBlock(workspace.plans[0], workspace, evidence, { now: at, budgetMinutes: 30 });
+  assert.ok(block.entries.length > 0);
+  assert.ok(block.entries.every((entry) => entry.itemId === "python:3"));
+});
+
 test("workspace merge is per-entity last-write-wins and tombstones prevent resurrection", () => {
   const original = fixedPlan();
   const renamed = updateStudyCollection(original, "collection:core", { title: "Newer title" }, { now: "2026-07-29T12:00:00.000Z" });
@@ -238,6 +377,14 @@ test("template enrollment refuses full workspaces without evicting saved data", 
     instantiateStudyPlanTemplate(collectionFull, "python-reentry", items, { now: "2026-07-29T12:00:00.000Z" }),
     collectionSnapshot,
   );
+  const appendedAtWorkspaceCapacity = appendStudyCollectionItems(
+    collectionFull,
+    "collection:0",
+    ["python:3"],
+    { now: "2026-07-29T12:00:00.000Z" },
+  );
+  assert.equal(appendedAtWorkspaceCapacity.collections.length, STUDY_PLAN_LIMITS.maxCollections);
+  assert.deepEqual(appendedAtWorkspaceCapacity.collections[0].itemIds, ["python:1", "python:3"]);
 
   let planFull = fixedPlan();
   for (let index = 1; index < 50; index += 1) {
