@@ -32,7 +32,8 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - Spaced review at 1, 3, 7, 14, and 30 days, with lapses returning tomorrow
 - Device-local custom Python or Swift snippets with safe content revisions and learning milestones
 - Persistent multi-problem sessions with independent track, source, category, difficulty, count, and recall-policy controls, plus mixed typing, concept-recall, and verified-solve tasks from the Daily Coach
-- Reload-safe 30-, 45-, and 60-minute mock interviews that choose under-practiced verified Python problems, lock guidance and expected test values, and preserve completed, ended, or expired outcomes separately from ordinary sessions
+- Reload-safe 30-, 45-, and 60-minute mock interviews that choose under-practiced verified Python problems, lock guidance and hidden judge values while keeping prompt examples visible, and preserve completed, ended, or expired outcomes separately from ordinary sessions
+- A self-contained Python Challenge Lab across all 48 exercises, with original task statements, callable contracts, parameters, constraints, public examples, persistent custom JSON cases, keyboard-first runs, and aggregate hidden-suite submissions
 - Separate Python interview, Swift interview, and iOS catalog filtering, coverage, and persisted key-friction analytics
 - Shareable query-string links for exact exercises, languages, stages, records tabs, and public profiles that work on GitHub Pages and the hosted edition
 - An optional hosted community edition with ChatGPT identity, public profiles, recent qualifying runs, per-exercise records, and a shared daily benchmark
@@ -74,7 +75,7 @@ Interview problem names link to their public LeetCode pages; iOS fundamentals li
 
 ## Roadmap
 
-The local-first training core remains the priority. Planned work includes a self-contained testcase challenge lab, authored semantic masks, longitudinal readiness trends, cold-transfer variants, executable Swift solving, and cross-device learning-state sync.
+The local-first training core remains the priority. Planned work includes richer hidden boundary suites, submission history and code snapshots, authored semantic masks, longitudinal readiness trends, cold-transfer variants, executable Swift solving, and cross-device learning-state sync.
 
 ## License
 

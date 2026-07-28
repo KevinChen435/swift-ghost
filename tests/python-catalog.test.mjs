@@ -34,7 +34,7 @@ test("Python curriculum has stable unique identities and complete learning metad
   assert.equal((source.match(/^    starterCode: `/gm) ?? []).length, 36);
   assert.equal((source.match(/^    code: `/gm) ?? []).length, 36);
   assert.equal((source.match(/^    verification: \{/gm) ?? []).length, 36);
-  assert.equal((source.match(/^          name:/gm) ?? []).length, 108);
+  assert.equal((source.match(/^          name:/gm) ?? []).length, 144);
 
   const starters = [
     ...source.matchAll(/^    starterCode: `([\s\S]*?)`,$/gm),
@@ -88,7 +88,7 @@ test("Python curriculum has stable unique identities and complete learning metad
   assert.equal((advanced.match(/^    starterCode: `/gm) ?? []).length, 12);
   assert.equal((advanced.match(/^    code: `/gm) ?? []).length, 12);
   assert.equal((advanced.match(/^    verification: \{/gm) ?? []).length, 12);
-  assert.equal((advanced.match(/^          name:/gm) ?? []).length, 36);
+  assert.equal((advanced.match(/^          name:/gm) ?? []).length, 60);
 
   const advancedStarters = [
     ...advanced.matchAll(/^    starterCode: `([\s\S]*?)`,$/gm),

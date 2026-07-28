@@ -100,6 +100,10 @@ function normalizeVerification(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw))
     throw new Error("verification must be an object");
   const entrypoint = normalizeEntrypoint(raw.entrypoint);
+  const revision =
+    Number.isInteger(raw.revision) && raw.revision > 0
+      ? Math.min(raw.revision, 1_000_000)
+      : 1;
   if (
     !Array.isArray(raw.cases) ||
     raw.cases.length === 0 ||
@@ -145,9 +149,61 @@ function normalizeVerification(raw) {
       comparator,
     };
   });
-  const normalized = { entrypoint, cases };
+  const normalized = { mode: "verify", revision, entrypoint, cases };
   if (byteLength(JSON.stringify(normalized)) > MAX_SPEC_BYTES)
     throw new Error(`verification exceeds ${MAX_SPEC_BYTES} bytes`);
+  return normalized;
+}
+
+function normalizeExecution(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw))
+    throw new Error("execution must be an object");
+  const entrypoint = normalizeEntrypoint(raw.entrypoint);
+  const revision =
+    Number.isInteger(raw.revision) && raw.revision > 0
+      ? Math.min(raw.revision, 1_000_000)
+      : 1;
+  if (
+    !Array.isArray(raw.cases) ||
+    raw.cases.length === 0 ||
+    raw.cases.length > MAX_CASES
+  ) {
+    throw new Error(`execution must contain 1-${MAX_CASES} cases`);
+  }
+  const cases = raw.cases.map((testCase, index) => {
+    if (!testCase || typeof testCase !== "object" || Array.isArray(testCase))
+      throw new Error(`case ${index + 1} must be an object`);
+    const name = typeof testCase.name === "string" ? testCase.name.trim() : "";
+    if (!name || byteLength(name) > MAX_CASE_NAME_BYTES)
+      throw new Error(`case ${index + 1} has an invalid name`);
+    if (!Array.isArray(testCase.args))
+      throw new Error(`case ${index + 1} args must be an array`);
+    const argCodecs =
+      testCase.argCodecs === undefined
+        ? testCase.args.map(() => "json")
+        : testCase.argCodecs;
+    if (
+      !Array.isArray(argCodecs) ||
+      argCodecs.length !== testCase.args.length ||
+      argCodecs.some((codec) => !CODECS.has(codec))
+    ) {
+      throw new Error(
+        `case ${index + 1} argCodecs must match args and use supported codecs`,
+      );
+    }
+    const outputCodec = testCase.outputCodec ?? "json";
+    if (!CODECS.has(outputCodec))
+      throw new Error(`case ${index + 1} has an unsupported outputCodec`);
+    return {
+      name,
+      args: cloneJson(testCase.args, `case ${index + 1} args`),
+      argCodecs: [...argCodecs],
+      outputCodec,
+    };
+  });
+  const normalized = { mode: "run", revision, entrypoint, cases };
+  if (byteLength(JSON.stringify(normalized)) > MAX_SPEC_BYTES)
+    throw new Error(`execution exceeds ${MAX_SPEC_BYTES} bytes`);
   return normalized;
 }
 
@@ -155,13 +211,20 @@ function normalizeVerification(raw) {
  * Build the deterministic Python program used by the browser worker.
  * All caller-controlled data is embedded as a JSON document, never as Python code.
  */
-export function buildPythonHarness({ source, verification }) {
+export function buildPythonHarness({
+  source,
+  verification,
+  executionMode = "verify",
+}) {
   if (typeof source !== "string") throw new Error("source must be a string");
   const normalizedSource = source.replace(/\r\n?/g, "\n");
   if (!normalizedSource.trim()) throw new Error("source must not be empty");
   if (byteLength(normalizedSource) > MAX_SOURCE_BYTES)
     throw new Error(`source exceeds ${MAX_SOURCE_BYTES} bytes`);
-  const normalizedVerification = normalizeVerification(verification);
+  const normalizedVerification =
+    executionMode === "run"
+      ? normalizeExecution(verification)
+      : normalizeVerification(verification);
   const sourceLiteral = jsonDocumentLiteral(normalizedSource);
   const verificationLiteral = jsonDocumentLiteral(normalizedVerification);
 
@@ -652,12 +715,16 @@ else:
             args = [_decode(value, codec) for value, codec in zip(case["args"], case["argCodecs"])]
             raw_actual = _call_entrypoint(_namespace, _SPEC["entrypoint"], args)
             actual = _encode(raw_actual, case["outputCodec"])
-            passed = bool(_compare(actual, case["expected"], case["comparator"]))
+            if _SPEC.get("mode") == "run":
+                passed = True
+            else:
+                passed = bool(_compare(actual, case["expected"], case["comparator"]))
         except BaseException as error:
             case_error = _format_error(error)
         _results.append({"name": case["name"], "passed": passed, "actual": actual, "error": case_error})
 
 _payload = {
+    "kind": "execution" if _SPEC.get("mode") == "run" else "verification",
     "ok": _setup_error is None and all(case["passed"] for case in _results),
     "setupError": _setup_error,
     "cases": _results,
@@ -700,6 +767,29 @@ export class PythonRunner {
       this.#execute({
         source: source.replace(/\r\n?/g, "\n"),
         verification: normalizeVerification(verification),
+        harness,
+      });
+    const result = this.queue.then(job, job);
+    this.queue = result.catch(() => undefined);
+    return result;
+  }
+
+  run(source, execution) {
+    let harness;
+    try {
+      harness = buildPythonHarness({
+        source,
+        verification: execution,
+        executionMode: "run",
+      });
+    } catch (error) {
+      return Promise.reject(error);
+    }
+    const normalizedExecution = normalizeExecution(execution);
+    const job = () =>
+      this.#execute({
+        source: source.replace(/\r\n?/g, "\n"),
+        verification: normalizedExecution,
         harness,
       });
     const result = this.queue.then(job, job);
