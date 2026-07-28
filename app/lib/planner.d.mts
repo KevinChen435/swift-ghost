@@ -13,7 +13,7 @@ export type TrainingProfile = {
   iosShare?: number;
 };
 export type DailyPlanTask = SessionQueueEntry & {
-  practiceKind: "typing" | "solving";
+  practiceKind: "typing" | "solving" | "concept";
   activityKind: PlannerActivityKind;
   estimatedMinutes: number;
   rationale: string;

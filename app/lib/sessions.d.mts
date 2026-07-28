@@ -4,7 +4,7 @@ export type SessionSource = "mixed" | "due" | "new" | "favorites" | "custom";
 export type SessionTrack = "all" | "interview" | "ios";
 export type SessionLanguage = "all" | "python" | "swift";
 export type SessionStageMode = "recommended" | "recall";
-export type SessionPracticeKind = "typing" | "solving";
+export type SessionPracticeKind = "typing" | "solving" | "concept";
 export type SessionQueueEntry = {
   itemId: ItemId;
   itemRevision: number;

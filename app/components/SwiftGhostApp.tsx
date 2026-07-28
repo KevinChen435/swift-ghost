@@ -25,6 +25,10 @@ import { LearningAnalytics } from "./LearningAnalytics";
 import { DailyCoach } from "./DailyCoach";
 import { ReadinessAnalytics } from "./ReadinessAnalytics";
 import {
+  ConceptPractice,
+  type ConceptCompletionInput,
+} from "./ConceptPractice";
+import {
   PostAttemptDebrief,
   type DebriefInput,
 } from "./PostAttemptDebrief";
@@ -79,6 +83,7 @@ import {
   EMPTY_STATE,
   EARLIEST_STORAGE_KEY,
   FIRST_STORAGE_KEY,
+  FIRST_VERSION_STORAGE_KEY,
   INITIAL_STORAGE_KEY,
   LEGACY_STORAGE_KEY,
   OLDER_STORAGE_KEY,
@@ -127,6 +132,10 @@ import {
   upsertLearningEvent,
   type LearningEvent,
 } from "../lib/learning-state.mjs";
+import {
+  selectConceptCheckIndex,
+  supportsConceptPractice,
+} from "../lib/concept-practice.mjs";
 
 type Result = AttemptRecord & {
   item: PracticeItem;
@@ -217,14 +226,22 @@ function laneLabel(item: Pick<PracticeItem, "track" | "language">) {
 }
 
 function coercePracticeKind(
-  item: Pick<PracticeItem, "language" | "verification">,
+  item: Pick<
+    PracticeItem,
+    "language" | "verification" | "track" | "recallChecks" | "conceptAnswers"
+  >,
   requested: PracticeKind | undefined,
 ): PracticeKind {
-  return requested === "solving" &&
+  if (
+    requested === "solving" &&
     item.language === "python" &&
     item.verification
-    ? "solving"
-    : "typing";
+  )
+    return "solving";
+  const supportsConcept = supportsConceptPractice(item);
+  if (supportsConcept && (requested === "concept" || requested === undefined))
+    return "concept";
+  return "typing";
 }
 
 function matchesLane(
@@ -395,7 +412,9 @@ export default function SwiftGhostApp() {
       setStage(
         initialPracticeKind === "solving"
           ? 5
-          : (route.stage ?? (restored.lastStage || 1)),
+          : initialPracticeKind === "concept"
+            ? (route.stage ?? 5)
+            : (route.stage ?? (restored.lastStage || 1)),
       );
       setPracticeKind(initialPracticeKind);
       setNow(Date.now());
@@ -420,6 +439,7 @@ export default function SwiftGhostApp() {
       setView(route.view);
       if (routed) setSelectedId(routed.itemId);
       if (nextPracticeKind === "solving") setStage(5);
+      else if (nextPracticeKind === "concept") setStage(route.stage ?? 5);
       else if (route.stage) setStage(route.stage);
       setPracticeKind(nextPracticeKind);
       setPracticeEpoch((current) => current + 1);
@@ -591,6 +611,11 @@ export default function SwiftGhostApp() {
     item.language,
   );
   const stats = itemStats(state, selectedId);
+  const conceptCheckIndex = selectConceptCheckIndex(
+    state.attempts,
+    selectedId,
+    item.contentRevision,
+  );
   const dueItems = allItems.filter((candidate) =>
     isReviewDue(state, candidate.itemId),
   );
@@ -623,17 +648,20 @@ export default function SwiftGhostApp() {
     verification?: AttemptRecord["verification"],
   ) {
     const live = currentMetrics(active, activeItem.code);
-    const finalTimeline = normalizeTimelineSamples([
-      ...active.timeline,
-      {
-        atMs: live.durationMs,
-        wpm: live.wpm,
-        progress:
-          active.practiceKind === "solving" && outcome === "completed"
-            ? 100
-            : live.progress,
-      },
-    ]);
+    const isConcept = active.practiceKind === "concept";
+    const finalTimeline = isConcept
+      ? []
+      : normalizeTimelineSamples([
+          ...active.timeline,
+          {
+            atMs: live.durationMs,
+            wpm: live.wpm,
+            progress:
+              active.practiceKind === "solving" && outcome === "completed"
+                ? 100
+                : live.progress,
+          },
+        ]);
     const attempt: AttemptRecord = {
       id: makeId(),
       itemId: active.itemId,
@@ -651,17 +679,17 @@ export default function SwiftGhostApp() {
       completedAt: new Date().toISOString(),
       durationMs: live.durationMs,
       totalKeystrokes: active.totalKeystrokes,
-      correctKeystrokes: active.correctKeystrokes,
-      rejectedKeystrokes: active.rejectedKeystrokes,
+      correctKeystrokes: isConcept ? 0 : active.correctKeystrokes,
+      rejectedKeystrokes: isConcept ? 0 : active.rejectedKeystrokes,
       corrections: active.corrections,
       peeks: active.peeks,
-      rawWpm: live.rawWpm,
-      wpm: live.wpm,
-      accuracy: live.accuracy,
+      rawWpm: isConcept ? 0 : live.rawWpm,
+      wpm: isConcept ? 0 : live.wpm,
+      accuracy: isConcept ? 0 : live.accuracy,
       timeline: finalTimeline,
-      consistency: consistencyFromSamples(
-        finalTimeline.map((sample) => sample.wpm),
-      ),
+      consistency: isConcept
+        ? 0
+        : consistencyFromSamples(finalTimeline.map((sample) => sample.wpm)),
       outcome,
       qualification: "assisted",
       verification,
@@ -694,13 +722,15 @@ export default function SwiftGhostApp() {
     nextStage?: number,
     challengeDate?: string,
     sessionId?: string,
-    nextPracticeKind: PracticeKind = "typing",
+    nextPracticeKind?: PracticeKind,
   ) {
     const chosenPracticeKind = coercePracticeKind(next, nextPracticeKind);
     const chosenStage =
       chosenPracticeKind === "solving"
         ? 5
-        : (nextStage ?? recommendedStage(state, next));
+        : chosenPracticeKind === "concept"
+          ? (nextStage ?? 5)
+          : (nextStage ?? recommendedStage(state, next));
     mutateState((current) => {
       const resuming =
         !challengeDate &&
@@ -742,7 +772,9 @@ export default function SwiftGhostApp() {
     window.setTimeout(
       () =>
         document
-          .querySelector<HTMLTextAreaElement>(".editor-wrap textarea")
+          .querySelector<HTMLTextAreaElement>(
+            ".concept-response-card textarea, .editor-wrap textarea",
+          )
           ?.focus(),
       50,
     );
@@ -790,7 +822,9 @@ export default function SwiftGhostApp() {
     window.setTimeout(
       () =>
         document
-          .querySelector<HTMLTextAreaElement>(".editor-wrap textarea")
+          .querySelector<HTMLTextAreaElement>(
+            ".concept-response-card textarea, .editor-wrap textarea",
+          )
           ?.focus(),
       0,
     );
@@ -810,8 +844,17 @@ export default function SwiftGhostApp() {
       );
       return;
     }
+    if (
+      nextKind === "concept" &&
+      !supportsConceptPractice(item)
+    ) {
+      setToast("Concept recall is available for authored Swift / iOS cards");
+      return;
+    }
     const nextStage =
-      nextKind === "solving" ? 5 : recommendedStage(state, item);
+      nextKind === "solving" || nextKind === "concept"
+        ? 5
+        : recommendedStage(state, item);
     mutateState((current) => {
       const base = recordAbandon(current);
       return {
@@ -836,7 +879,9 @@ export default function SwiftGhostApp() {
     window.setTimeout(
       () =>
         document
-          .querySelector<HTMLTextAreaElement>(".editor-wrap textarea")
+          .querySelector<HTMLTextAreaElement>(
+            ".concept-response-card textarea, .editor-wrap textarea",
+          )
           ?.focus(),
       0,
     );
@@ -868,12 +913,21 @@ export default function SwiftGhostApp() {
     }));
   }
 
-  function finish(next: Draft, verification?: AttemptRecord["verification"]) {
-    const attempt = createAttempt(next, item, "completed", state, verification);
-    const previousBest = personalBest(state, selectedId, stage, attempt.mode);
+  function completeAttempt(
+    next: Draft,
+    attempt: AttemptRecord,
+    learningEvent?: LearningEvent,
+  ) {
+    const previousBest =
+      attempt.practiceKind === "typing"
+        ? personalBest(state, selectedId, stage, attempt.mode)
+        : null;
     let projected: AppState = {
       ...state,
       attempts: [...state.attempts, attempt].slice(-1000),
+      learningEvents: learningEvent
+        ? upsertLearningEvent(state.learningEvents, learningEvent)
+        : state.learningEvents,
       draft: null,
     };
     let sessionNext: Result["sessionNext"];
@@ -929,6 +983,90 @@ export default function SwiftGhostApp() {
       sessionNext,
       sessionComplete,
     });
+  }
+
+  function finish(next: Draft, verification?: AttemptRecord["verification"]) {
+    const attempt = createAttempt(next, item, "completed", state, verification);
+    completeAttempt(next, attempt);
+  }
+
+  function updateConceptResponse(value: string) {
+    const added = Math.max(0, value.length - draft.value.length);
+    const removed = Math.max(0, draft.value.length - value.length);
+    updateDraft({
+      ...draft,
+      value,
+      startedAt: draft.startedAt ?? Date.now(),
+      totalKeystrokes: draft.totalKeystrokes + added,
+      correctKeystrokes: draft.correctKeystrokes + added,
+      corrections: draft.corrections + removed,
+    });
+  }
+
+  function revealConceptAnswer(assisted: boolean, responseSnapshot: string) {
+    updateDraft({
+      ...draft,
+      startedAt: draft.startedAt ?? Date.now(),
+      conceptCommittedAt: Date.now(),
+      conceptCommittedResponse: responseSnapshot.slice(0, 1000),
+      peeks: draft.peeks + (assisted ? 1 : 0),
+    });
+  }
+
+  function finishConcept(input: ConceptCompletionInput) {
+    if (practiceKind !== "concept" || item.track !== "ios") return;
+    const completedAt = new Date();
+    const startedAt = draft.startedAt ?? completedAt.getTime();
+    const durationMs = Math.max(0, completedAt.getTime() - startedAt);
+    const attempt: AttemptRecord = {
+      id: makeId(),
+      itemId: item.itemId,
+      itemRevision: item.contentRevision,
+      titleSnapshot: item.title,
+      language: item.language,
+      stage,
+      practiceKind: "concept",
+      mode: "free",
+      startedAt: new Date(startedAt).toISOString(),
+      completedAt: completedAt.toISOString(),
+      durationMs,
+      totalKeystrokes: draft.totalKeystrokes,
+      correctKeystrokes: 0,
+      rejectedKeystrokes: 0,
+      corrections: draft.corrections,
+      peeks: draft.peeks,
+      keyErrors: {},
+      lineErrors: {},
+      timeline: [],
+      rawWpm: 0,
+      wpm: 0,
+      accuracy: 0,
+      consistency: 0,
+      outcome: "completed",
+      qualification: "assisted",
+      conceptGrade: input.grade,
+      conceptCheckIndex: input.checkIndex,
+      sessionId: draft.sessionId,
+    };
+    attempt.qualification = qualificationFor(attempt);
+    const promptSnapshot = item.recallChecks?.[input.checkIndex] ?? item.summary;
+    const event: LearningEvent = {
+      id: makeId(),
+      attemptId: attempt.id,
+      itemId: item.itemId,
+      itemRevision: item.contentRevision,
+      practiceKind: "concept",
+      activityKind: "concept",
+      grade: input.grade,
+      friction: input.friction,
+      confidence: input.confidence,
+      createdAt: completedAt.toISOString(),
+      promptSnapshot: promptSnapshot.slice(0, 500),
+      ...(input.response.trim()
+        ? { response: input.response.trim().slice(0, 1000) }
+        : {}),
+    };
+    completeAttempt(draft, attempt, event);
   }
 
   function handleChange(event: ChangeEvent<HTMLTextAreaElement>) {
@@ -1089,7 +1227,9 @@ export default function SwiftGhostApp() {
     window.setTimeout(
       () =>
         document
-          .querySelector<HTMLTextAreaElement>(".editor-wrap textarea")
+          .querySelector<HTMLTextAreaElement>(
+            ".concept-response-card textarea, .editor-wrap textarea",
+          )
           ?.focus(),
       0,
     );
@@ -1168,6 +1308,9 @@ export default function SwiftGhostApp() {
         const practiceKind =
           entry.practiceKind === "solving" && candidate.verification
             ? "solving"
+            : entry.practiceKind === "concept" &&
+                supportsConceptPractice(candidate)
+              ? "concept"
             : "typing";
         return [
           {
@@ -1517,7 +1660,7 @@ export default function SwiftGhostApp() {
       if (
         !parsed ||
         typeof parsed !== "object" ||
-        ![2, 3, 4, 5, 6, 7, 8, 9, 10].includes(
+        ![2, 3, 4, 5, 6, 7, 8, 9, 10, 11].includes(
           Number((parsed as { version?: unknown }).version),
         )
       )
@@ -1564,6 +1707,7 @@ export default function SwiftGhostApp() {
     localStorage.removeItem(FIRST_STORAGE_KEY);
     localStorage.removeItem(EARLIEST_STORAGE_KEY);
     localStorage.removeItem(INITIAL_STORAGE_KEY);
+    localStorage.removeItem(FIRST_VERSION_STORAGE_KEY);
     setState(EMPTY_STATE);
     setSelectedId(BUILTIN_ITEMS[0].itemId);
     setStage(1);
@@ -1593,6 +1737,10 @@ export default function SwiftGhostApp() {
       setResult(null);
       navigateView("sessions");
       setToast("Session complete");
+      return;
+    }
+    if (result.practiceKind === "concept") {
+      openItem(result.item, 5, undefined, undefined, "concept");
       return;
     }
     chooseStage(Math.min(5, stage + 1));
@@ -1748,6 +1896,7 @@ export default function SwiftGhostApp() {
           metrics={metrics}
           ghostCode={ghostCode}
           stats={stats}
+          conceptCheckIndex={conceptCheckIndex}
           dueCount={dueItems.length}
           reveal={reveal}
           focusMode={focusMode}
@@ -1783,6 +1932,9 @@ export default function SwiftGhostApp() {
           }
           onUseHint={() => updateDraft({ ...draft, peeks: draft.peeks + 1 })}
           onSolveComplete={finishSolve}
+          onConceptChange={updateConceptResponse}
+          onConceptReveal={revealConceptAnswer}
+          onConceptComplete={finishConcept}
           onReveal={toggleReveal}
           onFavorite={() => toggleFavorite(selectedId)}
           onFocusMode={() => setFocusMode((value) => !value)}
@@ -1905,6 +2057,7 @@ function TodayView({
     stage?: number,
     challengeDate?: string,
     sessionId?: string,
+    practiceKind?: PracticeKind,
   ) => void;
   onReview: () => void;
   onBrowse: () => void;
@@ -2061,6 +2214,7 @@ function TodayView({
                   state.draft?.stage,
                   undefined,
                   state.draft?.sessionId,
+                  state.draft?.practiceKind,
                 )
               }
             >
@@ -2152,6 +2306,7 @@ type PracticeProps = {
   metrics: ReturnType<typeof currentMetrics>;
   ghostCode: string;
   stats: ReturnType<typeof itemStats>;
+  conceptCheckIndex: 0 | 1 | 2;
   dueCount: number;
   reveal: boolean;
   focusMode: boolean;
@@ -2177,6 +2332,9 @@ type PracticeProps = {
     result: PythonVerificationResult,
     runs: number,
   ) => void;
+  onConceptChange: (value: string) => void;
+  onConceptReveal: (assisted: boolean, responseSnapshot: string) => void;
+  onConceptComplete: (input: ConceptCompletionInput) => void;
   onReveal: () => void;
   onFavorite: () => void;
   onFocusMode: () => void;
@@ -2386,6 +2544,8 @@ function PracticeView(props: PracticeProps) {
                     <small>
                       {entry.practiceKind === "solving"
                         ? "Independent solve"
+                        : entry.practiceKind === "concept"
+                          ? "Concept recall"
                         : `Stage ${entry.stage} recall`}
                     </small>
                   </p>
@@ -2617,7 +2777,40 @@ function PracticeView(props: PracticeProps) {
                 : "Verified Python exercises only"}
             </small>
           </button>
+          <button
+            className={props.practiceKind === "concept" ? "active" : ""}
+            aria-pressed={props.practiceKind === "concept"}
+            disabled={
+              props.item.track !== "ios" ||
+              !props.item.recallChecks ||
+              !props.item.conceptAnswers ||
+              Boolean(
+                props.draft.sessionId && props.practiceKind !== "concept",
+              )
+            }
+            onClick={() => props.onChoosePracticeKind("concept")}
+          >
+            <strong>Recall</strong>
+            <small>
+              {props.item.track === "ios"
+                ? "Answer, reveal, trace, self-grade"
+                : "Authored Swift / iOS cards"}
+            </small>
+          </button>
         </div>
+        {props.practiceKind === "concept" ? (
+          <ConceptPractice
+            item={props.item}
+            checkIndex={props.conceptCheckIndex}
+            response={props.draft.value}
+            committedResponse={props.draft.conceptCommittedResponse}
+            revealed={Boolean(props.draft.conceptCommittedAt)}
+            onResponseChange={props.onConceptChange}
+            onReveal={props.onConceptReveal}
+            onComplete={props.onConceptComplete}
+          />
+        ) : (
+          <>
         <div className="insight-grid">
           <article>
             <span className="card-icon">⌁</span>
@@ -3030,6 +3223,8 @@ function PracticeView(props: PracticeProps) {
         {props.state.settings.showKeyboard && (
           <KeyboardGuide errors={props.errorKeys} />
         )}
+          </>
+        )}
       </section>
     </main>
   );
@@ -3362,6 +3557,8 @@ function SessionsView({
                       ·{" "}
                       {entry.practiceKind === "solving"
                         ? "Independent solve"
+                        : entry.practiceKind === "concept"
+                          ? "Concept recall"
                         : `Stage ${entry.stage}`}
                     </small>
                   </div>
@@ -3778,8 +3975,10 @@ function LibraryView({
               </div>
               <div className="problem-card-meta">
                 <span>
-                  {stats.completions
-                    ? `${stats.completions} attempts · ${stats.solveCompletions} verified solves · ${stats.bestWpm} best WPM`
+                  {item.track === "ios" && stats.completions
+                    ? `${stats.conceptCompletions} concept recalls · ${stats.strongConceptCompletions} strong retrievals`
+                    : stats.completions
+                      ? `${stats.completions} attempts · ${stats.solveCompletions} verified solves · ${stats.bestWpm} best WPM`
                     : `${problemLineCount(item)} lines · ~${item.estimatedMinutes} min`}
                 </span>
                 {due && (
@@ -3794,7 +3993,11 @@ function LibraryView({
               </div>
               <div className="problem-card-actions">
                 <button className="primary-button" onClick={() => onOpen(item)}>
-                  {stats.owned
+                  {item.track === "ios"
+                    ? stats.conceptCompletions
+                      ? "Continue concept recall"
+                      : "Start concept recall"
+                    : stats.owned
                     ? "Practice independent recall"
                     : stats.highestStage
                       ? `Continue at stage ${Math.min(5, stats.highestStage + 1)}`
@@ -3857,6 +4060,9 @@ function RecordsView({
   const solveAttempts = attempts.filter(
     (attempt) => attempt.practiceKind === "solving",
   );
+  const conceptAttempts = attempts.filter(
+    (attempt) => attempt.practiceKind === "concept",
+  );
   const eligible = attempts.filter(eligibleAttempt);
   const currentEligible = eligible.filter((attempt) =>
     items.some(
@@ -3918,7 +4124,7 @@ function RecordsView({
   const trackCoverage = (["python", "swift", "ios"] as const).map((lane) => {
     const group = items.filter((item) => matchesLane(item, lane));
     const started = group.filter(
-      (item) => itemStats(state, item.itemId).highestStage > 0,
+      (item) => itemStats(state, item.itemId).completions > 0,
     ).length;
     const trackOwned = group.filter(
       (item) => itemStats(state, item.itemId).owned,
@@ -3929,14 +4135,16 @@ function RecordsView({
       started,
       owned: trackOwned,
       percent: group.length
-        ? Math.round(
-            (group.reduce(
-              (sum, item) => sum + itemStats(state, item.itemId).highestStage,
-              0,
-            ) /
-              (group.length * 5)) *
-              100,
-          )
+        ? lane === "ios"
+          ? Math.round((trackOwned / group.length) * 100)
+          : Math.round(
+              (group.reduce(
+                (sum, item) => sum + itemStats(state, item.itemId).highestStage,
+                0,
+              ) /
+                (group.length * 5)) *
+                100,
+            )
         : 0,
     };
   });
@@ -3971,7 +4179,7 @@ function RecordsView({
         <StatCard
           label="Completed passes"
           value={String(attempts.length)}
-          note={`${solveAttempts.length} solves · ${currentEligible.length} typing records`}
+          note={`${solveAttempts.length} solves · ${conceptAttempts.length} concept recalls · ${currentEligible.length} typing records`}
         />
         <StatCard
           label="Eligible speed"
@@ -3986,7 +4194,7 @@ function RecordsView({
         <StatCard
           label="Owned solutions"
           value={`${owned}/${items.length}`}
-          note="Clean recall or verified solve"
+          note="Clean typing, self-rated concept recall, or verified solve"
         />
       </div>
       <div className="dashboard-grid">
@@ -4263,17 +4471,25 @@ function RecordsView({
                   <span>
                     {attempt.practiceKind === "solving"
                       ? "Solve"
+                      : attempt.practiceKind === "concept"
+                        ? "Concept"
                       : STAGES[attempt.stage - 1]?.short}
                   </span>
                   <span className={attempt.outcome}>{attempt.outcome}</span>
                   <span>
                     {attempt.practiceKind === "solving"
                       ? `${attempt.verification?.runs ?? 0} runs`
+                      : attempt.practiceKind === "concept"
+                        ? `${attempt.conceptGrade ?? "—"} self-grade`
                       : `${attempt.wpm} WPM`}
                   </span>
                   <span>
                     {attempt.practiceKind === "solving"
                       ? `${attempt.verification?.passed ?? 0}/${attempt.verification?.total ?? 0} checks`
+                      : attempt.practiceKind === "concept"
+                        ? attempt.peeks > 0
+                          ? "assisted reveal"
+                          : "answer first"
                       : `${attempt.accuracy}%`}
                   </span>
                   <span>{formatDate(attempt.completedAt)}</span>
@@ -4476,7 +4692,7 @@ function SettingsView({
           <small>Your data</small>
           <h2>Local profile</h2>
           <p>
-            Export a portable v10 JSON backup with Python, Swift, iOS, sessions,
+            Export a portable v11 JSON backup with Python, Swift, iOS, sessions,
             learning debriefs, revisioned snippets, local pacing and weak-line
             analytics, and
             community preferences—or restore any v2–v9 backup.
@@ -4751,8 +4967,11 @@ function ResultDialog({
 }) {
   const eligible = eligibleAttempt(result);
   const isSolve = result.practiceKind === "solving";
+  const isConcept = result.practiceKind === "concept";
   const isCleanSolve = result.qualification === "solved";
-  const successful = eligible || isCleanSolve;
+  const isStrongConcept =
+    isConcept && result.qualification === "independent";
+  const successful = eligible || isCleanSolve || isStrongConcept;
   const isBest =
     eligible &&
     (!result.previousBest ||
@@ -4854,6 +5073,8 @@ function ResultDialog({
         <span className="eyebrow">
           {isSolve
             ? "Solution verified"
+            : isConcept
+              ? "Concept recall saved"
             : `Pass complete · Stage ${result.stage}`}
         </span>
         <h2 id="result-title">{result.item.title}</h2>
@@ -4864,6 +5085,10 @@ function ResultDialog({
               ? isCleanSolve
                 ? "All executable checks passed without hints. This records independent problem-solving evidence without changing typing records."
                 : "All executable checks passed. Because hints or the reference were used, this solve is saved as assisted."
+              : isConcept
+                ? isStrongConcept
+                  ? "You recorded an unassisted Good/Easy retrieval. This is self-rated concept evidence, not automated correctness."
+                  : "This recall is saved as assisted or still developing. The coach will bring it back sooner."
               : eligible
                 ? result.qualification === "independent"
                   ? "Independent recall verified. This solution now counts as owned."
@@ -4873,7 +5098,20 @@ function ResultDialog({
                   : "Practice saved, but 95% accuracy is required for mastery and personal records."}
         </p>
         <div className="result-stats">
-          {isSolve ? (
+          {isConcept ? (
+            <>
+              <span>
+                <small>Self-grade</small>
+                <strong>{result.conceptGrade ?? "—"}</strong>
+              </span>
+              <span>
+                <small>Reference</small>
+                <strong>
+                  {result.peeks > 0 ? "Revealed early" : "After answer"}
+                </strong>
+              </span>
+            </>
+          ) : isSolve ? (
             <>
               <span>
                 <small>Checks</small>
@@ -4904,9 +5142,13 @@ function ResultDialog({
             <strong>{formatDuration(result.durationMs)}</strong>
           </span>
           <span>
-            <small>{isSolve ? "Evidence" : "Record"}</small>
+            <small>{isSolve || isConcept ? "Evidence" : "Record"}</small>
             <strong>
-              {isSolve
+              {isConcept
+                ? isStrongConcept
+                  ? "Independent"
+                  : "Assisted"
+                : isSolve
                 ? isCleanSolve
                   ? "Independent"
                   : "Assisted"
@@ -4918,14 +5160,18 @@ function ResultDialog({
             </strong>
           </span>
         </div>
-        <AttemptForensics attempt={result} item={result.item} />
-        <PostAttemptDebrief
-          item={result.item}
-          stage={result.stage}
-          existing={debrief}
-          onSave={onSaveDebrief}
-        />
-        {!isSolve && (
+        {!isConcept && (
+          <AttemptForensics attempt={result} item={result.item} />
+        )}
+        {!isConcept && (
+          <PostAttemptDebrief
+            item={result.item}
+            stage={result.stage}
+            existing={debrief}
+            onSave={onSaveDebrief}
+          />
+        )}
+        {!isSolve && !isConcept && (
           <section className="result-benchmark">
             <span>
               <small>Opt-in community benchmark</small>
@@ -4945,7 +5191,7 @@ function ResultDialog({
         )}
         <div className="result-actions">
           <button className="outline-button" onClick={onRetry}>
-            Retry same {isSolve ? "solve" : "stage"}
+            Retry same {isSolve ? "solve" : isConcept ? "concept" : "stage"}
           </button>
           <button className="outline-button" onClick={onRandom}>
             Different problem
@@ -4953,12 +5199,14 @@ function ResultDialog({
           <button className="outline-button" onClick={onRecords}>
             Full analysis
           </button>
-          <button className="primary-button" onClick={onNext}>
+          <button className="primary-button" data-autofocus onClick={onNext}>
             {result.sessionNext
               ? "Next in session →"
               : result.sessionComplete
                 ? "View session summary →"
-                : isSolve
+                : isConcept
+                  ? "Review next concept →"
+                  : isSolve
                   ? "Practice recall next →"
                   : result.stage < 5
                     ? "Climb to next stage →"

@@ -30,6 +30,7 @@ export type FundamentalsPracticeItem = {
   sourceUrl: string;
   tags: string[];
   recallChecks: [string, string, string];
+  conceptAnswers: [string, string, string];
 };
 
 export const FUNDAMENTALS: FundamentalsPracticeItem[] = [
@@ -72,6 +73,11 @@ func makePreview(from live: PlayerSession) -> PlayerSession {
       "Rebuild the copy boundary without looking at the code.",
       "Explain when identity makes a class the better model.",
     ],
+    conceptAnswers: [
+      "Both constants would reference the same PlayerSession, so changing the supposed preview's settings would also change the live session. A new constant does not create a copy of a class instance.",
+      "Copy live.settings into a mutable local value, change that value, and pass it into a newly initialized PlayerSession. The boundary requires both a copied settings value and a distinct session identity.",
+      "Use a class when shared identity, shared mutable state, or an identity-bound lifecycle is part of the model. The tradeoff is reference sharing, so ownership and mutation must be controlled deliberately.",
+    ],
   },
   {
     id: "ios:copy-on-write-draft",
@@ -113,6 +119,11 @@ func makePlatformDrafts(
       "Reconstruct the two-copy mutation without aliasing mutable state.",
       "Explain why copy-on-write does not turn Array into a reference-semantic API.",
     ],
+    conceptAnswers: [
+      "If the original starts with n paragraphs, it still has n; mobile and desktop each have n + 1. Each mutation is observable only in the value that was mutated.",
+      "Assign original to separate var values named mobile and desktop, then call append once on each before returning both. The invariant is that neither mutation can change the original or the other draft.",
+      "Copy-on-write may share backing storage only as an implementation optimization, then separates storage when a copy mutates. Array still presents value semantics: mutations to one value are not observable through another.",
+    ],
   },
   {
     id: "ios:optional-throwing-boundary",
@@ -151,6 +162,11 @@ func port(from values: [String: String]) throws -> Int {
       "Rebuild the function using two guard statements.",
       "Explain what information try? would erase at the call site.",
     ],
+    conceptAnswers: [
+      "A valid value returns a port in 1...65535, an absent key throws missingPort, and a non-integer or out-of-range value throws invalidPort with the original string. Absence and invalidity remain distinct outcomes.",
+      "First guard-let the raw \"port\" string or throw missingPort; then guard that Int(rawPort) succeeds and the range contains it or throw invalidPort(rawPort). Return the validated Int only after both invariants hold.",
+      "try? converts any thrown error into nil, collapsing missingPort and invalidPort into the same absence signal. That is concise when the reason is irrelevant, but it discards actionable domain information here.",
+    ],
   },
   {
     id: "ios:generic-associated-id",
@@ -188,6 +204,11 @@ func indexByID<Record: IdentifiableRecord>(
       "State the relationship the return type must preserve.",
       "Reconstruct the protocol and generic signature from memory.",
       "Explain what type information would be harder to express with an unconstrained any IdentifiableRecord array.",
+    ],
+    conceptAnswers: [
+      "The dictionary key must be the exact Record.ID associated with the concrete Record value, and the value must remain that same Record type. Repeated IDs overwrite earlier records because dictionary keys are unique.",
+      "Declare IdentifiableRecord with associatedtype ID: Hashable and an id property, then write indexByID<Record: IdentifiableRecord>(_ records: [Record]) -> [Record.ID: Record]. The Hashable constraint is required because IDs become dictionary keys.",
+      "An unconstrained array of any IdentifiableRecord erases the single concrete relationship between each record type and its associated ID, making a precise [Record.ID: Record] result unavailable. Existentials allow heterogeneity, while this generic API preserves type relationships.",
     ],
   },
   {
@@ -229,6 +250,11 @@ final class Editor {
       "Draw the reference cycle that exists without the capture list.",
       "Rebuild the callback with the correct ownership qualifier.",
       "Explain why using unowned here would change the failure mode.",
+    ],
+    conceptAnswers: [
+      "Editor strongly owns DraftSaver, DraftSaver strongly owns didSave, and the closure would strongly capture Editor as self. Those edges form a cycle, so neither object can be released through ordinary reference counting.",
+      "Assign saver.didSave = { [weak self] in self?.saveCount += 1 }. The weak optional capture breaks the ownership cycle and makes a late callback safely do nothing.",
+      "unowned avoids the cycle but assumes self is alive whenever the closure executes; invoking it after Editor deallocation traps. weak trades optional handling for safety when the callback may outlive its owner.",
     ],
   },
   {
@@ -274,6 +300,11 @@ func loadDashboard(using api: some DashboardAPI) async throws -> Dashboard {
       "Reconstruct the child-task declarations and join point.",
       "Explain how error and cancellation propagate through this scope.",
     ],
+    conceptAnswers: [
+      "fetchProfile and fetchMessages are independent sibling operations, and Dashboard depends on both results. async let is appropriate because neither child needs the other's output and both must finish within the parent scope.",
+      "Declare async let profile = api.fetchProfile() and async let messages = api.fetchMessages(), then construct the Dashboard with try await using both values. The explicit join preserves structured lifetime while overlapping the request latency.",
+      "If an awaited child throws, the parent operation throws and unfinished sibling work is cancelled as the structured scope unwinds; cancellation remains cooperative. The scope cannot return while either child is still running.",
+    ],
   },
   {
     id: "ios:actor-response-cache",
@@ -311,6 +342,11 @@ where Key: Hashable & Sendable, Value: Sendable {
       "Name the mutable state that needs an isolation boundary.",
       "Rebuild the generic constraints and three actor methods.",
       "Explain why await does not promise a hop to a particular thread.",
+    ],
+    conceptAnswers: [
+      "The shared mutable [Key: Value] dictionary needs the isolation boundary. Keeping it private to the actor ensures reads and mutations are serialized through actor isolation.",
+      "Declare actor ResponseCache<Key, Value> where Key: Hashable & Sendable, Value: Sendable, then provide value(for:), insert(_:for:), and removeValue(for:). Sendable protects values crossing concurrency domains, while Hashable enables dictionary lookup.",
+      "await marks a possible suspension while the actor's executor schedules isolated work; it does not bind that work to a named OS thread. Actor isolation guarantees serialized access, not thread affinity.",
     ],
   },
   {
@@ -372,6 +408,11 @@ final class SearchModel {
       "Rebuild the cancel-create-check sequence.",
       "Explain why cancel() is a signal rather than a forced interruption.",
     ],
+    conceptAnswers: [
+      "searchTask?.cancel() marks the previous query obsolete, and Task.checkCancellation() immediately before assignment prevents a stale completed request from publishing. Cancellation-aware sleep and service errors can stop work earlier, but the pre-publish check protects the visible-state invariant.",
+      "Cancel the stored task, replace it with a new Task, debounce with an awaited sleep, await the service, call Task.checkCancellation(), and only then assign results. Keeping one task handle enforces latest-query-wins bookkeeping.",
+      "cancel() only records cancellation and lets cooperative code observe it; it cannot safely terminate arbitrary execution. Suspension points, explicit checks, and cancellation-aware dependencies trade prompt stopping for structured cleanup and safety.",
+    ],
   },
   {
     id: "ios:uikit-lifecycle-boundaries",
@@ -423,6 +464,11 @@ final class ProfileViewController: UIViewController {
       "Classify each operation as one-time, per-appearance, or geometry-dependent.",
       "Reconstruct the three lifecycle overrides in order.",
       "Explain the bug caused by adding constraints inside viewDidLayoutSubviews.",
+    ],
+    conceptAnswers: [
+      "Insert the gradient, add the label, and install constraints once in viewDidLoad; refresh data in viewIsAppearing; update gradient.frame in viewDidLayoutSubviews. The split prevents duplicate setup while keeping appearance data and geometry current.",
+      "Override viewDidLoad for hierarchy and constraints, viewIsAppearing for refreshProfile(), and viewDidLayoutSubviews for gradient.frame = view.bounds, calling super in each. Their order reflects setup, appearance, then potentially repeated layout.",
+      "viewDidLayoutSubviews may run many times, so adding constraints there repeatedly creates duplicates, warnings, and unnecessary layout work. Geometry may be updated there, but the constraint graph should normally be installed once.",
     ],
   },
   {
@@ -484,6 +530,11 @@ final class EmptyStateView: UIView {
       "Identify which intrinsic values can change at runtime.",
       "Rebuild the stack and its five adaptive constraints.",
       "Explain why a fixed height would fail at large accessibility text sizes.",
+    ],
+    conceptAnswers: [
+      "The labels' intrinsic widths and heights can change with their text, container width, localization, and Dynamic Type size. Multiline labels therefore need relational constraints that allow their height to grow.",
+      "Put both multiline labels in a vertical stack, pin its leading and trailing anchors to readableContentGuide, constrain its top and bottom within layoutMarginsGuide, and center it vertically at a lower priority. The inequalities preserve margins while intrinsic content determines height.",
+      "At large accessibility sizes, text wraps into more lines and needs more vertical space, so a fixed height would clip content or create unsatisfiable constraints. Letting intrinsic content size drive height preserves readability across sizes.",
     ],
   },
   {
@@ -551,6 +602,11 @@ final class PeopleViewController: UITableViewController {
       "Reconstruct the registration and dequeue path.",
       "Explain why an index path is a location rather than stable model identity.",
     ],
+    conceptAnswers: [
+      "The registration rebuilds the model-dependent text and star image, then assigns the complete contentConfiguration for every dequeue. No visible property may depend on whatever Person the cell previously displayed.",
+      "Create a CellRegistration<UITableViewCell, Person> that fully configures the cell, then have the diffable provider resolve Person.ID to a Person and call dequeueConfiguredReusableCell. Stable IDs select models; the registration renders them reuse-safely.",
+      "An index path describes a row's current position, which can change after inserts, deletes, or sorting. A stable Person.ID preserves model identity across those moves, at the cost of maintaining an ID-to-model lookup.",
+    ],
   },
   {
     id: "ios:swiftui-owned-observable-state",
@@ -602,6 +658,11 @@ struct EditorFields: View {
       "Name the view that owns the source of truth and the view that borrows it.",
       "Rebuild the @State-to-@Bindable handoff.",
       "Explain how changing the owner's identity affects its stored state.",
+    ],
+    conceptAnswers: [
+      "ProfileScreen owns the ProfileModel in @State, while EditorFields borrows the same reference through @Bindable. There must be one stable source of truth rather than a new model created during each body evaluation.",
+      "Store @State private var model = ProfileModel() in the owner, pass model to EditorFields, and declare @Bindable var model there so $model.name and $model.notificationsEnabled produce bindings. @State provides stable ownership; @Bindable provides editable projections.",
+      "SwiftUI associates @State storage with the owner's identity, so replacing that identity discards the old storage and initializes a new ProfileModel. Stable identity preserves state across body reevaluations, not across replacement of the view identity.",
     ],
   },
   {
@@ -673,6 +734,11 @@ struct LibraryScreen: View {
       "Rebuild the path binding and destination switch.",
       "Explain why lightweight stable route values are preferable to transporting full models.",
     ],
+    conceptAnswers: [
+      "The root is LibraryScreen, and each pushed element is a Route such as .detail(bookID) or .settings. The path stores navigation intent and navigationDestination translates each value into a view.",
+      "Keep @State private var path: [Route], pass $path to NavigationStack, append route values from links or buttons, and switch over Route in navigationDestination(for: Route.self). Every appended case must have exactly one destination mapping.",
+      "Lightweight Hashable routes are easier to compare, mutate, persist, and restore without coupling navigation state to large mutable models. The destination can resolve fresh data by stable ID, trading direct transport for cleaner state and ownership boundaries.",
+    ],
   },
   {
     id: "ios:network-decode-cache-policy",
@@ -731,6 +797,11 @@ func makeCachedSession() -> URLSession {
       "Separate transport, HTTP, and decoding failures before reading the solution.",
       "Reconstruct the response guards and generic decode call.",
       "Explain why URLCache must not be treated as guaranteed persistent storage.",
+    ],
+    conceptAnswers: [
+      "URLSession can throw a transport error, a non-HTTP or non-2xx response is an HTTP-layer failure, and JSONDecoder can throw for an incompatible body. Keeping these stages distinct prevents a successful connection from being mistaken for a valid decoded result.",
+      "Await session.data(from:), guard-cast the response to HTTPURLResponse, guard that statusCode is in 200..<300, then return try decoder.decode(Value.self, from: data). Only validated success bodies may reach the generic decoder.",
+      "URLCache obeys request and server caching policy, has bounded capacity, and its disk contents may be evicted or purged. It improves network efficiency but cannot provide the durability guarantees of application-owned persistent storage.",
     ],
   },
   {
@@ -794,6 +865,11 @@ final class GreetingServiceTests: XCTestCase {
       "Rebuild the protocol, stub, and arrange-act-assert flow.",
       "Explain which integration behavior this unit test intentionally does not prove.",
     ],
+    conceptAnswers: [
+      "UserLoading is the smallest useful boundary because GreetingService depends only on obtaining a User, not on networking mechanics. Injecting that contract lets the test control the result without broadening the abstraction unnecessarily.",
+      "Define UserLoading.user(id:), inject any UserLoading into GreetingService, implement a closure-backed StubUserLoader, arrange its User response, call greeting, and assert the string. Production and test implementations must honor the same contract.",
+      "The unit test does not prove that a real loader builds requests correctly, reaches a server, decodes responses, or handles transport failures. Those integration concerns require separate tests; isolating them keeps this behavior test fast and deterministic.",
+    ],
   },
   {
     id: "ios:accessible-rating-control",
@@ -844,6 +920,11 @@ struct RatingControl: View {
       "Describe what VoiceOver should announce before inspecting the modifiers.",
       "Rebuild the label, value, and bounded adjustable action.",
       "Explain why accessibilityIdentifier cannot replace accessibilityLabel.",
+    ],
+    conceptAnswers: [
+      "VoiceOver should expose one adjustable control and announce a meaningful name and current value, such as \"Rating, 3 of 5, adjustable.\" Combining the decorative stars avoids five ambiguous child elements.",
+      "Ignore child semantics, set accessibilityLabel to \"Rating\" and accessibilityValue to the current score, then clamp increment with min(5, rating + 1) and decrement with max(1, rating - 1). Touch and assistive actions must preserve the same 1...5 invariant.",
+      "accessibilityIdentifier is a stable automation hook and is not intended as user-facing speech. accessibilityLabel communicates meaning to assistive-technology users, so replacing it with an identifier would expose implementation language instead of usable semantics.",
     ],
   },
 ];

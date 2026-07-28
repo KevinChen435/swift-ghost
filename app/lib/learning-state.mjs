@@ -26,7 +26,11 @@ function cleanText(value, limit) {
 }
 
 export function activityKindFor(value = {}) {
-  if (value.activityKind === "concept" || value.track === "ios")
+  if (
+    value.activityKind === "concept" ||
+    value.track === "ios" ||
+    value.practiceKind === "concept"
+  )
     return "concept";
   if (value.activityKind === "solve" || value.practiceKind === "solving")
     return "solve";
@@ -52,9 +56,12 @@ export function normalizeLearningEvents(value, options = {}) {
       !RETRIEVAL_GRADES.includes(raw.grade) ||
       !FRICTION_CATEGORIES.includes(raw.friction) ||
       !ACTIVITY_KINDS.includes(raw.activityKind) ||
-      (raw.practiceKind !== "typing" && raw.practiceKind !== "solving") ||
+      !["typing", "solving", "concept"].includes(raw.practiceKind) ||
       (raw.activityKind === "solve" && raw.practiceKind !== "solving") ||
-      (raw.activityKind !== "solve" && raw.practiceKind !== "typing") ||
+      (raw.activityKind === "concept" &&
+        raw.practiceKind !== "concept" &&
+        raw.practiceKind !== "typing") ||
+      (raw.activityKind === "syntax" && raw.practiceKind !== "typing") ||
       (options.attemptsById instanceof Map && !linkedAttempt) ||
       (linkedAttempt &&
         (linkedAttempt.itemId !== itemId ||

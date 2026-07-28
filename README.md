@@ -15,6 +15,7 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - 48 Python exercises: 8 language-fluency drills and 40 interview problems, including advanced Trie, Union-Find, graph, bit-manipulation, and 2D dynamic-programming work
 - 50 original Swift implementations across 12 interview patterns
 - 16 iOS and Swift fundamentals covering language semantics, concurrency, UIKit, SwiftUI, networking, testing, and accessibility
+- A first-class Swift/iOS Concept Recall lane: answer privately, commit before reveal, compare against 48 authored reference answers, optionally type over the grey answer, then self-grade without automated semantic scoring
 - A Today dashboard with a deterministic Daily Type, Python and iOS reactivation exercises, due recall, and resumable drafts
 - An Adaptive Daily Coach that builds deterministic 15-, 30-, or 45-minute plans from overdue work, missing evidence, Python fluency, independent solves, and iOS maintenance
 - Searchable, filterable, sortable problem library
@@ -30,7 +31,7 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - Local attempt history, streaks, daily goals, pattern coverage, and progress charts
 - Spaced review at 1, 3, 7, 14, and 30 days, with lapses returning tomorrow
 - Device-local custom Python or Swift snippets with safe content revisions and learning milestones
-- Persistent multi-problem sessions with independent track, source, category, difficulty, count, and recall-policy controls, plus mixed typing and verified-solve tasks from the Daily Coach
+- Persistent multi-problem sessions with independent track, source, category, difficulty, count, and recall-policy controls, plus mixed typing, concept-recall, and verified-solve tasks from the Daily Coach
 - Separate Python interview, Swift interview, and iOS catalog filtering, coverage, and persisted key-friction analytics
 - Shareable query-string links for exact exercises, languages, stages, records tabs, and public profiles that work on GitHub Pages and the hosted edition
 - An optional hosted community edition with ChatGPT identity, public profiles, recent qualifying runs, per-exercise records, and a shared daily benchmark
@@ -72,7 +73,7 @@ Interview problem names link to their public LeetCode pages; iOS fundamentals li
 
 ## Roadmap
 
-The local-first training core remains the priority. Planned work includes authored semantic masks, dedicated iOS concept-practice sessions, timed mock interviews, longitudinal readiness trends, and cross-device learning-state sync.
+The local-first training core remains the priority. Planned work includes authored semantic masks, timed mock interviews, longitudinal readiness trends, and cross-device learning-state sync.
 
 ## License
 

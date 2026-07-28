@@ -621,9 +621,9 @@ textarea:focus-visible {
 
 .practice-kind-switch {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
-  max-width: 560px;
+  max-width: 760px;
   margin-top: 20px;
   padding: 5px;
   border: 1px solid var(--border-soft);
@@ -4075,6 +4075,7 @@ kbd {
   }
   .practice-kind-switch {
     max-width: none;
+    grid-template-columns: 1fr;
   }
   .insight-grid {
     display: flex;
@@ -4361,6 +4362,201 @@ kbd {
   .community-profile-search > form {
     display: grid;
     grid-template-columns: 1fr;
+  }
+}
+
+.concept-workbench {
+  display: grid;
+  gap: 18px;
+  margin-top: 18px;
+}
+.concept-brief,
+.concept-response-card,
+.concept-reference-card,
+.concept-trace-card,
+.concept-assessment {
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+}
+.concept-brief {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px;
+}
+.concept-brief h2,
+.concept-assessment h3 {
+  margin: 7px 0;
+}
+.concept-brief p {
+  max-width: 72ch;
+  margin: 0;
+  color: var(--text);
+  font-size: 1.08rem;
+  line-height: 1.65;
+}
+.concept-private {
+  align-self: flex-start;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+.concept-answer-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.concept-response-card,
+.concept-reference-card,
+.concept-trace-card,
+.concept-assessment {
+  padding: 20px;
+}
+.concept-card-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.concept-card-heading div {
+  display: grid;
+  gap: 4px;
+}
+.concept-card-heading small,
+.concept-card-heading > span {
+  color: var(--muted);
+}
+.concept-response-card textarea {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.65;
+}
+.concept-response-card textarea[readonly] {
+  color: var(--muted);
+}
+.concept-commit-row,
+.concept-save-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 14px;
+}
+.concept-commit-row small,
+.concept-save-row p {
+  color: var(--muted);
+}
+.concept-reference-card {
+  min-height: 300px;
+}
+.concept-reference-card > p {
+  margin: 0;
+  font-size: 1.02rem;
+  line-height: 1.75;
+}
+.concept-reference-card.locked {
+  border-style: dashed;
+}
+.concept-redacted {
+  color: transparent;
+  text-shadow: 0 0 8px color-mix(in srgb, var(--muted) 72%, transparent);
+  user-select: none;
+}
+.concept-trace-editor {
+  position: relative;
+  min-height: 180px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+}
+.concept-trace-editor p,
+.concept-trace-editor textarea {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 16px;
+  border: 0;
+  resize: none;
+  white-space: pre-wrap;
+  font: 0.96rem/1.7 var(--font-code);
+}
+.concept-trace-editor p {
+  color: color-mix(in srgb, var(--muted) 45%, transparent);
+}
+.concept-trace-editor textarea {
+  z-index: 1;
+  background: transparent;
+  color: var(--accent);
+  caret-color: var(--text);
+}
+.concept-grade-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 16px;
+}
+.concept-grade-grid button {
+  display: grid;
+  gap: 6px;
+  min-height: 86px;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.concept-grade-grid button small {
+  color: var(--muted);
+}
+.concept-grade-grid button.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+}
+.concept-reflection-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: 16px;
+}
+.concept-reflection-grid label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+}
+.concept-reflection-grid select {
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0 11px;
+  background: var(--panel-bright);
+  color: var(--text);
+}
+@media (max-width: 760px) {
+  .concept-answer-grid,
+  .concept-grade-grid,
+  .concept-reflection-grid {
+    grid-template-columns: 1fr;
+  }
+  .concept-brief,
+  .concept-commit-row,
+  .concept-save-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .concept-private {
+    white-space: normal;
   }
 }
 

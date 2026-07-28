@@ -1,3 +1,5 @@
+import { supportsConceptPractice } from "./concept-practice.mjs";
+
 export const SESSION_SOURCES = ["mixed", "due", "new", "favorites", "custom"];
 export const SESSION_TRACKS = ["all", "interview", "ios"];
 export const SESSION_LANGUAGES = ["all", "python", "swift"];
@@ -44,5 +46,8 @@ export function buildSessionQueue(items, signals, options, random = Math.random)
     itemRevision: Math.max(1, Math.round(Number(signals[item.itemId]?.itemRevision) || Number(item.contentRevision) || 1)),
     stage: stageMode === "recall" ? 5 : Math.max(1, Math.min(5, Math.round(Number(signals[item.itemId]?.recommendedStage) || 1))),
     status: "pending",
+    ...(supportsConceptPractice(item)
+      ? { practiceKind: "concept" }
+      : {}),
   }));
 }

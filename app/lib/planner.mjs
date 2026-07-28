@@ -1,4 +1,5 @@
 import { applyDebriefToReviewState } from "./learning-state.mjs";
+import { supportsConceptPractice } from "./concept-practice.mjs";
 
 const DAY_MS = 86_400_000;
 const REVIEW_DAYS = [1, 3, 7, 14, 30];
@@ -40,19 +41,25 @@ function successful(attempt, activityKind) {
           Number(attempt.verification.total),
     );
   }
-  if (attempt.practiceKind === "solving") return false;
+  if (activityKind === "concept") {
+    return Boolean(
+      attempt.practiceKind === "concept" &&
+        (attempt.conceptGrade === "good" || attempt.conceptGrade === "easy"),
+    );
+  }
+  if (attempt.practiceKind !== "typing") return false;
   if (Number(attempt.accuracy ?? 0) < 95) return false;
-  return activityKind !== "concept" || Number(attempt.stage ?? 0) >= 4;
+  return true;
 }
 
 function modeAttempts(attempts, item, activityKind) {
   return attempts
     .filter((attempt) => validAttempt(attempt, item))
-    .filter((attempt) =>
-      activityKind === "solve"
-        ? attempt.practiceKind === "solving"
-        : attempt.practiceKind !== "solving",
-    )
+    .filter((attempt) => {
+      if (activityKind === "solve") return attempt.practiceKind === "solving";
+      if (activityKind === "concept") return attempt.practiceKind === "concept";
+      return attempt.practiceKind === "typing";
+    })
     .sort((a, b) => Date.parse(a.completedAt) - Date.parse(b.completedAt));
 }
 
@@ -115,7 +122,7 @@ function learningState(attempts, events, item, activityKind, now) {
 }
 
 function activityFor(item) {
-  if (item.track === "ios") return "concept";
+  if (supportsConceptPractice(item)) return "concept";
   if (item.language === "python" && item.pattern === "Python Fluency")
     return "syntax";
   if (item.language === "python" && item.verification) return "solve";
@@ -204,7 +211,12 @@ function candidateFor(item, attempts, events, favorites, now) {
     itemRevision: Math.max(1, Math.round(Number(item.contentRevision) || 1)),
     stage: recommendedStage(state, activityKind),
     status: "pending",
-    practiceKind: activityKind === "solve" ? "solving" : "typing",
+    practiceKind:
+      activityKind === "solve"
+        ? "solving"
+        : activityKind === "concept"
+          ? "concept"
+          : "typing",
     activityKind,
     estimatedMinutes,
     rationale: taskRationale(item, state, activityKind, favorite).slice(0, 240),

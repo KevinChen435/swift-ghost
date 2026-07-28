@@ -11,6 +11,7 @@ export type ReadinessSummary = {
   windowDays: number;
   hintFreeSolves: ReadinessRate;
   strongRetrieval: ReadinessRate;
+  conceptRecall: ReadinessRate;
   debriefCoverage: ReadinessRate;
   topFriction: {
     category: string | null;

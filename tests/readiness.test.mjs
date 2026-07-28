@@ -87,3 +87,40 @@ test("returns stable empty-state values without mutating input", () => {
   assert.equal(summary.topFriction.category, null);
   assert.deepEqual({ items: source.items, attempts: source.attempts, learningEvents: source.learningEvents }, before);
 });
+
+test("concept readiness counts only answer-first Good or Easy evidence", () => {
+  const attempts = [
+    attempt({
+      id: "concept-strong",
+      itemId: "ios:arc",
+      practiceKind: "concept",
+      conceptGrade: "good",
+      verification: undefined,
+      peeks: 0,
+    }),
+    attempt({
+      id: "concept-assisted",
+      itemId: "ios:arc",
+      practiceKind: "concept",
+      conceptGrade: "easy",
+      verification: undefined,
+      peeks: 1,
+    }),
+  ];
+  const learningEvents = attempts.map((record, index) =>
+    learningEvent({
+      id: `concept-event-${index}`,
+      attemptId: record.id,
+      itemId: "ios:arc",
+      activityKind: "concept",
+      grade: record.conceptGrade,
+    }),
+  );
+  const summary = buildReadinessSummary({ items, attempts, learningEvents, now });
+  assert.deepEqual(summary.conceptRecall, {
+    numerator: 1,
+    denominator: 2,
+    percent: 50,
+  });
+  assert.equal(summary.strongRetrieval.numerator, 1);
+});

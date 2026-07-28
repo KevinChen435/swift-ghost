@@ -134,3 +134,14 @@ test("serializes routes without losing a static-host base path", () => {
     undefined,
   );
 });
+
+test("concept practice deep links round-trip explicitly", () => {
+  const route = parseRoute(
+    "https://example.test/?view=practice&track=ios&item=value-reference-snapshots&stage=5&practice=concept",
+  );
+  assert.equal(route.practiceKind, "concept");
+  assert.match(
+    serializeRoute(route, "https://example.test/swift-ghost/"),
+    /practice=concept/,
+  );
+});

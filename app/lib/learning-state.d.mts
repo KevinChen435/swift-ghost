@@ -15,7 +15,7 @@ export type LearningEvent = {
   attemptId: string;
   itemId: ItemId;
   itemRevision: number;
-  practiceKind: "typing" | "solving";
+  practiceKind: "typing" | "solving" | "concept";
   activityKind: LearningActivityKind;
   grade: RetrievalGrade;
   friction: FrictionCategory;
