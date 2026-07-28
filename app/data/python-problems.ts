@@ -267,7 +267,7 @@ export const PYTHON_PROBLEMS: PythonProblem[] = [
     code: `def rank_players(players: list[tuple[str, int]]) -> list[tuple[str, int]]:
     return sorted(
         players,
-        key=lambda player: (-player[1], player[0].casefold()),
+        key=lambda player: (-player[1], player[0].lower()),
     )`,
     verification: {
       revision: 1,
@@ -574,7 +574,9 @@ def summarize_events(
         events_by_owner[owner].append(kind)
         kind_counts[kind] += 1
 
-    return dict(events_by_owner), kind_counts`,
+    return {
+        owner: kinds for owner, kinds in events_by_owner.items()
+    }, kind_counts`,
     verification: {
       revision: 1,
       entrypoint: {
@@ -853,20 +855,28 @@ class Solution:
       "Every relevant character outside [left, right] has already matched its mirror.",
     complexity: "O(n) time · O(1) auxiliary space",
     languageNote:
-      "str.isalnum and str.lower keep the pointer solution readable without allocating a normalized copy.",
+      "An ASCII code check plus str.lower keeps the pointer solution allocation-free in the bundled browser runtime.",
     estimatedMinutes: 6,
     starterCode: `class Solution:
     def isPalindrome(self, s: str) -> bool:
         raise NotImplementedError("Implement isPalindrome")`,
     code: `class Solution:
     def isPalindrome(self, s: str) -> bool:
+        def is_ascii_alphanumeric(character: str) -> bool:
+            code = ord(character)
+            return (
+                ord("0") <= code <= ord("9")
+                or ord("A") <= code <= ord("Z")
+                or ord("a") <= code <= ord("z")
+            )
+
         left = 0
         right = len(s) - 1
 
         while left < right:
-            while left < right and not s[left].isalnum():
+            while left < right and not is_ascii_alphanumeric(s[left]):
                 left += 1
-            while left < right and not s[right].isalnum():
+            while left < right and not is_ascii_alphanumeric(s[right]):
                 right -= 1
 
             if s[left].lower() != s[right].lower():

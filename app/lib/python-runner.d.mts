@@ -41,6 +41,7 @@ export type PythonRunnerOptions = {
   workerUrl?: string | URL;
   baseUrl?: string | URL;
   Worker?: typeof globalThis.Worker;
+  initializationTimeoutMs?: number;
 };
 
 export class PythonRunner {
@@ -62,4 +63,5 @@ export const PYTHON_RUNNER_LIMITS: Readonly<{
   maxSpecBytes: number;
   maxCases: number;
   executionTimeoutMs: number;
+  initializationTimeoutMs: number;
 }>;

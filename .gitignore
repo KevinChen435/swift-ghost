@@ -41,7 +41,8 @@ yarn-error.log*
 # typescript
 next-env.d.ts
 /dist/
-/public/vendor/pyodide/
+/public/vendor/pyodide*/
+/public/vendor/micropython-*/
 /.wrangler/
 /outputs/
 /work/

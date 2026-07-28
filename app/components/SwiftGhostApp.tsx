@@ -22,6 +22,7 @@ import {
 import { CommunityPanel } from "./CommunityPanel";
 import { AttemptForensics } from "./AttemptForensics";
 import { LearningAnalytics } from "./LearningAnalytics";
+import { DailyCoach } from "./DailyCoach";
 import {
   createPythonRunner,
   type PythonRunner,
@@ -120,7 +121,11 @@ type Result = AttemptRecord & {
   item: PracticeItem;
   previousBest: AttemptRecord | null;
   nextReview: Date | null;
-  sessionNext?: { itemId: ItemId; stage: number };
+  sessionNext?: {
+    itemId: ItemId;
+    stage: number;
+    practiceKind: PracticeKind;
+  };
   sessionComplete?: boolean;
 };
 type Sort = "recommended" | "number" | "title" | "difficulty";
@@ -733,6 +738,10 @@ export default function SwiftGhostApp() {
   }
 
   function chooseStage(nextStage: number) {
+    if (state.draft?.sessionId) {
+      setToast("Stage is fixed for this session step");
+      return;
+    }
     mutateState((current) => {
       const sessionId = current.draft?.sessionId;
       const base = recordAbandon(current);
@@ -778,13 +787,14 @@ export default function SwiftGhostApp() {
 
   function choosePracticeKind(nextKind: PracticeKind) {
     if (nextKind === practiceKind) return;
-    if (
-      nextKind === "solving" &&
-      (!item.verification || draft.challengeDate || draft.sessionId)
-    ) {
+    if (draft.sessionId) {
+      setToast("This session step has a fixed practice mode");
+      return;
+    }
+    if (nextKind === "solving" && (!item.verification || draft.challengeDate)) {
       setToast(
         item.verification
-          ? "Solve mode is unavailable during Daily Type or an active session"
+          ? "Solve mode is unavailable during Daily Type"
           : "Solve mode currently supports verified Python exercises",
       );
       return;
@@ -874,7 +884,11 @@ export default function SwiftGhostApp() {
           ...projected,
           activeSession: { ...session, entries, currentIndex: nextIndex },
         };
-        sessionNext = { itemId: nextEntry.itemId, stage: nextEntry.stage };
+        sessionNext = {
+          itemId: nextEntry.itemId,
+          stage: nextEntry.stage,
+          practiceKind: nextEntry.practiceKind ?? "typing",
+        };
       } else {
         sessionComplete = true;
         projected = {
@@ -1129,15 +1143,36 @@ export default function SwiftGhostApp() {
       }),
     );
     const planned = plannedEntries
-      ?.filter((entry) =>
-        allItems.some(
-          (candidate) =>
-            candidate.itemId === entry.itemId &&
-            (options.track === "all" || candidate.track === options.track) &&
-            (options.language === "all" ||
-              candidate.language === options.language),
-        ),
-      )
+      ?.flatMap((entry): SessionQueueEntry[] => {
+        const candidate = allItems.find(
+          (item) => item.itemId === entry.itemId,
+        );
+        if (
+          !candidate ||
+          (options.track !== "all" && candidate.track !== options.track) ||
+          (options.language !== "all" &&
+            candidate.language !== options.language)
+        )
+          return [];
+        const practiceKind =
+          entry.practiceKind === "solving" && candidate.verification
+            ? "solving"
+            : "typing";
+        return [
+          {
+            itemId: candidate.itemId,
+            itemRevision: candidate.contentRevision,
+            stage:
+              practiceKind === "solving"
+                ? 5
+                : Math.max(1, Math.min(5, Math.round(entry.stage || 1))),
+            status: "pending",
+            practiceKind,
+            estimatedMinutes: entry.estimatedMinutes,
+            rationale: entry.rationale,
+          },
+        ];
+      })
       .slice(0, 20);
     const entries = planned?.length
       ? planned
@@ -1180,7 +1215,14 @@ export default function SwiftGhostApp() {
     const first = allItems.find(
       (candidate) => candidate.itemId === entries[0].itemId,
     );
-    if (first) openItem(first, entries[0].stage, undefined, session.id);
+    if (first)
+      openItem(
+        first,
+        entries[0].stage,
+        undefined,
+        session.id,
+        entries[0].practiceKind ?? "typing",
+      );
     setToast(`${entries.length}-item session started`);
   }
 
@@ -1191,7 +1233,14 @@ export default function SwiftGhostApp() {
     const next = allItems.find(
       (candidate) => candidate.itemId === entry?.itemId,
     );
-    if (entry && next) openItem(next, entry.stage, undefined, session.id);
+    if (entry && next)
+      openItem(
+        next,
+        entry.stage,
+        undefined,
+        session.id,
+        entry.practiceKind ?? "typing",
+      );
   }
 
   function skipSessionEntry() {
@@ -1239,7 +1288,14 @@ export default function SwiftGhostApp() {
     const next = allItems.find(
       (candidate) => candidate.itemId === entries[nextIndex].itemId,
     );
-    if (next) openItem(next, entries[nextIndex].stage, undefined, session.id);
+    if (next)
+      openItem(
+        next,
+        entries[nextIndex].stage,
+        undefined,
+        session.id,
+        entries[nextIndex].practiceKind ?? "typing",
+      );
   }
 
   function endSession() {
@@ -1516,6 +1572,7 @@ export default function SwiftGhostApp() {
           result.sessionNext.stage,
           undefined,
           state.activeSession.id,
+          result.sessionNext.practiceKind,
         );
         return;
       }
@@ -1542,6 +1599,9 @@ export default function SwiftGhostApp() {
 
   return (
     <div className={`app-shell ${focusMode ? "is-focus" : ""}`}>
+      <a className="skip-link" href="#main-content">
+        Skip to practice content
+      </a>
       <header className="topbar">
         <button
           className="brand"
@@ -1613,6 +1673,22 @@ export default function SwiftGhostApp() {
           onBrowse={() => navigateView("library")}
           onCreate={() => setCustomEditor("new")}
           onSessions={() => navigateView("sessions")}
+          onStartCoach={(entries, budgetMinutes) =>
+            startSession(
+              {
+                name: `Daily Coach · ${budgetMinutes} min`,
+                count: entries.length,
+                source: "mixed",
+                track: "all",
+                language: "all",
+                pattern: "All",
+                difficulty: "All",
+                stageMode: "recommended",
+              },
+              entries,
+            )
+          }
+          onResumeSession={resumeSession}
         />
       )}
       {view === "practice" && (
@@ -1767,6 +1843,8 @@ function TodayView({
   onBrowse,
   onCreate,
   onSessions,
+  onStartCoach,
+  onResumeSession,
 }: {
   ready: boolean;
   state: AppState;
@@ -1783,6 +1861,11 @@ function TodayView({
   onBrowse: () => void;
   onCreate: () => void;
   onSessions: () => void;
+  onStartCoach: (
+    entries: SessionQueueEntry[],
+    budgetMinutes: number,
+  ) => void;
+  onResumeSession: () => void;
 }) {
   const todayDate = ready ? new Date() : new Date(2000, 0, 1, 12);
   const today = cloudDaily?.date ?? dayKey(todayDate);
@@ -1834,7 +1917,7 @@ function TodayView({
   const minutes = practicedMinutesToday(state);
   const goal = state.settings.dailyGoalMinutes;
   return (
-    <main className="page-container today-page">
+    <main id="main-content" tabIndex={-1} className="page-container today-page">
       <PageHeading
         eyebrow={
           ready
@@ -1847,6 +1930,13 @@ function TodayView({
         }
         title="Build recall, one clean pass at a time."
         copy="Reactivate Python for interviews, keep Swift and iOS sharp, and return to each solution on a spaced schedule."
+      />
+      <DailyCoach
+        ready={ready}
+        state={state}
+        items={items}
+        onStart={onStartCoach}
+        onResume={onResumeSession}
       />
       <section className="today-hero">
         <div className="today-copy">
@@ -1887,6 +1977,11 @@ function TodayView({
         <div className="today-score">
           <div
             className="today-ring"
+            role="progressbar"
+            aria-label="Minutes practiced toward today's goal"
+            aria-valuemin={0}
+            aria-valuemax={goal}
+            aria-valuenow={Math.min(goal, minutes)}
             style={
               {
                 "--goal": `${Math.min(360, (minutes / goal) * 360)}deg`,
@@ -2206,7 +2301,7 @@ function PracticeView(props: PracticeProps) {
     props.onReset();
   }
   return (
-    <main className="practice-layout">
+    <main id="main-content" tabIndex={-1} className="practice-layout">
       <aside className="problem-rail">
         <div className="rail-head">
           <span className="eyebrow">
@@ -2239,7 +2334,11 @@ function PracticeView(props: PracticeProps) {
                   </span>
                   <p>
                     <b>{queued?.title ?? "Unavailable item"}</b>
-                    <small>Stage {entry.stage}</small>
+                    <small>
+                      {entry.practiceKind === "solving"
+                        ? "Independent solve"
+                        : `Stage ${entry.stage} recall`}
+                    </small>
                   </p>
                 </div>
               );
@@ -2460,7 +2559,11 @@ function PracticeView(props: PracticeProps) {
           >
             <strong>Solve</strong>
             <small>
-              {props.item.verification
+              {props.draft.sessionId
+                ? props.practiceKind === "solving"
+                  ? "Planned independent solve"
+                  : "This session step uses recall typing"
+                : props.item.verification
                 ? "Write any passing Python solution"
                 : "Verified Python exercises only"}
             </small>
@@ -2544,8 +2647,13 @@ function PracticeView(props: PracticeProps) {
                   key={step.id}
                   className={`${props.stage === step.id ? "active" : ""} ${step.id <= props.stats.highestStage ? "complete" : ""}`}
                   aria-pressed={props.stage === step.id}
+                  disabled={Boolean(props.draft.sessionId)}
                   onClick={() => props.onChooseStage(step.id)}
-                  title={step.note}
+                  title={
+                    props.draft.sessionId
+                      ? "This session step has a fixed recall stage"
+                      : step.note
+                  }
                 >
                   <span>
                     {step.id <= props.stats.highestStage ? "✓" : step.id}
@@ -2728,7 +2836,7 @@ function PracticeView(props: PracticeProps) {
         {props.item.verification && (
           <section className="python-verification" aria-live="polite">
             <div>
-              <span className="eyebrow">Browser Python</span>
+              <span className="eyebrow">Browser Python · local subset</span>
               <h2>
                 {props.practiceKind === "solving"
                   ? "Verify your implementation."
@@ -2736,7 +2844,10 @@ function PracticeView(props: PracticeProps) {
               </h2>
               <p>
                 Your code stays on this device. Every check starts in a fresh
-                Python worker; the first one loads the bundled runtime. Checks
+                Python worker; the first one loads the bundled runtime. The
+                full exercise catalog is tested here, while CPython-only
+                packages and a few newer language features are intentionally
+                outside this fast local subset.
                 {props.practiceKind === "solving"
                   ? " A passing solve can be recorded as independent problem-solving evidence, separate from typing speed and rankings."
                   : " Checks never affect mastery or public rankings."}
@@ -2801,7 +2912,7 @@ function PracticeView(props: PracticeProps) {
                   <code>{visibleVerificationState.result.setupError}</code>
                 )}
                 <ul>
-                  {visibleVerificationState.result.cases.map((testCase) => (
+                  {visibleVerificationState.result.cases.map((testCase, index) => (
                     <li
                       className={testCase.passed ? "passed" : "failed"}
                       key={testCase.name}
@@ -2809,6 +2920,15 @@ function PracticeView(props: PracticeProps) {
                       <span>{testCase.passed ? "✓" : "×"}</span>
                       <strong>{testCase.name}</strong>
                       {testCase.error && <code>{testCase.error}</code>}
+                      {!testCase.passed && !testCase.error && (
+                        <code>
+                          expected: {JSON.stringify(
+                            props.item.verification?.cases[index]?.expected,
+                          )}
+                          {"\n"}
+                          received: {JSON.stringify(testCase.actual)}
+                        </code>
+                      )}
                     </li>
                   ))}
                 </ul>
@@ -2935,7 +3055,7 @@ function SessionsView({
   );
   const active = state.activeSession;
   return (
-    <main className="page-container sessions-page">
+    <main id="main-content" tabIndex={-1} className="page-container sessions-page">
       <PageHeading
         eyebrow="Deliberate practice"
         title="Build a session that has a finish line."
@@ -2961,6 +3081,13 @@ function SessionsView({
           </div>
           <div
             className="session-progress"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={active.entries.length}
+            aria-valuenow={
+              active.entries.filter((entry) => entry.status !== "pending")
+                .length
+            }
             aria-label={`${active.currentIndex + 1} of ${active.entries.length}`}
           >
             <i
@@ -3000,8 +3127,15 @@ function SessionsView({
                   <div>
                     <strong>{item?.title ?? "Unavailable item"}</strong>
                     <small>
-                      Stage {entry.stage} · revision {entry.itemRevision}
+                      {entry.practiceKind === "solving"
+                        ? "Independent solve"
+                        : `Stage ${entry.stage} recall`}
+                      {entry.estimatedMinutes
+                        ? ` · ${entry.estimatedMinutes} min`
+                        : ""}
+                      {` · revision ${entry.itemRevision}`}
                     </small>
+                    {entry.rationale && <small>{entry.rationale}</small>}
                   </div>
                 </article>
               );
@@ -3162,7 +3296,7 @@ function SessionsView({
                   : "No matching items"}
               </h2>
             </div>
-            <span>Stages lock when started</span>
+            <span>Mode and stage lock when started</span>
           </div>
           <div className="session-preview-list">
             {preview.map((entry, index) => {
@@ -3176,7 +3310,10 @@ function SessionsView({
                     <strong>{item?.title}</strong>
                     <small>
                       {item ? laneLabel(item) : "Unavailable"} · {item?.pattern}{" "}
-                      · Stage {entry.stage}
+                      ·{" "}
+                      {entry.practiceKind === "solving"
+                        ? "Independent solve"
+                        : `Stage ${entry.stage}`}
                     </small>
                   </div>
                 </article>
@@ -3377,7 +3514,7 @@ function LibraryView({
     setSort("recommended");
   }
   return (
-    <main className="page-container">
+    <main id="main-content" tabIndex={-1} className="page-container">
       <div className="heading-actions">
         <PageHeading
           eyebrow="Python, Swift, and iOS catalog"
@@ -3766,7 +3903,7 @@ function RecordsView({
     .slice(0, 8);
   const maxFriction = Math.max(1, ...friction.map(([, count]) => count));
   return (
-    <main className="page-container">
+    <main id="main-content" tabIndex={-1} className="page-container">
       <PageHeading
         eyebrow="Local profile + community beta"
         title="Records you can trust."
@@ -4118,7 +4255,7 @@ function SettingsView({
   onReset: () => void;
 }) {
   return (
-    <main className="page-container settings-page">
+    <main id="main-content" tabIndex={-1} className="page-container settings-page">
       <PageHeading
         eyebrow="Make it yours"
         title="Practice settings."

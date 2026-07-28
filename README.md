@@ -16,18 +16,19 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - 50 original Swift implementations across 12 interview patterns
 - 16 iOS and Swift fundamentals covering language semantics, concurrency, UIKit, SwiftUI, networking, testing, and accessibility
 - A Today dashboard with a deterministic Daily Type, Python and iOS reactivation exercises, due recall, and resumable drafts
+- An Adaptive Daily Coach that builds deterministic 15-, 30-, or 45-minute plans from overdue work, missing evidence, Python fluency, independent solves, and iOS maintenance
 - Searchable, filterable, sortable problem library
 - Strict and free-correction typing modes with selection-aware character feedback
 - WPM, raw keystrokes, accuracy, corrections, peeks, timing, and consistency records
 - Per-attempt pace timelines, line-level error forensics, and three-pass weak-line repair drills
-- Real browser-side Python checks for every built-in Python solution, isolated in a Web Worker with a pinned, self-hosted runtime
+- Real browser-side Python checks for every built-in Python solution, isolated in a fresh Web Worker with a pinned, self-hosted runtime and a catalog-wide 48/48 compatibility test
 - A first-class Python Solve lane with authored starter code, free-form editing, source-bound executable verification, hint tracking, and solve evidence kept separate from typing records
 - Five-stage per-problem recall ladder with honest mastery and qualified personal bests
 - Post-attempt pace charts, missed-line forensics, same-stage retries, and exact item/revision/stage community benchmark previews
 - Local attempt history, streaks, daily goals, pattern coverage, and progress charts
 - Spaced review at 1, 3, 7, 14, and 30 days, with lapses returning tomorrow
 - Device-local custom Python or Swift snippets with safe content revisions and learning milestones
-- Persistent multi-problem sessions with independent track, source, category, difficulty, count, and recall-policy controls
+- Persistent multi-problem sessions with independent track, source, category, difficulty, count, and recall-policy controls, plus mixed typing and verified-solve tasks from the Daily Coach
 - Separate Python interview, Swift interview, and iOS catalog filtering, coverage, and persisted key-friction analytics
 - Shareable query-string links for exact exercises, languages, stages, records tabs, and public profiles that work on GitHub Pages and the hosted edition
 - An optional hosted community edition with ChatGPT identity, public profiles, recent qualifying runs, per-exercise records, and a shared daily benchmark
@@ -42,7 +43,7 @@ Interview content and code-typing products usually exist separately. Swift Ghost
 
 ## Privacy
 
-The GitHub Pages edition is entirely local: it has no account requirement, telemetry, cookies, or network-backed progress. Practice history and settings stay in the browser's local storage, and a portable JSON export is available in Settings. Python checks execute only inside an isolated browser worker and never send source code to a server.
+The GitHub Pages edition is entirely local: it has no account requirement, telemetry, cookies, or network-backed progress. Practice history and settings stay in the browser's local storage, and a portable JSON export is available in Settings. Python checks execute only inside an isolated browser worker and never send source code to a server. The fast local interpreter covers every shipped exercise and common interview helpers, but it is intentionally labeled as a subset: CPython-only packages and some newer Python language features are outside its scope.
 
 The hosted community edition uses ChatGPT identity. Community uploads are off by default and must be explicitly enabled. Only completed built-in attempt summaries can upload; custom snippets, drafts, source code, email addresses, and key-level telemetry are never public. Public profiles, activity sharing, and leaderboard participation each require a separate opt-in.
 

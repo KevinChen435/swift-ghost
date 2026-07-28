@@ -1,0 +1,53 @@
+import type { AttemptRecord } from "./product";
+import type { ItemId, PracticeItem } from "./items";
+import type { SessionQueueEntry } from "./sessions.mjs";
+
+export type PlannerActivityKind = "syntax" | "solve" | "concept";
+export type PlannerLane = "review" | "interview" | "python" | "ios";
+export type TrainingProfile = {
+  preferredLanguage?: "python" | "swift";
+  dailyGoalMinutes?: number;
+  pythonShare?: number;
+  reviewShare?: number;
+  iosShare?: number;
+};
+export type DailyPlanTask = SessionQueueEntry & {
+  practiceKind: "typing" | "solving";
+  activityKind: PlannerActivityKind;
+  estimatedMinutes: number;
+  rationale: string;
+  score: number;
+  track: "interview" | "ios";
+  language: "python" | "swift";
+};
+export type DailyPlan = {
+  date: string;
+  budgetMinutes: number;
+  estimatedMinutes: number;
+  tasks: DailyPlanTask[];
+  entries: DailyPlanTask[];
+  laneMinutes: Record<PlannerLane, number>;
+  deferredDueCount: number;
+};
+export type DailyPlanInput = {
+  items: PracticeItem[];
+  attempts?: AttemptRecord[];
+  solves?: AttemptRecord[];
+  reviews?: unknown[];
+  reviewStatuses?: unknown[];
+  evidence?: unknown[];
+  favorites?: ItemId[];
+  profile?: TrainingProfile;
+  trainingProfile?: TrainingProfile;
+  now?: Date | string | number;
+  budgetMinutes?: number;
+  maxItems?: number;
+};
+export function buildDailyPlan(
+  input: DailyPlanInput,
+  options?: {
+    now?: Date | string | number;
+    budgetMinutes?: number;
+    maxItems?: number;
+  },
+): DailyPlan;

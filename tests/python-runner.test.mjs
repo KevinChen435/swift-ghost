@@ -24,7 +24,10 @@ test("buildPythonHarness embeds source and metadata as inert JSON documents", ()
   assert.match(harness, /_SPEC = _json\.loads\(/);
   assert.doesNotMatch(harness, /# " \); raise RuntimeError/);
   assert.match(harness, /def _normalize\(/);
-  assert.match(harness, /class _BoundedWriter/);
+  assert.match(harness, /class _Counter/);
+  assert.match(harness, /class _Deque/);
+  assert.match(harness, /_sys\.modules\["js"\] = _blocked_js/);
+  assert.match(harness, /_RESULT_JSON = _json\.dumps/);
   assert.match(harness, /isinstance\(value, \(list, tuple\)\)/);
 });
 
@@ -193,22 +196,20 @@ test("execution timeout starts after readiness and a timed-out worker is replace
     assert.equal(workers[0].options.type, "module");
     assert.equal(
       workers[0].url.href,
-      "https://example.test/swift-ghost/python-runner.worker.mjs",
+      "https://example.test/swift-ghost/python-runner.worker.mjs?v=1.28.0-6-micropython-1",
     );
     assert.equal(workers[0].messages[0].type, "init");
-    assert.equal(
-      timers.length,
-      0,
-      "runtime loading must not consume the execution budget",
-    );
+    assert.equal(timers.length, 1);
+    assert.equal(timers[0].delay, 12_000);
 
     workers[0].emit({ type: "ready", nonce: workers[0].messages[0].nonce });
     await Promise.resolve();
     await Promise.resolve();
     assert.equal(workers[0].messages[1].type, "verify");
-    assert.equal(timers.length, 1);
-    assert.equal(timers[0].delay, 4_000);
-    timers[0].callback();
+    assert.equal(timers[0].cleared, true);
+    assert.equal(timers.length, 2);
+    assert.equal(timers[1].delay, 4_000);
+    timers[1].callback();
     await assert.rejects(firstRun, /4 second limit/);
     assert.equal(workers[0].terminated, true);
 
@@ -232,20 +233,68 @@ test("execution timeout starts after readiness and a timed-out worker is replace
   }
 });
 
+test("a stalled runtime initialization is bounded and replaced", async () => {
+  const workers = [];
+  class FakeWorker {
+    constructor() {
+      this.listeners = new Map();
+      this.messages = [];
+      this.terminated = false;
+      workers.push(this);
+    }
+    addEventListener(type, listener) {
+      this.listeners.set(type, listener);
+    }
+    postMessage(message) {
+      this.messages.push(message);
+    }
+    terminate() {
+      this.terminated = true;
+    }
+  }
+
+  const runner = createPythonRunner({
+    Worker: FakeWorker,
+    baseUrl: "https://example.test/",
+    initializationTimeoutMs: 5,
+  });
+  try {
+    const firstRun = runner.verify(
+      "def solve(values):\n    return values",
+      functionVerification,
+    );
+    await assert.rejects(firstRun, /Python runtime did not start/);
+    assert.equal(workers[0].terminated, true);
+
+    const secondRun = runner.verify(
+      "def solve(values):\n    return values",
+      functionVerification,
+    );
+    await Promise.resolve();
+    assert.equal(workers.length, 2);
+    runner.dispose();
+    await assert.rejects(secondRun, /disposed/);
+  } finally {
+    runner.dispose();
+  }
+});
+
 test("worker loads only the pinned same-origin runtime and closes browser network primitives", async () => {
   const workerSource = await readFile(
     new URL("../public/python-runner.worker.mjs", import.meta.url),
     "utf8",
   );
   const syncSource = await readFile(
-    new URL("../scripts/sync-pyodide.mjs", import.meta.url),
+    new URL("../scripts/sync-python-runtime.mjs", import.meta.url),
     "utf8",
   );
-  assert.match(workerSource, /PYODIDE_VERSION = "314\.0\.3"/);
+  assert.match(workerSource, /MICROPYTHON_VERSION = "1\.28\.0-6"/);
   assert.match(
     workerSource,
-    /new URL\("\.\/vendor\/pyodide\/", import\.meta\.url\)/,
+    /`\.\/vendor\/micropython-\$\{MICROPYTHON_VERSION\}\/`/,
   );
+  assert.match(workerSource, /import \{ loadMicroPython \}/);
+  assert.match(workerSource, /linebuffer: false/);
   assert.doesNotMatch(workerSource, /https?:\/\//);
   for (const primitive of [
     "fetch",
@@ -263,14 +312,8 @@ test("worker loads only the pinned same-origin runtime and closes browser networ
     );
   }
   assert.match(workerSource, /NONCE_PATTERN/);
-  assert.match(syncSource, /PINNED_VERSION = "314\.0\.3"/);
-  for (const artifact of [
-    "pyodide.mjs",
-    "pyodide.asm.mjs",
-    "pyodide.asm.wasm",
-    "pyodide-lock.json",
-    "python_stdlib.zip",
-  ]) {
+  assert.match(syncSource, /PINNED_VERSION = "1\.28\.0-6"/);
+  for (const artifact of ["micropython.mjs", "micropython.wasm"]) {
     assert.ok(
       syncSource.includes(`\"${artifact}\"`),
       `${artifact} should be copied into the public vendor directory`,

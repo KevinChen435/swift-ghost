@@ -4,12 +4,16 @@ export type SessionSource = "mixed" | "due" | "new" | "favorites" | "custom";
 export type SessionTrack = "all" | "interview" | "ios";
 export type SessionLanguage = "all" | "python" | "swift";
 export type SessionStageMode = "recommended" | "recall";
+export type SessionPracticeKind = "typing" | "solving";
 export type SessionQueueEntry = {
   itemId: ItemId;
   itemRevision: number;
   stage: number;
   status: "pending" | "completed" | "skipped";
   attemptId?: string;
+  practiceKind?: SessionPracticeKind;
+  estimatedMinutes?: number;
+  rationale?: string;
 };
 export type SessionSignals = Record<string, {
   due?: boolean;
@@ -23,6 +27,10 @@ export const SESSION_SOURCES: SessionSource[];
 export const SESSION_TRACKS: SessionTrack[];
 export const SESSION_LANGUAGES: SessionLanguage[];
 export const SESSION_STAGE_MODES: SessionStageMode[];
+export function resolveSessionCurrentIndex(
+  entries: Array<{ status: SessionQueueEntry["status"]; rawIndex: number }>,
+  requestedRawIndex: number,
+): number;
 export function buildSessionQueue(
   items: PracticeItem[],
   signals: SessionSignals,

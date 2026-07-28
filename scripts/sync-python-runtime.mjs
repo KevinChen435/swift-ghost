@@ -2,27 +2,31 @@ import { copyFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const PINNED_VERSION = "314.0.3";
-const REQUIRED_FILES = [
-  "pyodide.mjs",
-  "pyodide.asm.mjs",
-  "pyodide.asm.wasm",
-  "pyodide-lock.json",
-  "python_stdlib.zip",
-];
+const PINNED_VERSION = "1.28.0-6";
+const REQUIRED_FILES = ["micropython.mjs", "micropython.wasm"];
 const projectRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const packageRoot = path.join(projectRoot, "node_modules", "pyodide");
-const destination = path.join(projectRoot, "public", "vendor", "pyodide");
+const packageRoot = path.join(
+  projectRoot,
+  "node_modules",
+  "@micropython",
+  "micropython-webassembly-pyscript",
+);
+const destination = path.join(
+  projectRoot,
+  "public",
+  "vendor",
+  `micropython-${PINNED_VERSION}`,
+);
 
 const packageMetadata = JSON.parse(
   await readFile(path.join(packageRoot, "package.json"), "utf8"),
 );
 if (packageMetadata.version !== PINNED_VERSION) {
   throw new Error(
-    `Expected pyodide ${PINNED_VERSION}, found ${packageMetadata.version ?? "an unknown version"}`,
+    `Expected MicroPython ${PINNED_VERSION}, found ${packageMetadata.version ?? "an unknown version"}`,
   );
 }
 
@@ -33,5 +37,5 @@ await Promise.all(
   ),
 );
 console.log(
-  `Synced Pyodide ${PINNED_VERSION} browser runtime (${REQUIRED_FILES.length} files).`,
+  `Synced MicroPython ${PINNED_VERSION} browser runtime (${REQUIRED_FILES.length} files).`,
 );
