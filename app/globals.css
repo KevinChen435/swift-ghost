@@ -1494,6 +1494,63 @@ kbd {
   gap: 10px;
   margin-bottom: 10px;
 }
+.readiness-panel {
+  margin-bottom: 10px;
+  padding: 20px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background:
+    radial-gradient(
+      circle at top right,
+      color-mix(in srgb, var(--accent) 9%, transparent),
+      transparent 36%
+    ),
+    var(--panel);
+}
+.readiness-panel .section-head {
+  align-items: flex-start;
+}
+.readiness-panel .section-head small {
+  color: var(--accent);
+  font: 8px var(--font-code);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.readiness-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 15px;
+}
+.readiness-grid article {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-raised) 70%, transparent);
+}
+.readiness-grid article > small {
+  display: block;
+  min-height: 24px;
+  color: var(--muted);
+  font: 8px var(--font-code);
+  line-height: 1.45;
+  text-transform: uppercase;
+}
+.readiness-grid strong {
+  display: block;
+  margin: 8px 0 5px;
+  color: var(--text);
+  font-size: clamp(18px, 2vw, 25px);
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+.readiness-grid p {
+  margin: 0;
+  color: var(--faint);
+  font-size: 9px;
+  line-height: 1.45;
+}
 .stat-card {
   padding: 18px;
   border: 1px solid var(--border-soft);
@@ -2912,6 +2969,143 @@ kbd {
   font-size: 7px;
 }
 
+.post-attempt-debrief {
+  margin: 0 0 20px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--violet) 28%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--violet) 5%, var(--bg-raised));
+  text-align: left;
+}
+.debrief-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+.debrief-heading h3 {
+  margin: 4px 0 0;
+  font-size: 15px;
+  letter-spacing: -0.25px;
+}
+.debrief-heading > small,
+.debrief-save-row small {
+  max-width: 210px;
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.5;
+}
+.post-attempt-debrief fieldset {
+  margin: 0 0 13px;
+  padding: 0;
+  border: 0;
+}
+.post-attempt-debrief legend,
+.debrief-confidence > span,
+.debrief-recall > span {
+  margin-bottom: 7px;
+  color: var(--faint);
+  font: 700 7px var(--font-code);
+  text-transform: uppercase;
+  letter-spacing: 0.55px;
+}
+.debrief-grade-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.debrief-grade-grid button,
+.debrief-friction-grid button {
+  min-height: 42px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: pointer;
+}
+.debrief-grade-grid button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px;
+  text-align: left;
+}
+.debrief-grade-grid button strong {
+  color: var(--text);
+  font-size: 10px;
+}
+.debrief-grade-grid button small {
+  font-size: 7px;
+  line-height: 1.35;
+}
+.debrief-friction-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.debrief-friction-grid button {
+  padding: 8px;
+  font-size: 8px;
+}
+.debrief-grade-grid button:hover,
+.debrief-friction-grid button:hover,
+.debrief-grade-grid button.active,
+.debrief-friction-grid button.active {
+  border-color: color-mix(in srgb, var(--violet) 55%, var(--border));
+  background: color-mix(in srgb, var(--violet) 11%, var(--panel));
+  color: var(--text);
+}
+.debrief-confidence {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  margin: 2px 0 14px;
+}
+.debrief-confidence > span {
+  margin: 0;
+}
+.debrief-confidence input {
+  accent-color: var(--violet);
+}
+.debrief-confidence strong {
+  color: var(--violet);
+  font: 700 9px var(--font-code);
+}
+.debrief-recall {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.debrief-recall > span {
+  margin: 0;
+}
+.debrief-recall > strong {
+  font-size: 9px;
+  line-height: 1.5;
+}
+.debrief-recall textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 9px 10px;
+  font: 9px/1.5 var(--font-ui);
+}
+.debrief-save-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.debrief-save-row small {
+  max-width: none;
+}
+
 .custom-dialog {
   position: relative;
   width: min(760px, 100%);
@@ -3756,6 +3950,9 @@ kbd {
   .stat-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+  .readiness-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .dashboard-grid {
     grid-template-columns: 1fr;
   }
@@ -3958,6 +4155,16 @@ kbd {
   .stat-grid {
     grid-template-columns: 1fr 1fr;
   }
+  .readiness-panel {
+    padding: 15px;
+  }
+  .readiness-panel .section-head {
+    display: block;
+  }
+  .readiness-panel .section-head > span {
+    display: block;
+    margin-top: 6px;
+  }
   .mastery-grid {
     grid-template-columns: 1fr;
   }
@@ -3998,6 +4205,18 @@ kbd {
   }
   .result-benchmark {
     grid-template-columns: 1fr;
+  }
+  .debrief-heading,
+  .debrief-save-row {
+    flex-direction: column;
+    gap: 9px;
+  }
+  .debrief-heading > small {
+    max-width: none;
+  }
+  .debrief-grade-grid,
+  .debrief-friction-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .forensics-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));

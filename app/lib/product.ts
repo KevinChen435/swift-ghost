@@ -11,6 +11,11 @@ import {
 } from "./analytics.mjs";
 import { correctPositionCount } from "./typing-engine.mjs";
 import { resolveSessionCurrentIndex } from "./sessions.mjs";
+import {
+  applyDebriefToReviewState,
+  normalizeLearningEvents,
+  type LearningEvent,
+} from "./learning-state.mjs";
 import type {
   SessionLanguage,
   SessionQueueEntry,
@@ -160,8 +165,9 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 9;
+  version: 10;
   attempts: AttemptRecord[];
+  learningEvents: LearningEvent[];
   favorites: ItemId[];
   customItems: PracticeItem[];
   settings: Settings;
@@ -173,14 +179,15 @@ export type AppState = {
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v9";
-export const PREVIOUS_STORAGE_KEY = "swift-ghost-state-v8";
-export const LEGACY_STORAGE_KEY = "swift-ghost-state-v7";
-export const OLDER_STORAGE_KEY = "swift-ghost-state-v6";
-export const OLDEST_STORAGE_KEY = "swift-ghost-state-v5";
-export const ORIGINAL_STORAGE_KEY = "swift-ghost-state-v4";
-export const FIRST_STORAGE_KEY = "swift-ghost-state-v3";
-export const EARLIEST_STORAGE_KEY = "swift-ghost-state-v2";
+export const STORAGE_KEY = "swift-ghost-state-v10";
+export const PREVIOUS_STORAGE_KEY = "swift-ghost-state-v9";
+export const LEGACY_STORAGE_KEY = "swift-ghost-state-v8";
+export const OLDER_STORAGE_KEY = "swift-ghost-state-v7";
+export const OLDEST_STORAGE_KEY = "swift-ghost-state-v6";
+export const ORIGINAL_STORAGE_KEY = "swift-ghost-state-v5";
+export const FIRST_STORAGE_KEY = "swift-ghost-state-v4";
+export const EARLIEST_STORAGE_KEY = "swift-ghost-state-v3";
+export const INITIAL_STORAGE_KEY = "swift-ghost-state-v2";
 
 export const DEFAULT_SETTINGS: Settings = {
   theme: "midnight",
@@ -196,8 +203,9 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 9,
+  version: 10,
   attempts: [],
+  learningEvents: [],
   favorites: [],
   customItems: [],
   settings: DEFAULT_SETTINGS,
@@ -845,8 +853,12 @@ export function normalizeState(value: unknown): AppState {
     ? { ...draft, sessionId: draftMatchesSession ? draft.sessionId : undefined }
     : null;
   return {
-    version: 9,
+    version: 10,
     attempts,
+    learningEvents: normalizeLearningEvents(value.learningEvents, {
+      validItemIds: validIds,
+      attemptsById: new Map(attempts.map((attempt) => [attempt.id, attempt])),
+    }),
     favorites,
     customItems,
     settings: normalizeSettings(value.settings),
@@ -876,6 +888,7 @@ export function loadState(): AppState {
       ORIGINAL_STORAGE_KEY,
       FIRST_STORAGE_KEY,
       EARLIEST_STORAGE_KEY,
+      INITIAL_STORAGE_KEY,
     ]) {
       const stored = localStorage.getItem(key);
       if (!stored) continue;
@@ -897,7 +910,8 @@ function hasSupportedStateVersion(
   value: unknown,
 ): value is Record<string, unknown> {
   return (
-    isRecord(value) && [2, 3, 4, 5, 6, 7, 8, 9].includes(Number(value.version))
+    isRecord(value) &&
+    [2, 3, 4, 5, 6, 7, 8, 9, 10].includes(Number(value.version))
   );
 }
 
@@ -1096,6 +1110,23 @@ export function reviewStatus(state: AppState, itemId: ItemId) {
       dueAt = new Date(Date.parse(attempt.completedAt) + 86400000);
     }
   }
+  const lastAttemptAt = attempts.length
+    ? Date.parse(attempts.at(-1)?.completedAt ?? "")
+    : 0;
+  const lastDebrief = state.learningEvents
+    .filter(
+      (event) =>
+        event.itemId === itemId &&
+        event.itemRevision === revision &&
+        !Number.isNaN(Date.parse(event.createdAt)),
+    )
+    .slice()
+    .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
+    .at(-1);
+  ({ level, dueAt } = applyDebriefToReviewState(
+    { level, dueAt, lastAttemptAt },
+    lastDebrief,
+  ));
   return { level, dueAt };
 }
 export function reviewDueAt(state: AppState, itemId: ItemId) {

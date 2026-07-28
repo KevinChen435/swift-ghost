@@ -25,6 +25,8 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - A first-class Python Solve lane with authored starter code, free-form editing, source-bound executable verification, hint tracking, and solve evidence kept separate from typing records
 - Five-stage per-problem recall ladder with honest mastery and qualified personal bests
 - Post-attempt pace charts, missed-line forensics, same-stage retries, and exact item/revision/stage community benchmark previews
+- Optional 30-second learning debriefs that record retrieval difficulty, cognitive friction, confidence, and an authored teach-back response; these stay local and feed the next Daily Coach plan
+- A 30-day readiness evidence view that keeps hint-free verified solves, retrieval quality, debrief coverage, recurring friction, practice mix, and review burden separate instead of collapsing them into a misleading score
 - Local attempt history, streaks, daily goals, pattern coverage, and progress charts
 - Spaced review at 1, 3, 7, 14, and 30 days, with lapses returning tomorrow
 - Device-local custom Python or Swift snippets with safe content revisions and learning milestones
@@ -70,7 +72,7 @@ Interview problem names link to their public LeetCode pages; iOS fundamentals li
 
 ## Roadmap
 
-The local-first training core remains the priority. Planned work includes authored semantic masks, teach-back debriefs, timed mock-interview sessions, richer public performance profiles, and cross-device learning-state sync.
+The local-first training core remains the priority. Planned work includes authored semantic masks, dedicated iOS concept-practice sessions, timed mock interviews, longitudinal readiness trends, and cross-device learning-state sync.
 
 ## License
 

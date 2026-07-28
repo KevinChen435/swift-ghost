@@ -75,6 +75,22 @@ test("ships the full five-stage practice model and original problem links", asyn
     new URL("../app/lib/planner.mjs", import.meta.url),
     "utf8",
   );
+  const debrief = await readFile(
+    new URL("../app/components/PostAttemptDebrief.tsx", import.meta.url),
+    "utf8",
+  );
+  const learningState = await readFile(
+    new URL("../app/lib/learning-state.mjs", import.meta.url),
+    "utf8",
+  );
+  const readinessPanel = await readFile(
+    new URL("../app/components/ReadinessAnalytics.tsx", import.meta.url),
+    "utf8",
+  );
+  const readiness = await readFile(
+    new URL("../app/lib/readiness.mjs", import.meta.url),
+    "utf8",
+  );
 
   for (const stage of [
     "Full ghost",
@@ -86,6 +102,7 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
+  assert.match(product, /swift-ghost-state-v10/);
   assert.match(product, /swift-ghost-state-v9/);
   assert.match(product, /swift-ghost-state-v8/);
   assert.match(product, /swift-ghost-state-v7/);
@@ -104,6 +121,8 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(worker, /UPDATE daily_challenges/);
   assert.match(product, /outcome: "completed" \| "abandoned"/);
   assert.match(product, /PracticeKind = "typing" \| "solving"/);
+  assert.match(product, /learningEvents: LearningEvent\[\]/);
+  assert.match(product, /normalizeLearningEvents/);
   assert.match(product, /attempt\.practiceKind === "typing"/);
   assert.match(product, /attempt\.practiceKind === "solving"/);
   assert.match(product, /resolveSessionCurrentIndex/);
@@ -180,7 +199,21 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(coach, /15, 30, 45/);
   assert.match(coach, /Every task says why it earned time/);
   assert.match(planner, /activityKind === "solve"/);
+  assert.match(planner, /input\?\.learningEvents/);
   assert.match(planner, /deferredDueCount/);
+  assert.match(debrief, /30-second debrief/);
+  assert.match(debrief, /How did retrieval feel/);
+  assert.match(debrief, /No meaningful friction/);
+  assert.match(learningState, /upsertLearningEvent/);
+  assert.match(learningState, /applyDebriefToReviewState/);
+  assert.match(product, /applyDebriefToReviewState/);
+  assert.match(readinessPanel, /Interview readiness evidence/);
+  assert.match(readinessPanel, /Rates appear after 3 observations/);
+  assert.match(readiness, /attempt\.practiceKind === "solving"/);
+  assert.match(readiness, /attempt\.verification\?\.total/);
+  assert.match(readiness, /Number\(item\.contentRevision/);
+  assert.match(page, /<ReadinessAnalytics/);
+  assert.match(page, /saveResultDebrief/);
   assert.match(page, /attempt\.practiceKind === "typing"/);
   assert.match(page, /Exact item/);
   assert.match(page, /Retry same/);

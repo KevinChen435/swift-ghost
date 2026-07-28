@@ -114,3 +114,30 @@ test("planning does not mutate caller-owned data", () => {
   assert.deepEqual(sourceItems, beforeItems);
   assert.deepEqual(sourceAttempts, beforeAttempts);
 });
+
+test("an Again debrief returns the matching competence sooner", () => {
+  const repeatedSuccesses = [
+    attempt({ id: "a1", completedAt: "2026-07-01T12:00:00.000Z" }),
+    attempt({ id: "a2", completedAt: "2026-07-04T12:00:00.000Z" }),
+    attempt({ id: "a3", completedAt: "2026-07-11T12:00:00.000Z" }),
+  ];
+  const learningEvents = [
+    {
+      id: "event-a3",
+      attemptId: "a3",
+      itemId: "python:1",
+      itemRevision: 1,
+      practiceKind: "solving",
+      activityKind: "solve",
+      grade: "again",
+      friction: "recognition",
+      confidence: 2,
+      createdAt: "2026-07-19T12:00:00.000Z",
+    },
+  ];
+  const plan = buildDailyPlan(
+    { items: [items[1]], attempts: repeatedSuccesses, learningEvents },
+    { now: new Date("2026-07-21T12:00:00.000Z"), budgetMinutes: 15 },
+  );
+  assert.match(plan.entries[0].rationale, /due|Again|recognition/i);
+});
