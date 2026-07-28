@@ -93,6 +93,7 @@ import {
   completedAttempts,
   consistencyFromSamples,
   currentMetrics,
+  customTestcaseSchemaForItem,
   dailyItem,
   dayKey,
   eligibleAttempt,
@@ -121,6 +122,19 @@ import {
   type View,
 } from "../lib/product";
 import {
+  addCustomTestcase,
+  buildCustomTestcaseExecution,
+  createCustomTestcaseCollection,
+  deleteCustomTestcase,
+  duplicateCustomTestcase,
+  selectCustomTestcase,
+  updateCustomTestcase,
+  updateCustomTestcaseField,
+  type CustomTestcase,
+  type CustomTestcaseCollection,
+  type CustomTestcaseField,
+} from "../lib/custom-testcases.mjs";
+import {
   normalizeTimelineSamples,
   type TimelineSample,
 } from "../lib/analytics.mjs";
@@ -145,7 +159,6 @@ import {
 import {
   challengeVerificationForPurpose,
   classifySubmissionResult,
-  customCaseVerification,
   defaultCustomCaseInput,
   isRecordableChallengeResult,
 } from "../lib/challenge-lab.mjs";
@@ -184,6 +197,7 @@ type CloudRuntime = {
 };
 
 const cloudClient = createCloudClient();
+const STATE_SAVE_DEBOUNCE_MS = 300;
 
 const THEMES: { id: Theme; label: string; colors: string[] }[] = [
   {
@@ -449,6 +463,7 @@ export default function SwiftGhostApp() {
         initialItem,
         route.practiceKind ?? restoredPracticeKind,
       );
+      stateRef.current = restored;
       setState(restored);
       setView(route.view);
       setSelectedId(initialItem.itemId);
@@ -494,8 +509,27 @@ export default function SwiftGhostApp() {
   }, [ready, allItems, selectedId]);
 
   useEffect(() => {
-    if (ready) saveState(state);
+    if (!ready) return;
+    const timer = window.setTimeout(
+      () => saveState(stateRef.current),
+      STATE_SAVE_DEBOUNCE_MS,
+    );
+    return () => window.clearTimeout(timer);
   }, [ready, state]);
+  useEffect(() => {
+    if (!ready) return;
+    const flushState = () => saveState(stateRef.current);
+    const flushHiddenState = () => {
+      if (document.visibilityState === "hidden") flushState();
+    };
+    window.addEventListener("pagehide", flushState);
+    document.addEventListener("visibilitychange", flushHiddenState);
+    return () => {
+      flushState();
+      window.removeEventListener("pagehide", flushState);
+      document.removeEventListener("visibilitychange", flushHiddenState);
+    };
+  }, [ready]);
   useEffect(() => {
     document.documentElement.dataset.theme = state.settings.theme;
     document.documentElement.dataset.font = state.settings.font;
@@ -680,7 +714,11 @@ export default function SwiftGhostApp() {
   );
 
   function mutateState(updater: (current: AppState) => AppState) {
-    setState((current) => updater(current));
+    setState((current) => {
+      const next = updater(current);
+      stateRef.current = next;
+      return next;
+    });
   }
 
   function writeRoute(route: AppRoute, replace = false) {
@@ -982,6 +1020,16 @@ export default function SwiftGhostApp() {
     }));
   }
 
+  function updateCustomTestcases(collection: CustomTestcaseCollection) {
+    mutateState((current) => ({
+      ...current,
+      customTestcases: {
+        ...current.customTestcases,
+        [item.itemId]: collection,
+      },
+    }));
+  }
+
   function recordSubmission(submission: SubmissionRecord) {
     mutateState((current) => ({
       ...current,
@@ -992,8 +1040,22 @@ export default function SwiftGhostApp() {
     }));
   }
 
-  function restoreSubmissionSource(source: string) {
-    if (practiceKind !== "solving" || !item.verification) return;
+  function restoreSubmissionSource(submission: SubmissionRecord) {
+    if (
+      practiceKind !== "solving" ||
+      !item.verification ||
+      submission.itemId !== item.itemId
+    ) {
+      return;
+    }
+    const liveDraft = stateRef.current.draft;
+    if (
+      liveDraft?.itemId === item.itemId &&
+      liveDraft.practiceKind === "solving" &&
+      liveDraft.value === submission.source
+    ) {
+      return;
+    }
     mutateState((current) => {
       const currentDraft =
         current.draft?.itemId === item.itemId &&
@@ -1008,11 +1070,12 @@ export default function SwiftGhostApp() {
               "solving",
               item.starterCode ?? "",
             );
+      if (currentDraft.value === submission.source) return current;
       return {
         ...current,
         draft: {
           ...currentDraft,
-          value: source,
+          value: submission.source,
           startedAt: currentDraft.startedAt ?? Date.now(),
           peeks: currentDraft.peeks + 1,
         },
@@ -1217,8 +1280,7 @@ export default function SwiftGhostApp() {
     completeAttempt(draft, attempt, event);
   }
 
-  function handleChange(event: ChangeEvent<HTMLTextAreaElement>) {
-    const proposed = event.target.value;
+  function handleValueChange(proposed: string) {
     const edit = analyzeEdit(draft.value, proposed, item.code);
     const startedAt = draft.startedAt ?? Date.now();
     if (draft.practiceKind === "solving") {
@@ -1342,11 +1404,9 @@ export default function SwiftGhostApp() {
   function insertAtCursor(input: HTMLTextAreaElement, text: string) {
     const start = input.selectionStart;
     const end = input.selectionEnd;
-    handleChange({
-      target: {
-        value: `${draft.value.slice(0, start)}${text}${draft.value.slice(end)}`,
-      },
-    } as ChangeEvent<HTMLTextAreaElement>);
+    handleValueChange(
+      `${draft.value.slice(0, start)}${text}${draft.value.slice(end)}`,
+    );
     window.requestAnimationFrame(() => {
       input.selectionStart = input.selectionEnd = start + text.length;
     });
@@ -1914,6 +1974,7 @@ export default function SwiftGhostApp() {
               : "typing",
           )
         : "typing";
+      stateRef.current = restored;
       setState(restored);
       setSelectedId(restoredItem?.itemId ?? BUILTIN_ITEMS[0].itemId);
       setStage(restoredPracticeKind === "solving" ? 5 : restored.lastStage);
@@ -1938,6 +1999,7 @@ export default function SwiftGhostApp() {
     for (const storageKey of STATE_STORAGE_KEYS) {
       localStorage.removeItem(storageKey);
     }
+    stateRef.current = EMPTY_STATE;
     setState(EMPTY_STATE);
     setSelectedId(BUILTIN_ITEMS[0].itemId);
     setStage(1);
@@ -2136,7 +2198,7 @@ export default function SwiftGhostApp() {
           onOpenItem={openItem}
           onChooseStage={chooseStage}
           onChoosePracticeKind={choosePracticeKind}
-          onChange={handleChange}
+          onChange={handleValueChange}
           onKeyDown={handleKeyDown}
           onPaste={(event) => {
             if (practiceKind === "solving") return;
@@ -2172,6 +2234,7 @@ export default function SwiftGhostApp() {
           onSubmissionSettled={recordSubmission}
           onRestoreSubmission={restoreSubmissionSource}
           onCustomCaseChange={updateCustomCaseInput}
+          onCustomTestcasesChange={updateCustomTestcases}
           onUseHint={() => updateDraft({ ...draft, peeks: draft.peeks + 1 })}
           onSolveComplete={finishSolve}
           onConceptChange={updateConceptResponse}
@@ -2566,15 +2629,16 @@ type PracticeProps = {
   ) => void;
   onChooseStage: (stage: number) => void;
   onChoosePracticeKind: (kind: PracticeKind) => void;
-  onChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
+  onChange: (value: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onPaste: (event: ReactClipboardEvent<HTMLTextAreaElement>) => void;
   onReset: () => void;
   onTestRun: () => void;
   onSubmissionRun: () => void;
   onSubmissionSettled: (submission: SubmissionRecord) => void;
-  onRestoreSubmission: (source: string) => void;
+  onRestoreSubmission: (submission: SubmissionRecord) => void;
   onCustomCaseChange: (value: string) => void;
+  onCustomTestcasesChange: (collection: CustomTestcaseCollection) => void;
   onUseHint: () => void;
   onSolveComplete: (
     source: string,
@@ -2611,9 +2675,10 @@ function PracticeView(props: PracticeProps) {
   }>({ itemId: props.item.itemId, status: "idle" });
   const [customExecutionState, setCustomExecutionState] = useState<{
     itemId: ItemId;
-    status: "idle" | "loading" | "running" | "passed" | "error";
+    status: "idle" | "loading" | "running" | "finished" | "error";
     result?: PythonVerificationResult;
     message?: string;
+    caseIds?: readonly string[];
   }>({ itemId: props.item.itemId, status: "idle" });
   const [solveHintLevel, setSolveHintLevel] = useState(0);
   const [consoleTab, setConsoleTab] = useState<
@@ -2625,6 +2690,7 @@ function PracticeView(props: PracticeProps) {
   const pythonRunner = useRef<PythonRunner | null>(null);
   const verificationRunId = useRef(0);
   const customExecutionRunId = useRef(0);
+  const inspectedSubmissionIds = useRef(new Set<string>());
   const runnerBusy = useRef(false);
   const disposed = useRef(false);
   const [lastRunnableSource, setLastRunnableSource] = useState<{
@@ -2676,10 +2742,11 @@ function PracticeView(props: PracticeProps) {
     (total, count) => total + count,
     0,
   );
-  const editorLineCount = Math.max(
-    problemLineCount(props.item),
-    props.draft.value.split("\n").length,
-  );
+  const currentEditorLineCount = props.draft.value.split("\n").length;
+  const editorLineCount =
+    props.practiceKind === "solving"
+      ? Math.max(1, currentEditorLineCount)
+      : Math.max(problemLineCount(props.item), currentEditorLineCount);
   const linesLeft = Math.max(
     0,
     problemLineCount(props.item) - props.draft.value.split("\n").length,
@@ -2696,6 +2763,18 @@ function PracticeView(props: PracticeProps) {
   const customCaseInput =
     props.state.customCaseInputs[props.item.itemId] ??
     props.draft.customCaseInput;
+  const customTestcaseSchema = useMemo(
+    () => customTestcaseSchemaForItem(props.item),
+    [props.item],
+  );
+  const customTestcases = useMemo(
+    () =>
+      customTestcaseSchema
+        ? (props.state.customTestcases[props.item.itemId] ??
+          createCustomTestcaseCollection(customTestcaseSchema))
+        : null,
+    [customTestcaseSchema, props.item.itemId, props.state.customTestcases],
+  );
   const checksAreBusy =
     runnerActive ||
     visibleVerificationState.status === "loading" ||
@@ -2723,6 +2802,17 @@ function PracticeView(props: PracticeProps) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1800);
     }
+  }
+
+  function cancelPythonRun() {
+    verificationRunId.current += 1;
+    customExecutionRunId.current += 1;
+    runnerBusy.current = false;
+    pythonRunner.current?.dispose();
+    pythonRunner.current = null;
+    setRunnerActive(false);
+    setVerificationState({ itemId: props.item.itemId, status: "idle" });
+    setCustomExecutionState({ itemId: props.item.itemId, status: "idle" });
   }
 
   async function runPythonChecks(
@@ -2827,15 +2917,36 @@ function PracticeView(props: PracticeProps) {
     }
   }
 
-  async function runCustomCase() {
-    if (!props.item.verification || !runnerSource.trim()) return;
+  async function runCustomCase(caseIds: "selected" | "all" = "selected") {
+    if (
+      !props.item.verification ||
+      !customTestcaseSchema ||
+      !customTestcases ||
+      !runnerSource.trim()
+    ) {
+      return;
+    }
     if (runnerBusy.current) return;
-    const customInput = customCaseInput.trim()
-      ? customCaseInput
-      : defaultCustomCaseInput(props.item.verification);
     let execution;
+    const executedCaseIds =
+      caseIds === "all"
+        ? customTestcases.cases.map((testCase) => testCase.id)
+        : [customTestcases.selectedCaseId];
     try {
-      execution = customCaseVerification(props.item.verification, customInput);
+      const firstCase = props.item.verification.cases[0];
+      if (!firstCase) throw new Error("This problem has no runnable testcase schema");
+      execution = buildCustomTestcaseExecution(
+        customTestcases,
+        customTestcaseSchema,
+        {
+          entrypoint: props.item.verification.entrypoint,
+          argCodecs:
+            firstCase.argCodecs ?? firstCase.args.map(() => "json" as const),
+          outputCodec: firstCase.outputCodec ?? "json",
+          revision: props.item.verification.revision ?? 1,
+          caseIds,
+        },
+      );
     } catch (error) {
       setCustomExecutionState({
         itemId: props.item.itemId,
@@ -2857,6 +2968,7 @@ function PracticeView(props: PracticeProps) {
         itemId: props.item.itemId,
         status:
           visibleCustomExecutionState.status === "idle" ? "loading" : "running",
+        caseIds: executedCaseIds,
       });
       const result = await runner.run(runnerSource, execution);
       if (disposed.current || runId !== customExecutionRunId.current) return;
@@ -2865,8 +2977,9 @@ function PracticeView(props: PracticeProps) {
       if (disposed.current || runId !== customExecutionRunId.current) return;
       setCustomExecutionState({
         itemId: props.item.itemId,
-        status: "passed",
+        status: "finished",
         result,
+        caseIds: executedCaseIds,
       });
     } catch (error) {
       if (disposed.current || runId !== customExecutionRunId.current) return;
@@ -2888,8 +3001,48 @@ function PracticeView(props: PracticeProps) {
     props.onCustomCaseChange(value.slice(0, 12000));
   }
 
-  function handleEditorChange(event: ChangeEvent<HTMLTextAreaElement>) {
-    const proposed = event.target.value;
+  function changeCustomTestcases(collection: CustomTestcaseCollection) {
+    customExecutionRunId.current += 1;
+    setCustomExecutionState({ itemId: props.item.itemId, status: "idle" });
+    props.onCustomTestcasesChange(collection);
+  }
+
+  function updateStructuredCustomTestcases(
+    operation: (
+      collection: CustomTestcaseCollection,
+      schema: NonNullable<typeof customTestcaseSchema>,
+    ) => CustomTestcaseCollection,
+  ) {
+    if (!customTestcases || !customTestcaseSchema) {
+      throw new Error("Structured testcases are unavailable for this problem");
+    }
+    changeCustomTestcases(operation(customTestcases, customTestcaseSchema));
+  }
+
+  function changeCustomTestcaseMode(
+    caseId: string,
+    mode: CustomTestcase["mode"],
+    snapshot: {
+      raw?: string;
+      fields?: readonly CustomTestcaseField[];
+    },
+  ) {
+    updateStructuredCustomTestcases((collection, schema) =>
+      updateCustomTestcase(
+        collection,
+        schema,
+        caseId,
+        mode === "raw"
+          ? { mode, raw: snapshot.raw ?? "" }
+          : {
+              mode,
+              ...(snapshot.fields ? { fields: snapshot.fields } : {}),
+            },
+      ),
+    );
+  }
+
+  function handleEditorChange(proposed: string) {
     const accepted =
       props.practiceKind === "solving" ||
       !(props.draft.challengeDate || props.state.settings.strictMode) ||
@@ -2911,7 +3064,7 @@ function PracticeView(props: PracticeProps) {
       setVerificationState({ itemId: props.item.itemId, status: "idle" });
       setCustomExecutionState({ itemId: props.item.itemId, status: "idle" });
     }
-    props.onChange(event);
+    props.onChange(proposed);
   }
 
   function revealSolveHint() {
@@ -2930,13 +3083,40 @@ function PracticeView(props: PracticeProps) {
     props.onReset();
   }
 
-  function restoreSubmission(source: string) {
+  function inspectSubmission(submission: SubmissionRecord) {
+    if (
+      runnerSource === submission.source ||
+      inspectedSubmissionIds.current.has(submission.id)
+    ) {
+      return;
+    }
+    inspectedSubmissionIds.current.add(submission.id);
+    props.onUseHint();
+  }
+
+  function restoreSubmission(submission: SubmissionRecord) {
     if (checksAreBusy) return;
+    if (submission.itemId !== props.item.itemId) return;
+    if (runnerSource === submission.source) {
+      setMobileWorkspacePane("code");
+      return;
+    }
+    const revisionWarnings = [
+      submission.itemRevision !== props.item.contentRevision
+        ? `It was written for prompt revision ${submission.itemRevision}; the current prompt is revision ${props.item.contentRevision}.`
+        : "",
+      submission.verificationRevision !==
+      (props.item.verification?.revision ?? 1)
+        ? `It used judge revision ${submission.verificationRevision}; the current judge is revision ${props.item.verification?.revision ?? 1}.`
+        : "",
+    ].filter(Boolean);
     if (
       runnerSource.trim() &&
-      runnerSource !== source &&
       !window.confirm(
-        "Replace the current editor with this submitted solution? Your saved submission will remain in history.",
+        [
+          "Replace the current editor with this submitted solution? This marks the solve assisted; the saved submission remains in history.",
+          ...revisionWarnings,
+        ].join("\n\n"),
       )
     )
       return;
@@ -2945,10 +3125,12 @@ function PracticeView(props: PracticeProps) {
     setVerificationState({ itemId: props.item.itemId, status: "idle" });
     setCustomExecutionState({ itemId: props.item.itemId, status: "idle" });
     setMobileWorkspacePane("code");
-    props.onRestoreSubmission(source);
+    props.onRestoreSubmission(submission);
     window.requestAnimationFrame(() => {
       document
-        .querySelector<HTMLTextAreaElement>(".editor-wrap textarea")
+        .querySelector<HTMLElement>(
+          ".solve-code-editor .cm-content, .editor-wrap textarea",
+        )
         ?.focus();
     });
   }
@@ -3404,6 +3586,8 @@ function PracticeView(props: PracticeProps) {
                 onRestart={resetPractice}
                 onFocusMode={props.onFocusMode}
                 onChange={handleEditorChange}
+                onRunExamples={() => void runPythonChecks(isMock ? "full" : "examples")}
+                onSubmit={() => void runPythonChecks("submit")}
                 onKeyDown={handleEditorKeyDown}
                 onPaste={props.onPaste}
               />
@@ -3427,6 +3611,54 @@ function PracticeView(props: PracticeProps) {
                   )
                 }
                 onRunCustomCase={runCustomCase}
+                customTestcaseSchema={customTestcaseSchema}
+                customTestcases={customTestcases}
+                onSelectCustomTestcase={(caseId) =>
+                  updateStructuredCustomTestcases((collection) =>
+                    selectCustomTestcase(collection, caseId),
+                  )
+                }
+                onAddCustomTestcase={(afterCaseId) =>
+                  updateStructuredCustomTestcases((collection, schema) =>
+                    addCustomTestcase(collection, schema, { afterCaseId }),
+                  )
+                }
+                onDuplicateCustomTestcase={(caseId) =>
+                  updateStructuredCustomTestcases((collection) =>
+                    duplicateCustomTestcase(collection, caseId),
+                  )
+                }
+                onDeleteCustomTestcase={(caseId) =>
+                  updateStructuredCustomTestcases((collection) =>
+                    deleteCustomTestcase(collection, caseId),
+                  )
+                }
+                onRenameCustomTestcase={(caseId, name) =>
+                  updateStructuredCustomTestcases((collection, schema) =>
+                    updateCustomTestcase(collection, schema, caseId, { name }),
+                  )
+                }
+                onCustomTestcaseModeChange={changeCustomTestcaseMode}
+                onCustomTestcaseFieldChange={(caseId, parameterId, text) =>
+                  updateStructuredCustomTestcases((collection, schema) =>
+                    updateCustomTestcaseField(
+                      collection,
+                      schema,
+                      caseId,
+                      parameterId,
+                      text,
+                    ),
+                  )
+                }
+                onCustomTestcaseRawChange={(caseId, raw) =>
+                  updateStructuredCustomTestcases((collection, schema) =>
+                    updateCustomTestcase(collection, schema, caseId, {
+                      mode: "raw",
+                      raw,
+                    }),
+                  )
+                }
+                onRunCustomTestcases={runCustomCase}
                 customExecutionState={visibleCustomExecutionState}
                 verificationState={visibleVerificationState}
                 exampleExpectedValues={challengeVerificationForPurpose(
@@ -3436,11 +3668,14 @@ function PracticeView(props: PracticeProps) {
                 onRunExamples={() => runPythonChecks("examples")}
                 onSubmit={() => runPythonChecks("submit")}
                 onRunFull={() => runPythonChecks("full")}
+                onCancelRun={cancelPythonRun}
                 submissionHistory={props.state.submissionHistory.filter(
                   (submission) => submission.itemId === props.item.itemId,
                 )}
                 currentItemRevision={props.item.contentRevision}
                 currentVerificationRevision={props.item.verification.revision ?? 1}
+                currentSource={runnerSource}
+                onInspectSubmission={inspectSubmission}
                 onRestoreSubmission={restoreSubmission}
                 canRecordMock={Boolean(
                   isMock &&
@@ -3514,7 +3749,9 @@ function PracticeView(props: PracticeProps) {
               <small>Independent solve</small>
               <strong>
                 {solveHintLevel === 0
-                  ? "No hints used"
+                  ? props.draft.peeks > 0
+                    ? "Assistance already used"
+                    : "No hints used"
                   : `${solveHintLevel} hint${solveHintLevel === 1 ? "" : "s"} used`}
               </strong>
             </span>
@@ -3594,6 +3831,8 @@ function PracticeView(props: PracticeProps) {
             onRestart={resetPractice}
             onFocusMode={props.onFocusMode}
             onChange={handleEditorChange}
+            onRunExamples={() => void runPythonChecks(isMock ? "full" : "examples")}
+            onSubmit={() => void runPythonChecks("submit")}
             onKeyDown={handleEditorKeyDown}
             onPaste={props.onPaste}
           />
@@ -3616,6 +3855,54 @@ function PracticeView(props: PracticeProps) {
               )
             }
             onRunCustomCase={runCustomCase}
+            customTestcaseSchema={customTestcaseSchema}
+            customTestcases={customTestcases}
+            onSelectCustomTestcase={(caseId) =>
+              updateStructuredCustomTestcases((collection) =>
+                selectCustomTestcase(collection, caseId),
+              )
+            }
+            onAddCustomTestcase={(afterCaseId) =>
+              updateStructuredCustomTestcases((collection, schema) =>
+                addCustomTestcase(collection, schema, { afterCaseId }),
+              )
+            }
+            onDuplicateCustomTestcase={(caseId) =>
+              updateStructuredCustomTestcases((collection) =>
+                duplicateCustomTestcase(collection, caseId),
+              )
+            }
+            onDeleteCustomTestcase={(caseId) =>
+              updateStructuredCustomTestcases((collection) =>
+                deleteCustomTestcase(collection, caseId),
+              )
+            }
+            onRenameCustomTestcase={(caseId, name) =>
+              updateStructuredCustomTestcases((collection, schema) =>
+                updateCustomTestcase(collection, schema, caseId, { name }),
+              )
+            }
+            onCustomTestcaseModeChange={changeCustomTestcaseMode}
+            onCustomTestcaseFieldChange={(caseId, parameterId, text) =>
+              updateStructuredCustomTestcases((collection, schema) =>
+                updateCustomTestcaseField(
+                  collection,
+                  schema,
+                  caseId,
+                  parameterId,
+                  text,
+                ),
+              )
+            }
+            onCustomTestcaseRawChange={(caseId, raw) =>
+              updateStructuredCustomTestcases((collection, schema) =>
+                updateCustomTestcase(collection, schema, caseId, {
+                  mode: "raw",
+                  raw,
+                }),
+              )
+            }
+            onRunCustomTestcases={runCustomCase}
             customExecutionState={visibleCustomExecutionState}
             verificationState={visibleVerificationState}
             exampleExpectedValues={challengeVerificationForPurpose(
@@ -3625,11 +3912,14 @@ function PracticeView(props: PracticeProps) {
             onRunExamples={() => runPythonChecks("examples")}
             onSubmit={() => runPythonChecks("submit")}
             onRunFull={() => runPythonChecks("full")}
+            onCancelRun={cancelPythonRun}
             submissionHistory={props.state.submissionHistory.filter(
               (submission) => submission.itemId === props.item.itemId,
             )}
             currentItemRevision={props.item.contentRevision}
             currentVerificationRevision={props.item.verification.revision ?? 1}
+            currentSource={runnerSource}
+            onInspectSubmission={inspectSubmission}
             onRestoreSubmission={restoreSubmission}
             canRecordMock={Boolean(
               isMock &&
@@ -5243,10 +5533,10 @@ function SettingsView({
           <small>Your data</small>
           <h2>Local profile</h2>
           <p>
-            Export a portable v14 JSON backup with Python, Swift, iOS, sessions,
+            Export a portable v15 JSON backup with Python, Swift, iOS, sessions,
             learning debriefs, revisioned snippets, local pacing and weak-line
-            analytics, community preferences, challenge testcases, and local
-            submission snapshots, or restore any v2-v14 backup.
+            analytics, community preferences, structured custom testcases, and
+            local submission snapshots, or restore any v2-v15 backup.
           </p>
         </div>
         <div className="data-actions">

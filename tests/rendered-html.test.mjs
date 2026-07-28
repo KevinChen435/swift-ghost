@@ -102,12 +102,13 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v14"/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v15"/);
+  assert.match(product, /FOURTEENTH_STORAGE_KEY = "swift-ghost-state-v14"/);
   assert.match(product, /THIRTEENTH_STORAGE_KEY = "swift-ghost-state-v13"/);
   assert.match(product, /TWELFTH_STORAGE_KEY = "swift-ghost-state-v12"/);
   assert.match(product, /PREVIOUS_STORAGE_KEY = "swift-ghost-state-v11"/);
   assert.match(product, /FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2"/);
-  assert.match(product, /version: 14/);
+  assert.match(product, /version: 15/);
   assert.match(product, /swift-ghost-state-v10/);
   assert.match(product, /swift-ghost-state-v9/);
   assert.match(product, /swift-ghost-state-v8/);
@@ -202,12 +203,24 @@ test("ships the full five-stage practice model and original problem links", asyn
     new URL("../app/components/ChallengeConsole.tsx", import.meta.url),
     "utf8",
   );
+  const structuredTests = await readFile(
+    new URL("../app/components/StructuredCustomTestcases.tsx", import.meta.url),
+    "utf8",
+  );
+  const submissionInspector = await readFile(
+    new URL("../app/components/SubmissionInspector.tsx", import.meta.url),
+    "utf8",
+  );
   assert.match(consoleUi, /Run examples/);
   assert.match(consoleUi, /Submit solution/);
   assert.match(consoleUi, /Run custom testcase/);
   assert.match(consoleUi, /Submissions/);
-  assert.match(consoleUi, /Restore/);
-  assert.match(consoleUi, /Older prompt/);
+  assert.match(structuredTests, /Run selected/);
+  assert.match(structuredTests, /Run all/);
+  assert.match(structuredTests, /Raw JSON/);
+  assert.match(submissionInspector, /Restore source/);
+  assert.match(submissionInspector, /Older prompt/);
+  assert.match(submissionInspector, /View details/);
   assert.match(page, /challengeVerificationForPurpose/);
   assert.match(page, /isRecordableChallengeResult/);
   assert.match(page, /purpose === "submit"/);
