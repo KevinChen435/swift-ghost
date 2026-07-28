@@ -2,6 +2,10 @@ import {
   DEFAULT_CATALOG_QUERY,
   normalizeCatalogQuery,
 } from "./catalog-discovery.mjs";
+import {
+  DEFAULT_SUBMISSION_WORK_LOG_QUERY,
+  normalizeSubmissionWorkLogQuery,
+} from "./submission-work-log.mjs";
 
 export const ROUTE_VIEWS = [
   "today",
@@ -14,6 +18,7 @@ export const ROUTE_VIEWS = [
   "settings",
 ];
 export const COMMUNITY_TABS = ["recent", "records", "daily", "profile"];
+export const RECORDS_SECTIONS = ["overview", "submissions"];
 export const ROUTE_LANGUAGES = ["python", "swift"];
 
 function sourceParams(input) {
@@ -71,6 +76,22 @@ function catalogQueryFromParams(params) {
   });
 }
 
+function submissionQueryFromParams(params) {
+  return normalizeSubmissionWorkLogQuery({
+    text: params.get("sq") ?? "",
+    statuses: params.getAll("verdict"),
+    origins: params.getAll("origin"),
+    languages: params.getAll("language"),
+    revision: params.get("revision"),
+    range: params.get("range"),
+    sort: params.get("sort"),
+    page: Number(params.get("page")),
+    pageSize: Number(params.get("size")),
+    selectedId: params.get("submission"),
+    compareId: params.get("compare"),
+  });
+}
+
 export function parseRoute(input) {
   const params = sourceParams(input);
   const profile = cleanHandle(params.get("profile"));
@@ -114,6 +135,12 @@ export function parseRoute(input) {
     view === "assessments"
       ? cleanAssessmentId(params.get("assessment"))
       : undefined;
+  const recordsSection =
+    view === "records" && params.get("section") === "submissions"
+      ? "submissions"
+      : view === "records"
+        ? "overview"
+        : undefined;
   return {
     view,
     language,
@@ -125,6 +152,14 @@ export function parseRoute(input) {
     profile,
     assessment,
     ...(view === "library" ? { catalog: catalogQueryFromParams(params) } : {}),
+    ...(recordsSection
+      ? {
+          recordsSection,
+          ...(recordsSection === "submissions"
+            ? { submissions: submissionQueryFromParams(params) }
+            : {}),
+        }
+      : {}),
   };
 }
 
@@ -239,6 +274,30 @@ export function serializeRoute(
     url.searchParams.set("practice", "concept");
   if (view === "records" && COMMUNITY_TABS.includes(route?.communityTab))
     url.searchParams.set("tab", route.communityTab);
+  if (view === "records" && route?.recordsSection === "submissions") {
+    url.searchParams.set("section", "submissions");
+    const query = normalizeSubmissionWorkLogQuery(route?.submissions);
+    if (query.text !== DEFAULT_SUBMISSION_WORK_LOG_QUERY.text)
+      url.searchParams.set("sq", query.text);
+    for (const status of query.statuses)
+      url.searchParams.append("verdict", status);
+    for (const origin of query.origins)
+      url.searchParams.append("origin", origin);
+    for (const language of query.languages)
+      url.searchParams.append("language", language);
+    if (query.revision !== DEFAULT_SUBMISSION_WORK_LOG_QUERY.revision)
+      url.searchParams.set("revision", query.revision);
+    if (query.range !== DEFAULT_SUBMISSION_WORK_LOG_QUERY.range)
+      url.searchParams.set("range", query.range);
+    if (query.sort !== DEFAULT_SUBMISSION_WORK_LOG_QUERY.sort)
+      url.searchParams.set("sort", query.sort);
+    if (query.page !== DEFAULT_SUBMISSION_WORK_LOG_QUERY.page)
+      url.searchParams.set("page", String(query.page));
+    if (query.pageSize !== DEFAULT_SUBMISSION_WORK_LOG_QUERY.pageSize)
+      url.searchParams.set("size", String(query.pageSize));
+    if (query.selectedId) url.searchParams.set("submission", query.selectedId);
+    if (query.compareId) url.searchParams.set("compare", query.compareId);
+  }
   const assessment =
     view === "assessments" ? cleanAssessmentId(route?.assessment) : undefined;
   if (assessment) url.searchParams.set("assessment", assessment);

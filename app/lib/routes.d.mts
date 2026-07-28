@@ -2,8 +2,10 @@ import type { CodeLanguage, PracticeItem } from "./items";
 import type { View } from "./product";
 import type { PracticeKind } from "./product";
 import type { CatalogQuery } from "./catalog-discovery.mjs";
+import type { SubmissionWorkLogQuery } from "./submission-work-log.mjs";
 
 export type CommunityTab = "recent" | "records" | "daily" | "profile";
+export type RecordsSection = "overview" | "submissions";
 export type AppRoute = {
   view: View;
   language?: CodeLanguage;
@@ -15,10 +17,13 @@ export type AppRoute = {
   profile?: string;
   assessment?: string;
   catalog?: CatalogQuery;
+  recordsSection?: RecordsSection;
+  submissions?: SubmissionWorkLogQuery;
 };
 
 export const ROUTE_VIEWS: View[];
 export const COMMUNITY_TABS: CommunityTab[];
+export const RECORDS_SECTIONS: RecordsSection[];
 export const ROUTE_LANGUAGES: CodeLanguage[];
 export function parseRoute(input: string | URL | URLSearchParams): AppRoute;
 export function itemRouteToken(item: PracticeItem): string;

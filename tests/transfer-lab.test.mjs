@@ -11,6 +11,12 @@ import {
   recordTransferOpened,
   selectNextTransferVariant,
 } from "../app/lib/transfer-lab.mjs";
+import {
+  createSubmissionLog,
+  requestSubmission,
+  settleSubmission,
+  settledSubmissionEvidence,
+} from "../app/lib/submission-log.mjs";
 
 const t0 = "2026-01-01T00:00:00.000Z";
 const hour = 3_600_000;
@@ -353,6 +359,24 @@ test("failed submissions are attempted evidence, never proven evidence", () => {
   assert.equal(progress.independentSolveCount, 0);
 });
 
+test("judge interruptions are infrastructure evidence, not learner failures", () => {
+  const item = variant("v:judge-interrupted");
+  const progress = progressFor(item, {
+    submissions: [
+      submission(item.variantId, at(hour), {
+        status: "judge-error",
+        passed: 0,
+        total: 0,
+      }),
+    ],
+    now: at(2 * hour),
+  });
+  assert.equal(progress.status, "attempted");
+  assert.equal(progress.submissionCount, 1);
+  assert.equal(progress.failedSubmissionCount, 0);
+  assert.equal(progress.isProven, false);
+});
+
 test("accepted submissions fail closed unless assistance is explicitly absent", () => {
   const item = variant("v:receipt");
   const missingAssistance = progressFor(item, {
@@ -367,6 +391,37 @@ test("accepted submissions fail closed unless assistance is explicitly absent", 
     now: at(2 * hour),
   });
   assert.equal(clean.status, "proven");
+});
+
+test("a current clean submission receipt crosses the real log-to-transfer evidence bridge", () => {
+  const item = variant("v:durable-clean");
+  let log = requestSubmission(createSubmissionLog(), {
+    id: "receipt:durable-clean",
+    itemId: item.variantId,
+    titleSnapshot: "Durable clean transfer",
+    language: "python",
+    itemRevision: item.variantRevision,
+    requestedAt: at(hour),
+    source: "class Solution:\n    pass\n",
+    judge: { kind: "browser-python-local", revision: 1 },
+    context: { kind: "transfer" },
+    assistance: "none-recorded",
+  });
+  log = settleSubmission(log, "receipt:durable-clean", {
+    settledAt: at(hour + 1_000),
+    status: "accepted",
+    durationMs: 20,
+    passed: 8,
+    total: 8,
+  });
+
+  const progress = progressFor(item, {
+    submissions: settledSubmissionEvidence(log),
+    now: at(2 * hour),
+  });
+  assert.equal(progress.status, "proven");
+  assert.equal(progress.isProven, true);
+  assert.equal(progress.independentSolveCount, 1);
 });
 
 test("every assisted accepted-receipt alias is excluded from proof", () => {

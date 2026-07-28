@@ -490,9 +490,15 @@ export function deriveTransferProgress(input = {}) {
             : isAttempted
               ? "attempted"
               : "opened";
+    const substantiveFailureVerdicts = new Set([
+      "wrong-answer",
+      "runtime-error",
+      "time-limit",
+      "invalid-entrypoint",
+    ]);
     const failedSubmissionCount = currentSubmissions.filter((submission) => {
       const verdict = String(submission?.status ?? submission?.verdict ?? "").toLowerCase();
-      return verdict !== "accepted" && verdict !== "passed";
+      return substantiveFailureVerdicts.has(verdict);
     }).length;
     const lastActivityAt = latestIso([
       exposure?.lastOpenedAt,

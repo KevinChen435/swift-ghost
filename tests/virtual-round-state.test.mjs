@@ -2,18 +2,19 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-test("state v22 persists virtual rounds after the complete v21 fallback", async () => {
+test("state v23 preserves virtual rounds after the complete v22 fallback", async () => {
   const product = await readFile(
     new URL("../app/lib/product.ts", import.meta.url),
     "utf8",
   );
-  assert.match(product, /export type AppState = \{\s+version: 22;/);
+  assert.match(product, /export type AppState = \{\s+version: 23;/);
   assert.match(product, /virtualRoundWorkspace: VirtualRoundWorkspace/);
-  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v22"/);
+  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v23"/);
+  assert.match(product, /TWENTY_SECOND_STORAGE_KEY = "swift-ghost-state-v22"/);
   assert.match(product, /TWENTY_FIRST_STORAGE_KEY = "swift-ghost-state-v21"/);
   assert.match(
     product,
-    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY,\s+TWENTIETH_STORAGE_KEY/,
+    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_SECOND_STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY/,
   );
   assert.match(product, /virtualRoundWorkspace: createVirtualRoundWorkspace\(\)/);
   assert.match(
@@ -31,14 +32,15 @@ test("the runner persists an on-time round receipt before creating or invoking t
     new URL("../app/components/SwiftGhostApp.tsx", import.meta.url),
     "utf8",
   );
-  const requestIndex = app.indexOf("props.onVirtualRoundSubmissionRequested({");
+  const requestIndex = app.indexOf("props.onVirtualRoundSubmissionRequested(submissionRequest)");
   const runnerIndex = app.indexOf("const runner = pythonRunner.current ?? createPythonRunner();", requestIndex);
   const verifyIndex = app.indexOf("const result = await runner.verify(", requestIndex);
   assert.notEqual(requestIndex, -1);
   assert.ok(requestIndex < runnerIndex);
   assert.ok(runnerIndex < verifyIndex);
   assert.match(app, /commitStateImmediately[\s\S]*saveState\(next\)/);
-  assert.match(app, /origin: isVirtualRound[\s\S]*\("round" as const\)/);
+  assert.match(app, /const submissionContextKind:[\s\S]*\? "round"/);
+  assert.match(app, /requestSubmissionReceipt\(\s*current\.submissionLog/);
   assert.match(app, /!isStudio &&\s+!isVirtualRound/);
 });
 
@@ -119,12 +121,12 @@ test("the locked round workspace keeps switching, flags, and finishing reachable
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.practice-layout\.is-solving\.is-virtual-round \.problem-rail \{\s+display: none/);
 });
 
-test("backup copy advertises the v22 schema and all older supported imports", async () => {
+test("backup copy advertises the v23 schema and all older supported imports", async () => {
   const app = await readFile(
     new URL("../app/components/SwiftGhostApp.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(app, /Export a portable v22 JSON backup/);
-  assert.match(app, /restore any v2-v21 backup/);
+  assert.match(app, /Export a portable v23 JSON backup/);
+  assert.match(app, /restore any v2-v22 backup/);
   assert.match(app, /virtual-round reports/);
 });

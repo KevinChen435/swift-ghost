@@ -48,6 +48,7 @@ import { SolveWorkbench, type MobilePane } from "./SolveWorkbench";
 import { MockNotebook } from "./MockNotebook";
 import { MockDebriefDialog } from "./MockDebriefDialog";
 import { CatalogLibrary } from "./CatalogLibrary";
+import { SubmissionWorkLog } from "./SubmissionWorkLog";
 import {
   InterviewStudioPanel,
   type InterviewPanelSession,
@@ -91,6 +92,7 @@ import {
   routeForItem,
   serializeRoute,
   type AppRoute,
+  type RecordsSection,
 } from "../lib/routes.mjs";
 import {
   createCloudClient,
@@ -112,6 +114,24 @@ import {
   updateCatalogView,
   type CatalogQuery,
 } from "../lib/catalog-discovery.mjs";
+import {
+  DEFAULT_SUBMISSION_WORK_LOG_QUERY,
+  normalizeSubmissionWorkLogQuery,
+  type SubmissionWorkLogQuery,
+} from "../lib/submission-work-log.mjs";
+import {
+  requestSubmission as requestSubmissionReceipt,
+  settleSubmission as settleSubmissionReceipt,
+  settledSubmissionRecords,
+  type SubmissionContextKind,
+  type SubmissionReceipt,
+  type SubmissionRequest,
+} from "../lib/submission-log.mjs";
+import {
+  pruneSubmissionAnnotations,
+  updateSubmissionAnnotation,
+  type SubmissionAnnotation,
+} from "../lib/submission-annotations.mjs";
 import {
   EMPTY_STATE,
   STATE_STORAGE_KEYS,
@@ -140,6 +160,7 @@ import {
   recommendedStage,
   reviewDueAt,
   saveState,
+  submissionEvidence,
   type AppState,
   type AttemptRecord,
   type Draft,
@@ -256,7 +277,6 @@ import {
   defaultCustomCaseInput,
   isRecordableChallengeResult,
 } from "../lib/challenge-lab.mjs";
-import { appendSubmissionHistory } from "../lib/submission-history.mjs";
 import {
   deriveTransferProgress,
   recordTransferHint,
@@ -666,6 +686,12 @@ export default function SwiftGhostApp() {
   const [catalogQuery, setCatalogQuery] = useState<CatalogQuery>(() =>
     normalizeCatalogQuery(DEFAULT_CATALOG_QUERY),
   );
+  const [recordsSection, setRecordsSection] =
+    useState<RecordsSection>("overview");
+  const [submissionLogQuery, setSubmissionLogQuery] =
+    useState<SubmissionWorkLogQuery>(() =>
+      normalizeSubmissionWorkLogQuery(DEFAULT_SUBMISSION_WORK_LOG_QUERY),
+    );
   const [assessmentRouteId, setAssessmentRouteId] = useState<string>();
   const [selectedId, setSelectedId] = useState<ItemId>(BUILTIN_ITEMS[0].itemId);
   const [stage, setStage] = useState(1);
@@ -714,6 +740,10 @@ export default function SwiftGhostApp() {
     () => allItems.filter((candidate) => !candidate.transfer),
     [allItems],
   );
+  const transferSubmissionEvidence = useMemo(
+    () => submissionEvidence(state),
+    [state],
+  );
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -756,6 +786,12 @@ export default function SwiftGhostApp() {
       setCatalogQuery(
         normalizeCatalogQuery(route.catalog ?? DEFAULT_CATALOG_QUERY),
       );
+      setRecordsSection(route.recordsSection ?? "overview");
+      setSubmissionLogQuery(
+        normalizeSubmissionWorkLogQuery(
+          route.submissions ?? DEFAULT_SUBMISSION_WORK_LOG_QUERY,
+        ),
+      );
       setAssessmentRouteId(route.assessment);
       setSelectedId(initialItem.itemId);
       setStage(
@@ -769,6 +805,19 @@ export default function SwiftGhostApp() {
       if (route.view === "library") {
         const canonicalHref = serializeRoute(
           { view: "library", catalog: route.catalog },
+          window.location.href,
+        );
+        const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        if (canonicalHref !== currentHref)
+          window.history.replaceState({}, "", canonicalHref);
+      }
+      if (route.view === "records" && route.recordsSection === "submissions") {
+        const canonicalHref = serializeRoute(
+          {
+            view: "records",
+            recordsSection: "submissions",
+            submissions: route.submissions,
+          },
           window.location.href,
         );
         const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
@@ -825,6 +874,12 @@ export default function SwiftGhostApp() {
       setView(route.view);
       setCatalogQuery(
         normalizeCatalogQuery(route.catalog ?? DEFAULT_CATALOG_QUERY),
+      );
+      setRecordsSection(route.recordsSection ?? "overview");
+      setSubmissionLogQuery(
+        normalizeSubmissionWorkLogQuery(
+          route.submissions ?? DEFAULT_SUBMISSION_WORK_LOG_QUERY,
+        ),
       );
       setAssessmentRouteId(route.assessment);
       if (routed) setSelectedId(routed.itemId);
@@ -916,14 +971,17 @@ export default function SwiftGhostApp() {
         return;
       }
       const utcToday = new Date().toISOString().slice(0, 10);
+      const dailyLeaderboardRequest = capabilities.data.leaderboards
+        ? cloudClient.dailyLeaderboard(utcToday, {
+            limit: 1,
+            signal: controller.signal,
+          })
+        : Promise.resolve(null);
       const [session, daily] = await Promise.all([
         cloudClient.session({ signal: controller.signal }),
-        cloudClient.dailyLeaderboard(utcToday, {
-          limit: 1,
-          signal: controller.signal,
-        }),
+        dailyLeaderboardRequest,
       ]);
-      const dailyChallenge = daily.available ? daily.data.challenge : null;
+      const dailyChallenge = daily?.available ? daily.data.challenge : null;
       if (!session.available) {
         setCloud((current) => ({
           ...current,
@@ -1213,14 +1271,14 @@ export default function SwiftGhostApp() {
         variants: transferItems,
         workspace: state.transferWorkspace,
         attempts: state.attempts,
-        submissions: state.submissionHistory,
+        submissions: transferSubmissionEvidence,
         now: new Date(now).toISOString(),
       }),
     [
       now,
       state.attempts,
-      state.submissionHistory,
       state.transferWorkspace,
+      transferSubmissionEvidence,
       transferItems,
     ],
   );
@@ -1234,14 +1292,14 @@ export default function SwiftGhostApp() {
         variants: transferItems,
         workspace: state.transferWorkspace,
         attempts: state.attempts,
-        submissions: state.submissionHistory,
+        submissions: transferSubmissionEvidence,
         now: new Date(now).toISOString(),
       }),
     [
       now,
       state.attempts,
-      state.submissionHistory,
       state.transferWorkspace,
+      transferSubmissionEvidence,
       transferItems,
     ],
   );
@@ -1451,6 +1509,12 @@ export default function SwiftGhostApp() {
     setView(nextView);
     setAssessmentRouteId(undefined);
     setResult(null);
+    if (nextView === "records") {
+      setRecordsSection("overview");
+      setSubmissionLogQuery(
+        normalizeSubmissionWorkLogQuery(DEFAULT_SUBMISSION_WORK_LOG_QUERY),
+      );
+    }
     writeRoute(
       nextView === "library"
         ? { view: "library", catalog: catalogQuery }
@@ -1475,6 +1539,149 @@ export default function SwiftGhostApp() {
       {},
       "",
       href,
+    );
+  }
+
+  function updateRecordsRoute(
+    nextSection: RecordsSection,
+    nextQuery: SubmissionWorkLogQuery = submissionLogQuery,
+    history: "push" | "replace" = "push",
+  ) {
+    if (blockVirtualRoundNavigation()) return;
+    const normalized = normalizeSubmissionWorkLogQuery(nextQuery);
+    setView("records");
+    setRecordsSection(nextSection);
+    setSubmissionLogQuery(normalized);
+    const route: AppRoute =
+      nextSection === "submissions"
+        ? {
+            view: "records",
+            recordsSection: "submissions",
+            submissions: normalized,
+          }
+        : { view: "records", recordsSection: "overview" };
+    const href = serializeRoute(route, window.location.href);
+    const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (href === currentHref) return;
+    window.history[history === "replace" ? "replaceState" : "pushState"](
+      {},
+      "",
+      href,
+    );
+  }
+
+  function saveSubmissionAnnotation(
+    submissionId: string,
+    annotation: Pick<SubmissionAnnotation, "note" | "tags">,
+  ) {
+    mutateState((current) => ({
+      ...current,
+      submissionAnnotations: updateSubmissionAnnotation(
+        current.submissionAnnotations,
+        submissionId,
+        annotation,
+        {
+          validSubmissionIds: new Set(
+            current.submissionLog.receipts.map((receipt) => receipt.id),
+          ),
+          now: new Date().toISOString(),
+        },
+      ),
+    }));
+    setToast("Private submission reflection saved locally");
+  }
+
+  function openSubmissionClean(itemToOpen: PracticeItem) {
+    if (stateRef.current.virtualRoundWorkspace.active) {
+      setToast("Finish or archive the active virtual round before starting a clean retry");
+      return;
+    }
+    openItem(itemToOpen, 5, undefined, undefined, "solving");
+  }
+
+  function continueFromSubmission(
+    receipt: SubmissionReceipt,
+    itemToOpen: PracticeItem,
+    source: string,
+  ) {
+    const current = stateRef.current;
+    if (current.virtualRoundWorkspace.active) {
+      setToast("Finish or archive the active virtual round before restoring saved source");
+      return;
+    }
+    if (!itemToOpen.verification || itemToOpen.language !== "python") {
+      setToast("This item no longer has a runnable local judge");
+      return;
+    }
+    const meaningfulDraft = Boolean(
+      current.draft &&
+        (current.draft.startedAt || current.draft.value.trim().length > 4),
+    );
+    const warnings = [
+      "Continue from this saved source? The new solve will use the current prompt and judge and will be marked assisted.",
+      receipt.itemRevision !== itemToOpen.contentRevision
+        ? `Saved prompt revision ${receipt.itemRevision}; current revision ${itemToOpen.contentRevision}.`
+        : "",
+      receipt.judge.revision !== (itemToOpen.verification.revision ?? 1)
+        ? `Saved judge revision ${receipt.judge.revision}; current revision ${itemToOpen.verification.revision ?? 1}.`
+        : "",
+      meaningfulDraft
+        ? "Your current draft will be saved as abandoned before this source is opened."
+        : "",
+    ].filter(Boolean);
+    if (!window.confirm(warnings.join("\n\n"))) return;
+    mutateState((latest) => {
+      const abandoned = recordAbandon(latest);
+      const restored = {
+        ...freshDraft(
+          itemToOpen.itemId,
+          5,
+          itemToOpen.contentRevision,
+          undefined,
+          undefined,
+          "solving",
+          source,
+        ),
+        value: source,
+        startedAt: Date.now(),
+        peeks: 1,
+      };
+      return {
+        ...abandoned,
+        draft: restored,
+        lastItemId: itemToOpen.itemId,
+        lastStage: 5,
+        transferWorkspace: itemToOpen.transfer
+          ? recordTransferHint(
+              abandoned.transferWorkspace,
+              itemToOpen.itemId,
+              3,
+              {
+                now: new Date().toISOString(),
+                variantRevision: itemToOpen.contentRevision,
+                referenceRevealed: true,
+              },
+            )
+          : abandoned.transferWorkspace,
+      };
+    });
+    setSelectedId(itemToOpen.itemId);
+    setStage(5);
+    setPracticeKind("solving");
+    setPracticeEpoch((currentEpoch) => currentEpoch + 1);
+    setReveal(false);
+    setResult(null);
+    setView("practice");
+    writeRoute(routeForItem(itemToOpen, 5, "solving"));
+    setToast("Saved source opened · this solve is marked assisted");
+    window.setTimeout(
+      () =>
+        document
+          .querySelector<HTMLElement>(
+            ".solve-code-editor .cm-content, .editor-wrap textarea",
+          )
+          ?.focus(),
+      50,
     );
   }
 
@@ -1958,14 +2165,57 @@ export default function SwiftGhostApp() {
     }));
   }
 
-  function recordSubmission(submission: SubmissionRecord) {
-    mutateState((current) => ({
+  function withPrunedSubmissionAnnotations(
+    current: AppState,
+    submissionLog: AppState["submissionLog"],
+  ) {
+    return {
       ...current,
-      submissionHistory: appendSubmissionHistory(
-        current.submissionHistory,
-        submission,
+      submissionLog,
+      submissionAnnotations: pruneSubmissionAnnotations(
+        current.submissionAnnotations,
+        new Set(submissionLog.receipts.map((receipt) => receipt.id)),
       ),
-    }));
+    };
+  }
+
+  function requestLocalSubmission(request: SubmissionRequest) {
+    try {
+      commitStateImmediately(
+        (current) =>
+          withPrunedSubmissionAnnotations(
+            current,
+            requestSubmissionReceipt(current.submissionLog, request),
+          ),
+        { requirePersistence: true },
+      );
+      return true;
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Submission could not be queued");
+      return false;
+    }
+  }
+
+  function recordSubmission(submission: SubmissionRecord) {
+    try {
+      commitStateImmediately((current) =>
+        withPrunedSubmissionAnnotations(
+          current,
+          settleSubmissionReceipt(current.submissionLog, submission.id, {
+            settledAt: new Date().toISOString(),
+            status: submission.status,
+            durationMs: submission.durationMs,
+            passed: submission.passed,
+            total: submission.total,
+            ...(submission.status === "judge-error"
+              ? { interruptionReason: "local-judge-error" }
+              : {}),
+          }),
+        ),
+      );
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Submission receipt could not be settled");
+    }
   }
 
   function restoreSubmissionSource(submission: SubmissionRecord) {
@@ -2781,31 +3031,37 @@ export default function SwiftGhostApp() {
     }
   }
 
-  function requestActiveVirtualRoundSubmission(input: {
-    roundId: string;
-    itemId: string;
-    submissionId: string;
-    requestedAt: string;
-    source: string;
-  }) {
+  function requestActiveVirtualRoundSubmission(request: SubmissionRequest) {
+    const roundId = request.context.virtualRoundId;
+    if (!roundId) return false;
     try {
-      commitStateImmediately((current) => ({
-        ...current,
-        virtualRoundWorkspace: requestVirtualRoundSubmission(
-          current.virtualRoundWorkspace,
-          input.roundId,
-          input.itemId,
-          {
-            id: input.submissionId,
-            requestedAt: input.requestedAt,
-            source: input.source,
-          },
-        ),
-      }));
+      commitStateImmediately(
+        (current) => {
+          const virtualRoundWorkspace = requestVirtualRoundSubmission(
+            current.virtualRoundWorkspace,
+            roundId,
+            request.itemId,
+            {
+              id: request.id,
+              requestedAt: new Date(request.requestedAt).toISOString(),
+              source: request.source,
+            },
+          );
+          const submissionLog = requestSubmissionReceipt(
+            current.submissionLog,
+            request,
+          );
+          return {
+            ...withPrunedSubmissionAnnotations(current, submissionLog),
+            virtualRoundWorkspace,
+          };
+        },
+        { requirePersistence: true },
+      );
       return true;
     } catch (error) {
       if (error instanceof Error && /deadline passed/i.test(error.message)) {
-        expireActiveVirtualRound(input.roundId);
+        expireActiveVirtualRound(roundId);
       } else {
         setToast(error instanceof Error ? error.message : "Submission could not be queued");
       }
@@ -2829,13 +3085,23 @@ export default function SwiftGhostApp() {
           total: submission.total,
         },
       );
+      const submissionLog = settleSubmissionReceipt(
+        current.submissionLog,
+        submission.id,
+        {
+          settledAt: new Date().toISOString(),
+          status: submission.status,
+          durationMs: submission.durationMs,
+          passed: submission.passed,
+          total: submission.total,
+          ...(submission.status === "judge-error"
+            ? { interruptionReason: "local-judge-error" }
+            : {}),
+        },
+      );
       return {
-        ...current,
+        ...withPrunedSubmissionAnnotations(current, submissionLog),
         virtualRoundWorkspace,
-        submissionHistory: appendSubmissionHistory(
-          current.submissionHistory,
-          submission,
-        ),
         draft:
           !virtualRoundWorkspace.active && current.draft?.virtualRoundId === roundId
             ? null
@@ -3136,11 +3402,19 @@ export default function SwiftGhostApp() {
     });
   }
 
-  function commitStateImmediately(updater: (current: AppState) => AppState) {
+  function commitStateImmediately(
+    updater: (current: AppState) => AppState,
+    options: { requirePersistence?: boolean } = {},
+  ) {
     const next = updater(stateRef.current);
+    const persisted = saveState(next);
+    if (options.requirePersistence && !persisted) {
+      throw new Error(
+        "Local storage is unavailable · free browser storage before submitting",
+      );
+    }
     stateRef.current = next;
     setState(next);
-    saveState(next);
     return next;
   }
 
@@ -3897,7 +4171,7 @@ export default function SwiftGhostApp() {
       return;
     }
     const liveDraft = current.draft;
-    const accepted = current.submissionHistory
+    const accepted = settledSubmissionRecords(current.submissionLog)
       .slice()
       .reverse()
       .find(
@@ -4608,6 +4882,7 @@ export default function SwiftGhostApp() {
               submissions: draft.submissions + 1,
             })
           }
+          onSubmissionRequested={requestLocalSubmission}
           onSubmissionSettled={recordSubmission}
           onVirtualRoundSubmissionRequested={requestActiveVirtualRoundSubmission}
           onVirtualRoundSubmissionSettled={settleActiveVirtualRoundSubmission}
@@ -4760,6 +5035,9 @@ export default function SwiftGhostApp() {
           key={`${cloud.status}:${cloud.refresh}:${cloud.session?.profile?.handle ?? "local"}:${cloud.session?.profile?.updatedAt ?? "new"}`}
           state={state}
           items={allItems}
+          section={recordsSection}
+          submissionQuery={submissionLogQuery}
+          now={now}
           transferVariants={transferVariants}
           transferTotals={transferTotals}
           cloud={cloud}
@@ -4773,6 +5051,15 @@ export default function SwiftGhostApp() {
               refresh: current.refresh + 1,
             }))
           }
+          onSectionChange={(nextSection) =>
+            updateRecordsRoute(nextSection, submissionLogQuery, "push")
+          }
+          onSubmissionQueryChange={(nextQuery, history) =>
+            updateRecordsRoute("submissions", nextQuery, history)
+          }
+          onSaveSubmissionAnnotation={saveSubmissionAnnotation}
+          onOpenSubmissionClean={openSubmissionClean}
+          onContinueFromSubmission={continueFromSubmission}
         />
       )}
       {view === "settings" && (
@@ -5150,6 +5437,32 @@ function TodayView({
   );
 }
 
+function compatibleSubmissionRecord(
+  request: SubmissionRequest,
+  outcome: Pick<SubmissionRecord, "status" | "durationMs" | "passed" | "total">,
+): SubmissionRecord {
+  const kind = request.context.kind;
+  return {
+    id: request.id,
+    itemId: request.itemId as ItemId,
+    titleSnapshot: request.titleSnapshot,
+    language: request.language,
+    itemRevision: request.itemRevision,
+    verificationRevision: request.judge.revision,
+    submittedAt: new Date(request.requestedAt).toISOString(),
+    ...outcome,
+    source: request.source,
+    origin:
+      kind === "round"
+        ? "round"
+        : kind === "mock" || kind === "studio"
+          ? "mock"
+          : "practice",
+    sessionId: request.context.sessionId,
+    virtualRoundId: request.context.virtualRoundId,
+  };
+}
+
 type PracticeProps = {
   state: AppState;
   items: PracticeItem[];
@@ -5184,14 +5497,9 @@ type PracticeProps = {
   onReset: () => void;
   onTestRun: () => void;
   onSubmissionRun: () => void;
+  onSubmissionRequested: (request: SubmissionRequest) => boolean;
   onSubmissionSettled: (submission: SubmissionRecord) => void;
-  onVirtualRoundSubmissionRequested: (input: {
-    roundId: string;
-    itemId: string;
-    submissionId: string;
-    requestedAt: string;
-    source: string;
-  }) => boolean;
+  onVirtualRoundSubmissionRequested: (request: SubmissionRequest) => boolean;
   onVirtualRoundSubmissionSettled: (submission: SubmissionRecord) => void;
   onVirtualRoundOpenProblem: (roundId: string, itemId: string) => void;
   onVirtualRoundToggleFlag: (roundId: string, itemId: string) => void;
@@ -5235,8 +5543,22 @@ type PracticeProps = {
 };
 
 function PracticeView(props: PracticeProps) {
+  const submissionHistory = useMemo(
+    () => settledSubmissionRecords(props.state.submissionLog) as SubmissionRecord[],
+    [props.state.submissionLog],
+  );
   const [query, setQuery] = useState("");
   const [copied, setCopied] = useState(false);
+  const activeSubmissionRequest = useRef<SubmissionRequest | null>(null);
+  const submissionSettledRef = useRef(props.onSubmissionSettled);
+  const roundSubmissionSettledRef = useRef(
+    props.onVirtualRoundSubmissionSettled,
+  );
+  useEffect(() => {
+    submissionSettledRef.current = props.onSubmissionSettled;
+    roundSubmissionSettledRef.current =
+      props.onVirtualRoundSubmissionSettled;
+  }, [props.onSubmissionSettled, props.onVirtualRoundSubmissionSettled]);
   const [verificationState, setVerificationState] = useState<{
     itemId: ItemId;
     status: "idle" | "loading" | "running" | "passed" | "failed" | "error";
@@ -5315,7 +5637,7 @@ function PracticeView(props: PracticeProps) {
     (problem) => problem.itemId === props.item.itemId,
   );
   const acceptedStudioSubmission = activeStudio
-    ? props.state.submissionHistory
+    ? submissionHistory
         .slice()
         .reverse()
         .find(
@@ -5331,6 +5653,19 @@ function PracticeView(props: PracticeProps) {
     disposed.current = false;
     return () => {
       disposed.current = true;
+      const pendingRequest = activeSubmissionRequest.current;
+      if (pendingRequest) {
+        const interrupted = compatibleSubmissionRecord(pendingRequest, {
+          status: "judge-error",
+          durationMs: 0,
+          passed: 0,
+          total: 0,
+        });
+        activeSubmissionRequest.current = null;
+        if (pendingRequest.context.kind === "round")
+          roundSubmissionSettledRef.current(interrupted);
+        else submissionSettledRef.current(interrupted);
+      }
       verificationRunId.current += 1;
       customExecutionRunId.current += 1;
       runnerGeneration.current += 1;
@@ -5419,24 +5754,18 @@ function PracticeView(props: PracticeProps) {
   }
 
   function cancelPythonRun() {
-    const pendingRoundSubmission = activeVirtualRound?.problems
-      .find((problem) => problem.itemId === props.item.itemId)
-      ?.submissions.find((submission) => submission.status === "pending");
-    if (pendingRoundSubmission && props.item.verification) {
-      props.onVirtualRoundSubmissionSettled({
-        id: pendingRoundSubmission.id,
-        itemId: props.item.itemId,
-        itemRevision: props.item.contentRevision,
-        verificationRevision: props.item.verification.revision ?? 1,
-        submittedAt: pendingRoundSubmission.requestedAt,
+    const pendingRequest = activeSubmissionRequest.current;
+    if (pendingRequest) {
+      const interrupted = compatibleSubmissionRecord(pendingRequest, {
         status: "judge-error",
         durationMs: 0,
         passed: 0,
         total: 0,
-        source: runnerSource,
-        origin: "round",
-        virtualRoundId: activeVirtualRound?.id,
       });
+      activeSubmissionRequest.current = null;
+      if (pendingRequest.context.kind === "round")
+        props.onVirtualRoundSubmissionSettled(interrupted);
+      else props.onSubmissionSettled(interrupted);
     }
     verificationRunId.current += 1;
     customExecutionRunId.current += 1;
@@ -5467,36 +5796,48 @@ function PracticeView(props: PracticeProps) {
       props.draft.submissions + (purpose === "submit" ? 1 : 0);
     const runId = ++verificationRunId.current;
     const generation = ++runnerGeneration.current;
-    const submissionRequest =
+    const submissionContextKind: SubmissionContextKind = isVirtualRound
+      ? "round"
+      : isStudio
+        ? "studio"
+        : isMock
+          ? "mock"
+          : isAssessment
+            ? "assessment"
+            : isTransfer
+              ? "transfer"
+              : "practice";
+    const submissionRequest: SubmissionRequest | null =
       purpose === "submit" || (isMock && purpose === "full")
         ? {
             id: makeId(),
             itemId: props.item.itemId,
+            titleSnapshot: props.item.title,
+            language: props.item.language,
             itemRevision: props.item.contentRevision,
-            verificationRevision: props.item.verification.revision ?? 1,
-            submittedAt: new Date().toISOString(),
+            requestedAt: new Date().toISOString(),
             source: sourceToVerify,
-            origin: isVirtualRound
-              ? ("round" as const)
-              : isMock
-                ? ("mock" as const)
-                : ("practice" as const),
-            sessionId: props.draft.sessionId,
-            virtualRoundId: props.draft.virtualRoundId,
+            judge: {
+              kind: "browser-python-local",
+              revision: props.item.verification.revision ?? 1,
+            },
+            context: {
+              kind: submissionContextKind,
+              sessionId: props.draft.sessionId,
+              assessmentRunId: props.draft.assessmentRunId,
+              assessmentProbeId: props.draft.assessmentProbeId,
+              virtualRoundId: props.draft.virtualRoundId,
+            },
+            assistance: props.draft.peeks > 0 ? "used" : "none-recorded",
           }
         : null;
-    if (
-      activeVirtualRound &&
-      submissionRequest &&
-      !props.onVirtualRoundSubmissionRequested({
-        roundId: activeVirtualRound.id,
-        itemId: props.item.itemId,
-        submissionId: submissionRequest.id,
-        requestedAt: submissionRequest.submittedAt,
-        source: sourceToVerify,
-      })
-    )
-      return;
+    if (submissionRequest) {
+      const queued = isVirtualRound
+        ? props.onVirtualRoundSubmissionRequested(submissionRequest)
+        : props.onSubmissionRequested(submissionRequest);
+      if (!queued) return;
+      activeSubmissionRequest.current = submissionRequest;
+    }
     runnerBusy.current = true;
     setRunnerActive(true);
     const verificationStartedAt = performance.now();
@@ -5541,13 +5882,13 @@ function PracticeView(props: PracticeProps) {
         );
       }
       if (submissionRequest) {
-        const settledSubmission: SubmissionRecord = {
-          ...submissionRequest,
+        const settledSubmission = compatibleSubmissionRecord(submissionRequest, {
           status: classifySubmissionResult(result),
           durationMs: result.durationMs,
           passed: passedCount,
           total: result.cases.length,
-        };
+        });
+        activeSubmissionRequest.current = null;
         if (isVirtualRound)
           props.onVirtualRoundSubmissionSettled(settledSubmission);
         else props.onSubmissionSettled(settledSubmission);
@@ -5568,8 +5909,7 @@ function PracticeView(props: PracticeProps) {
     } catch (error) {
       if (disposed.current || runId !== verificationRunId.current) return;
       if (submissionRequest) {
-        const settledSubmission: SubmissionRecord = {
-          ...submissionRequest,
+        const settledSubmission = compatibleSubmissionRecord(submissionRequest, {
           status:
             error instanceof Error &&
             /time(?:d)? out|time limit/i.test(error.message)
@@ -5578,7 +5918,8 @@ function PracticeView(props: PracticeProps) {
           durationMs: Math.max(0, performance.now() - verificationStartedAt),
           passed: 0,
           total: 0,
-        };
+        });
+        activeSubmissionRequest.current = null;
         if (isVirtualRound)
           props.onVirtualRoundSubmissionSettled(settledSubmission);
         else props.onSubmissionSettled(settledSubmission);
@@ -6659,7 +7000,7 @@ function PracticeView(props: PracticeProps) {
                 onSubmit={() => runPythonChecks("submit")}
                 onRunFull={() => runPythonChecks("full")}
                 onCancelRun={cancelPythonRun}
-                submissionHistory={props.state.submissionHistory.filter(
+                submissionHistory={submissionHistory.filter(
                   (submission) => submission.itemId === props.item.itemId,
                 )}
                 currentItemRevision={props.item.contentRevision}
@@ -6909,7 +7250,7 @@ function PracticeView(props: PracticeProps) {
             onSubmit={() => runPythonChecks("submit")}
             onRunFull={() => runPythonChecks("full")}
             onCancelRun={cancelPythonRun}
-            submissionHistory={props.state.submissionHistory.filter(
+            submissionHistory={submissionHistory.filter(
               (submission) => submission.itemId === props.item.itemId,
             )}
             currentItemRevision={props.item.contentRevision}
@@ -7708,6 +8049,9 @@ function SessionsView({
 function RecordsView({
   state,
   items,
+  section,
+  submissionQuery,
+  now,
   transferVariants,
   transferTotals,
   cloud,
@@ -7716,9 +8060,17 @@ function RecordsView({
   onAssess,
   onToggleUploads,
   onCloudRefresh,
+  onSectionChange,
+  onSubmissionQueryChange,
+  onSaveSubmissionAnnotation,
+  onOpenSubmissionClean,
+  onContinueFromSubmission,
 }: {
   state: AppState;
   items: PracticeItem[];
+  section: RecordsSection;
+  submissionQuery: SubmissionWorkLogQuery;
+  now: number;
   transferVariants: TransferVariant[];
   transferTotals: TransferTotals;
   cloud: CloudRuntime;
@@ -7733,7 +8085,48 @@ function RecordsView({
   onAssess: (assessmentId?: string) => void;
   onToggleUploads: (enabled: boolean) => void;
   onCloudRefresh: () => void;
+  onSectionChange: (section: RecordsSection) => void;
+  onSubmissionQueryChange: (
+    query: SubmissionWorkLogQuery,
+    history: "push" | "replace",
+  ) => void;
+  onSaveSubmissionAnnotation: (
+    submissionId: string,
+    annotation: Pick<SubmissionAnnotation, "note" | "tags">,
+  ) => void;
+  onOpenSubmissionClean: (item: PracticeItem) => void;
+  onContinueFromSubmission: (
+    receipt: SubmissionReceipt,
+    item: PracticeItem,
+    source: string,
+  ) => void;
 }) {
+  if (section === "submissions") {
+    return (
+      <main id="main-content" tabIndex={-1} className="page-container">
+        <PageHeading
+          eyebrow="Records workspace"
+          title="Evidence you can reopen."
+          copy="Every submit creates a durable local receipt before judging starts. Inspect exact sources, compare attempts, and turn mistakes into the next clean retry."
+        />
+        <div className="records-section-switch" role="group" aria-label="Records section">
+          <button type="button" onClick={() => onSectionChange("overview")}>Overview</button>
+          <button className="is-active" type="button" aria-current="page">Submissions</button>
+        </div>
+        <SubmissionWorkLog
+          log={state.submissionLog}
+          annotations={state.submissionAnnotations}
+          items={items}
+          query={submissionQuery}
+          now={now}
+          onQueryChange={onSubmissionQueryChange}
+          onSaveAnnotation={onSaveSubmissionAnnotation}
+          onOpenClean={onOpenSubmissionClean}
+          onContinueAssisted={onContinueFromSubmission}
+        />
+      </main>
+    );
+  }
   const curriculumRecordItems = items.filter((item) => !item.transfer);
   const attempts = completedAttempts(state);
   const typingAttempts = attempts.filter(
@@ -7865,6 +8258,10 @@ function RecordsView({
         title="Records you can trust."
         copy="Your learning history stays local. If you opt in, built-in completed runs can also power a private profile, recent activity, and server-ranked community records."
       />
+      <div className="records-section-switch" role="group" aria-label="Records section">
+        <button className="is-active" type="button" aria-current="page">Overview</button>
+        <button type="button" onClick={() => onSectionChange("submissions")}>Submissions</button>
+      </div>
       <CommunityPanel
         state={state}
         items={curriculumRecordItems}
@@ -8489,12 +8886,12 @@ function SettingsView({
           <small>Your data</small>
           <h2>Local profile</h2>
           <p>
-            Export a portable v22 JSON backup with Python, Swift, iOS, assessments, plans, sessions,
+            Export a portable v23 JSON backup with Python, Swift, iOS, assessments, plans, sessions,
             learning debriefs, revisioned snippets, local pacing and weak-line
             analytics, community preferences, structured custom testcases, and
             local submission snapshots, mock notebooks and debriefs, Interview
             Studio transcripts and criteria, transfer evidence, virtual-round reports,
-            or restore any v2-v21 backup.
+            or restore any v2-v22 backup.
           </p>
         </div>
         <div className="data-actions">
