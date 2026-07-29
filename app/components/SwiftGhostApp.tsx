@@ -32,6 +32,7 @@ import {
 } from "./StudyPlans";
 import { ReadinessAnalytics } from "./ReadinessAnalytics";
 import { ReadinessTrends } from "./ReadinessTrends";
+import { TransferEvidenceRecords } from "./TransferEvidenceRecords";
 import { AssessmentCenter } from "./AssessmentCenter";
 import {
   VirtualRounds,
@@ -294,6 +295,7 @@ import {
   recordTransferOpened,
   selectNextTransferVariant,
 } from "../lib/transfer-lab.mjs";
+import { buildTransferRecords } from "../lib/transfer-records.mjs";
 import {
   INTERVIEW_STUDIO_LIMITS,
   advanceInterviewPhase,
@@ -325,6 +327,11 @@ type Result = AttemptRecord & {
   };
   sessionComplete?: boolean;
   mockInterview?: boolean;
+  transferEvidenceClass?:
+    | "cold-proof"
+    | "spaced-recheck"
+    | "early-reconstruction"
+    | "assisted-reconstruction";
 };
 type SessionBuildOptions = {
   name: string;
@@ -700,6 +707,10 @@ export default function SwiftGhostApp() {
   const [recordsSection, setRecordsSection] =
     useState<RecordsSection>("overview");
   const [reviewAttemptId, setReviewAttemptId] = useState<string>();
+  const [transferRecordVariantId, setTransferRecordVariantId] =
+    useState<string>();
+  const [transferRecordAttemptId, setTransferRecordAttemptId] =
+    useState<string>();
   const [submissionLogQuery, setSubmissionLogQuery] =
     useState<SubmissionWorkLogQuery>(() =>
       normalizeSubmissionWorkLogQuery(DEFAULT_SUBMISSION_WORK_LOG_QUERY),
@@ -800,6 +811,8 @@ export default function SwiftGhostApp() {
       );
       setRecordsSection(route.recordsSection ?? "overview");
       setReviewAttemptId(route.reviewAttemptId);
+      setTransferRecordVariantId(route.transferVariantId);
+      setTransferRecordAttemptId(route.transferAttemptId);
       setSubmissionLogQuery(
         normalizeSubmissionWorkLogQuery(
           route.submissions ?? DEFAULT_SUBMISSION_WORK_LOG_QUERY,
@@ -859,6 +872,20 @@ export default function SwiftGhostApp() {
         if (canonicalHref !== currentHref)
           window.history.replaceState({}, "", canonicalHref);
       }
+      if (route.view === "records" && route.recordsSection === "transfer") {
+        const canonicalHref = serializeRoute(
+          {
+            view: "records",
+            recordsSection: "transfer",
+            transferVariantId: route.transferVariantId,
+            transferAttemptId: route.transferAttemptId,
+          },
+          window.location.href,
+        );
+        const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        if (canonicalHref !== currentHref)
+          window.history.replaceState({}, "", canonicalHref);
+      }
       setNow(Date.now());
       setReady(true);
     }, 0);
@@ -912,6 +939,8 @@ export default function SwiftGhostApp() {
       );
       setRecordsSection(route.recordsSection ?? "overview");
       setReviewAttemptId(route.reviewAttemptId);
+      setTransferRecordVariantId(route.transferVariantId);
+      setTransferRecordAttemptId(route.transferAttemptId);
       setSubmissionLogQuery(
         normalizeSubmissionWorkLogQuery(
           route.submissions ?? DEFAULT_SUBMISSION_WORK_LOG_QUERY,
@@ -1352,7 +1381,7 @@ export default function SwiftGhostApp() {
           );
         if (progress?.attemptCount)
           evidenceLabels.push(
-            `${progress.attemptCount} completed attempt${progress.attemptCount === 1 ? "" : "s"}`,
+            `${progress.attemptCount} attempt record${progress.attemptCount === 1 ? "" : "s"}`,
           );
         if (progress?.failedSubmissionCount)
           evidenceLabels.push(
@@ -1360,7 +1389,11 @@ export default function SwiftGhostApp() {
           );
         if (progress?.spacedSolveCount)
           evidenceLabels.push(
-            `${progress.spacedSolveCount} spaced independent solve${progress.spacedSolveCount === 1 ? "" : "s"}`,
+            `${progress.spacedSolveCount} cadence checkpoint${progress.spacedSolveCount === 1 ? "" : "s"}`,
+          );
+        if (progress?.unassistedRetestCount)
+          evidenceLabels.push(
+            `${progress.unassistedRetestCount} unassisted revealed reconstruction${progress.unassistedRetestCount === 1 ? "" : "s"}`,
           );
         if (progress?.exposure?.maxHintLevel)
           evidenceLabels.push(
@@ -1548,6 +1581,8 @@ export default function SwiftGhostApp() {
     if (nextView === "records") {
       setRecordsSection("overview");
       setReviewAttemptId(undefined);
+      setTransferRecordVariantId(undefined);
+      setTransferRecordAttemptId(undefined);
       setSubmissionLogQuery(
         normalizeSubmissionWorkLogQuery(DEFAULT_SUBMISSION_WORK_LOG_QUERY),
       );
@@ -1589,6 +1624,8 @@ export default function SwiftGhostApp() {
     setView("records");
     setRecordsSection(nextSection);
     setReviewAttemptId(undefined);
+    setTransferRecordVariantId(undefined);
+    setTransferRecordAttemptId(undefined);
     setSubmissionLogQuery(normalized);
     const route: AppRoute =
       nextSection === "submissions"
@@ -1601,6 +1638,8 @@ export default function SwiftGhostApp() {
           ? { view: "records", recordsSection: "reviews" }
           : nextSection === "trends"
             ? { view: "records", recordsSection: "trends" }
+            : nextSection === "transfer"
+              ? { view: "records", recordsSection: "transfer" }
             : { view: "records", recordsSection: "overview" };
     const href = serializeRoute(route, window.location.href);
     const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
@@ -1610,6 +1649,22 @@ export default function SwiftGhostApp() {
       "",
       href,
     );
+  }
+
+  function openTransferRecords(variantId?: string, attemptId?: string) {
+    if (blockVirtualRoundNavigation()) return;
+    setView("records");
+    setRecordsSection("transfer");
+    setReviewAttemptId(undefined);
+    setTransferRecordVariantId(variantId);
+    setTransferRecordAttemptId(variantId ? attemptId : undefined);
+    setResult(null);
+    writeRoute({
+      view: "records",
+      recordsSection: "transfer",
+      transferVariantId: variantId,
+      transferAttemptId: variantId ? attemptId : undefined,
+    });
   }
 
   function timedSolutionReviewAttemptIds(current: AppState) {
@@ -2629,6 +2684,22 @@ export default function SwiftGhostApp() {
     attempt: AttemptRecord,
     learningEvent?: LearningEvent,
   ) {
+    const transferAttemptEvidence = item.transfer
+      ? deriveTransferProgress({
+          variants: transferItems,
+          workspace: state.transferWorkspace,
+          attempts: [...state.attempts, attempt],
+          submissions: settledSubmissionRecords(state.submissionLog),
+          now: attempt.completedAt,
+        })
+          .find((entry) => entry.variantId === item.itemId)
+          ?.solveEvidenceEvents.find(
+            (entry) => entry.source === "attempt" && entry.id === attempt.id,
+          )
+      : undefined;
+    const transferEvidenceClass: Result["transferEvidenceClass"] = item.transfer
+      ? transferAttemptEvidence?.evidenceClass ?? "assisted-reconstruction"
+      : undefined;
     const attemptCompletedAt = Date.parse(attempt.completedAt);
     const transferDebriefRevealedAt = item.transfer
       ? new Date(
@@ -2839,6 +2910,7 @@ export default function SwiftGhostApp() {
       nextReview: reviewDueAt(projected, selectedId),
       sessionNext,
       sessionComplete,
+      transferEvidenceClass,
     });
   }
 
@@ -5391,6 +5463,7 @@ export default function SwiftGhostApp() {
             recommendedVariantId={recommendedTransferItem?.itemId}
             totals={transferTotals}
             onStart={startTransferVariant}
+            onReview={(variantId) => openTransferRecords(variantId)}
             onBack={() => selectAssessment(undefined)}
           />
         </main>
@@ -5470,6 +5543,8 @@ export default function SwiftGhostApp() {
           items={allItems}
           section={recordsSection}
           reviewAttemptId={reviewAttemptId}
+          transferRecordVariantId={transferRecordVariantId}
+          transferRecordAttemptId={transferRecordAttemptId}
           submissionQuery={submissionLogQuery}
           now={now}
           transferVariants={transferVariants}
@@ -5488,6 +5563,8 @@ export default function SwiftGhostApp() {
           onSectionChange={(nextSection) =>
             updateRecordsRoute(nextSection, submissionLogQuery, "push")
           }
+          onSelectTransferRecord={openTransferRecords}
+          onOpenTransferVariant={startTransferVariant}
           onSubmissionQueryChange={(nextQuery, history) =>
             updateRecordsRoute("submissions", nextQuery, history)
           }
@@ -5526,7 +5603,11 @@ export default function SwiftGhostApp() {
           onNext={handleResultNext}
           onRetry={handleResultRetry}
           onRandom={() => randomItem()}
-          onRecords={() => navigateView("records")}
+          onRecords={() =>
+            result.item.transfer
+              ? openTransferRecords(result.itemId, result.id)
+              : navigateView("records")
+          }
           onTransferLab={openTransferLab}
           onSolutionReview={() => openSolutionReview(result.id)}
           debrief={state.learningEvents.find(
@@ -8497,11 +8578,46 @@ function SessionsView({
   );
 }
 
+const RECORDS_SECTION_LABELS: Record<RecordsSection, string> = {
+  overview: "Overview",
+  trends: "Trends",
+  transfer: "Transfer",
+  submissions: "Submissions",
+  reviews: "Reviews",
+};
+
+function RecordsSectionSwitch({
+  section,
+  onChange,
+}: {
+  section: RecordsSection;
+  onChange: (section: RecordsSection) => void;
+}) {
+  const sections = Object.keys(RECORDS_SECTION_LABELS) as RecordsSection[];
+  return (
+    <div className="records-section-switch" role="group" aria-label="Records section">
+      {sections.map((candidate) => (
+        <button
+          className={candidate === section ? "is-active" : undefined}
+          type="button"
+          aria-current={candidate === section ? "page" : undefined}
+          onClick={() => candidate !== section && onChange(candidate)}
+          key={candidate}
+        >
+          {RECORDS_SECTION_LABELS[candidate]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function RecordsView({
   state,
   items,
   section,
   reviewAttemptId,
+  transferRecordVariantId,
+  transferRecordAttemptId,
   submissionQuery,
   now,
   transferVariants,
@@ -8513,6 +8629,8 @@ function RecordsView({
   onToggleUploads,
   onCloudRefresh,
   onSectionChange,
+  onSelectTransferRecord,
+  onOpenTransferVariant,
   onSubmissionQueryChange,
   onSaveSubmissionAnnotation,
   onOpenSubmissionClean,
@@ -8527,6 +8645,8 @@ function RecordsView({
   items: PracticeItem[];
   section: RecordsSection;
   reviewAttemptId?: string;
+  transferRecordVariantId?: string;
+  transferRecordAttemptId?: string;
   submissionQuery: SubmissionWorkLogQuery;
   now: number;
   transferVariants: TransferVariant[];
@@ -8544,6 +8664,8 @@ function RecordsView({
   onToggleUploads: (enabled: boolean) => void;
   onCloudRefresh: () => void;
   onSectionChange: (section: RecordsSection) => void;
+  onSelectTransferRecord: (variantId?: string, attemptId?: string) => void;
+  onOpenTransferVariant: (variantId: string) => void;
   onSubmissionQueryChange: (
     query: SubmissionWorkLogQuery,
     history: "push" | "replace",
@@ -8573,12 +8695,7 @@ function RecordsView({
           title="See the shape of your practice."
           copy="Compare current-revision evidence across time without collapsing independent solves, retrieval, explanations, and language balance into a misleading readiness score."
         />
-        <div className="records-section-switch" role="group" aria-label="Records section">
-          <button type="button" onClick={() => onSectionChange("overview")}>Overview</button>
-          <button className="is-active" type="button" aria-current="page">Trends</button>
-          <button type="button" onClick={() => onSectionChange("submissions")}>Submissions</button>
-          <button type="button" onClick={() => onSectionChange("reviews")}>Solution reviews</button>
-        </div>
+        <RecordsSectionSwitch section="trends" onChange={onSectionChange} />
         <ReadinessTrends
           state={state}
           items={curriculumRecordItems}
@@ -8587,6 +8704,48 @@ function RecordsView({
       </main>
     );
   }
+
+  if (section === "transfer") {
+    const model = buildTransferRecords({
+      variants: items.filter((candidate) => Boolean(candidate.transfer)),
+      workspace: state.transferWorkspace,
+      attempts: state.attempts,
+      submissionLog: state.submissionLog,
+      reviews: state.solutionReviews,
+      now: new Date(now).toISOString(),
+    });
+    return (
+      <main id="main-content" tabIndex={-1} className="page-container transfer-records-page">
+        <PageHeading
+          eyebrow="Private transfer ledger"
+          title="Follow the evidence, not the feeling."
+          copy="Separate a first cold proof from a delayed recheck, an early reconstruction, or a help-contaminated retry—then reopen the exact attempt, source receipt, and review that produced it."
+        />
+        <RecordsSectionSwitch section="transfer" onChange={onSectionChange} />
+        <TransferEvidenceRecords
+          model={model}
+          variants={transferVariants}
+          selectedVariantId={transferRecordVariantId}
+          selectedAttemptId={transferRecordAttemptId}
+          onSelect={onSelectTransferRecord}
+          onOpenVariant={onOpenTransferVariant}
+          onOpenSubmission={(submissionId) =>
+            onSubmissionQueryChange(
+              normalizeSubmissionWorkLogQuery({
+                ...DEFAULT_SUBMISSION_WORK_LOG_QUERY,
+                origins: ["transfer"],
+                selectedId: submissionId,
+              }),
+              "push",
+            )
+          }
+          onOpenReview={onOpenSolutionReview}
+          onOpenLab={() => onAssess("transfer-lab")}
+        />
+      </main>
+    );
+  }
+
   if (section === "reviews") {
     const reviewableAttempts = state.attempts
       .filter(
@@ -8650,12 +8809,7 @@ function RecordsView({
           title="Solution review library."
           copy="Explain first, compare against reviewed project-authored guides, capture the first wrong turn, teach it back, and schedule the next retrieval. Accepted attempts remain immutable."
         />
-        <div className="records-section-switch" role="group" aria-label="Records section">
-          <button type="button" onClick={() => onSectionChange("overview")}>Overview</button>
-          <button type="button" onClick={() => onSectionChange("trends")}>Trends</button>
-          <button type="button" onClick={() => onSectionChange("submissions")}>Submissions</button>
-          <button className="is-active" type="button" aria-current="page">Solution reviews</button>
-        </div>
+        <RecordsSectionSwitch section="reviews" onChange={onSectionChange} />
         {reviewAttemptId && !activeReview ? (
           <p className="solution-review-route-warning" role="status">
             That review is unavailable or no longer linked to a surviving accepted attempt. No attempt was inferred from timestamps or matching code.
@@ -8705,12 +8859,7 @@ function RecordsView({
           title="Evidence you can reopen."
           copy="Every submit creates a durable local receipt before judging starts. Inspect exact sources, compare attempts, and turn mistakes into the next clean retry."
         />
-        <div className="records-section-switch" role="group" aria-label="Records section">
-          <button type="button" onClick={() => onSectionChange("overview")}>Overview</button>
-          <button type="button" onClick={() => onSectionChange("trends")}>Trends</button>
-          <button className="is-active" type="button" aria-current="page">Submissions</button>
-          <button type="button" onClick={() => onSectionChange("reviews")}>Solution reviews</button>
-        </div>
+        <RecordsSectionSwitch section="submissions" onChange={onSectionChange} />
         <SubmissionWorkLog
           log={state.submissionLog}
           annotations={state.submissionAnnotations}
@@ -8863,12 +9012,7 @@ function RecordsView({
         title="Records you can trust."
         copy="Your learning history stays local. If you opt in, built-in completed runs can also power a private profile, recent activity, and server-ranked community records."
       />
-      <div className="records-section-switch" role="group" aria-label="Records section">
-        <button className="is-active" type="button" aria-current="page">Overview</button>
-        <button type="button" onClick={() => onSectionChange("trends")}>Trends</button>
-        <button type="button" onClick={() => onSectionChange("submissions")}>Submissions</button>
-        <button type="button" onClick={() => onSectionChange("reviews")}>Solution reviews</button>
-      </div>
+      <RecordsSectionSwitch section="overview" onChange={onSectionChange} />
       <CommunityPanel
         state={state}
         items={curriculumRecordItems}
@@ -8959,12 +9103,20 @@ function RecordsView({
             <span>{transferTotals.proven}</span>
             <small>current-revision independent proofs</small>
           </div>
-          <button
-            className="outline-button"
-            onClick={() => onAssess("transfer-lab")}
-          >
-            Open Transfer Lab →
-          </button>
+          <div className="transfer-records-actions">
+            <button
+              className="primary-button"
+              onClick={() => onSelectTransferRecord()}
+            >
+              View transfer records →
+            </button>
+            <button
+              className="outline-button"
+              onClick={() => onAssess("transfer-lab")}
+            >
+              Open Transfer Lab
+            </button>
+          </div>
         </div>
       </section>
       <div className="stat-grid">
@@ -9777,6 +9929,17 @@ function ResultDialog({
   const isConcept = result.practiceKind === "concept";
   const isTransfer = Boolean(result.item.transfer);
   const isCleanSolve = result.qualification === "solved";
+  const transferEvidenceClass =
+    result.transferEvidenceClass ??
+    (isCleanSolve ? "cold-proof" : "assisted-reconstruction");
+  const transferEvidenceLabel =
+    transferEvidenceClass === "cold-proof"
+      ? "Cold transfer proof"
+      : transferEvidenceClass === "spaced-recheck"
+        ? "Due recheck"
+        : transferEvidenceClass === "early-reconstruction"
+          ? "Unassisted reconstruction"
+          : "Assisted reconstruction";
   const isStrongConcept =
     isConcept && result.qualification === "independent";
   const successful = eligible || isCleanSolve || isStrongConcept;
@@ -9880,9 +10043,7 @@ function ResultDialog({
         </div>
         <span className="eyebrow">
           {isTransfer
-            ? isCleanSolve
-              ? "Independent transfer recorded"
-              : "Assisted transfer recorded"
+            ? `${transferEvidenceLabel} recorded`
             : isSolve
             ? result.mockInterview
               ? "Mock interview verified"
@@ -9894,9 +10055,13 @@ function ResultDialog({
         <h2 id="result-title">{result.item.title}</h2>
         <p>
           {isTransfer
-            ? isCleanSolve
-              ? "All local checks passed without recorded help. This is independent transfer evidence in Swift Ghost history on this device—not a proctored or identity-verified result."
-              : "All local checks passed, but hints or revealed work influenced the solve. The result stays useful and is permanently labeled assisted."
+            ? transferEvidenceClass === "cold-proof"
+              ? "All local checks passed without recorded help before the identity was revealed. This is local cold-transfer evidence, not a proctored or identity-verified result."
+              : transferEvidenceClass === "spaced-recheck"
+                ? "You reconstructed the revealed variant without current-attempt help after it became due. This advances the local 1/3/7/14/30-day retrieval cadence without claiming another cold solve."
+                : transferEvidenceClass === "early-reconstruction"
+                  ? "You reconstructed a previously revealed variant without current-attempt help. It remains useful retrieval evidence, but an early reconstruction does not advance the due schedule or become cold proof."
+                  : "Hints or revealed work influenced this attempt. The reconstruction stays useful and is permanently labeled assisted."
             : result.sessionComplete
             ? result.mockInterview
               ? "You produced a verified solution before the deadline. The mock is saved as independent interview evidence."
@@ -9973,9 +10138,11 @@ function ResultDialog({
                   ? "Independent"
                   : "Assisted"
                 : isSolve
-                ? isCleanSolve
-                  ? "Independent"
-                  : "Assisted"
+                ? isTransfer
+                  ? transferEvidenceLabel
+                  : isCleanSolve
+                    ? "Independent"
+                    : "Assisted"
                 : isBest
                   ? "New PB"
                   : delta === null
@@ -10034,6 +10201,9 @@ function ResultDialog({
               </button>
               <button className="outline-button" onClick={onRecords}>
                 View transfer evidence
+              </button>
+              <button className="outline-button" onClick={onSolutionReview}>
+                Review this solution
               </button>
               <button
                 className="primary-button"

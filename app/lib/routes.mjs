@@ -21,6 +21,7 @@ export const COMMUNITY_TABS = ["recent", "records", "daily", "profile"];
 export const RECORDS_SECTIONS = [
   "overview",
   "trends",
+  "transfer",
   "submissions",
   "reviews",
 ];
@@ -55,6 +56,15 @@ function cleanAssessmentId(value) {
 }
 
 function cleanReviewAttemptId(value) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return /^[a-zA-Z0-9](?:[a-zA-Z0-9._:-]{0,158}[a-zA-Z0-9])?$/.test(
+    normalized,
+  )
+    ? normalized
+    : undefined;
+}
+
+function cleanTransferRecordId(value) {
   const normalized = typeof value === "string" ? value.trim() : "";
   return /^[a-zA-Z0-9](?:[a-zA-Z0-9._:-]{0,158}[a-zA-Z0-9])?$/.test(
     normalized,
@@ -160,6 +170,14 @@ export function parseRoute(input) {
     recordsSection === "reviews"
       ? cleanReviewAttemptId(params.get("attempt"))
       : undefined;
+  const transferVariantId =
+    recordsSection === "transfer"
+      ? cleanTransferRecordId(params.get("variant"))
+      : undefined;
+  const transferAttemptId =
+    recordsSection === "transfer" && transferVariantId
+      ? cleanTransferRecordId(params.get("attempt"))
+      : undefined;
   return {
     view,
     language,
@@ -178,6 +196,8 @@ export function parseRoute(input) {
             ? { submissions: submissionQueryFromParams(params) }
             : {}),
           ...(reviewAttemptId ? { reviewAttemptId } : {}),
+          ...(transferVariantId ? { transferVariantId } : {}),
+          ...(transferAttemptId ? { transferAttemptId } : {}),
         }
       : {}),
   };
@@ -325,6 +345,14 @@ export function serializeRoute(
   }
   if (view === "records" && route?.recordsSection === "trends") {
     url.searchParams.set("section", "trends");
+  }
+  if (view === "records" && route?.recordsSection === "transfer") {
+    url.searchParams.set("section", "transfer");
+    const transferVariantId = cleanTransferRecordId(route?.transferVariantId);
+    const transferAttemptId = cleanTransferRecordId(route?.transferAttemptId);
+    if (transferVariantId) url.searchParams.set("variant", transferVariantId);
+    if (transferVariantId && transferAttemptId)
+      url.searchParams.set("attempt", transferAttemptId);
   }
   const assessment =
     view === "assessments" ? cleanAssessmentId(route?.assessment) : undefined;

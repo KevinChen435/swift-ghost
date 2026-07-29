@@ -342,7 +342,7 @@ test("later reference exposure remains visible without erasing an earlier clean 
   assert.equal(progress.isAssisted, true);
 });
 
-test("post-attempt debrief preserves the cold solve but blocks revealed retries from advancing proof", () => {
+test("a due unassisted recheck advances spacing without becoming another cold solve", () => {
   const item = variant("v:debrief-boundary");
   let workspace = recordTransferOpened(
     createTransferWorkspace(t0),
@@ -364,10 +364,64 @@ test("post-attempt debrief preserves the cold solve but blocks revealed retries 
   assert.equal(progress.isProven, true);
   assert.equal(progress.isAssisted, true);
   assert.equal(progress.independentSolveCount, 1);
-  assert.equal(progress.spacedSolveCount, 1);
+  assert.equal(progress.unassistedRetestCount, 1);
+  assert.equal(progress.spacedSolveCount, 2);
   assert.equal(progress.firstProvenAt, at(hour));
+  assert.equal(progress.lastProvenAt, at(4 * day));
+  assert.equal(progress.dueAt, at(7 * day));
+  assert.equal(progress.isDue, false);
+  assert.deepEqual(
+    progress.solveEvidenceEvents.map((event) => ({
+      id: event.id,
+      evidenceClass: event.evidenceClass,
+      advancesSchedule: event.advancesSchedule,
+      nextDueAt: event.nextDueAt,
+    })),
+    [
+      {
+        id: "cold-solve",
+        evidenceClass: "cold-proof",
+        advancesSchedule: true,
+        nextDueAt: at(hour + day),
+      },
+      {
+        id: "revealed-retry",
+        evidenceClass: "spaced-recheck",
+        advancesSchedule: true,
+        nextDueAt: at(7 * day),
+      },
+    ],
+  );
+});
+
+test("an early revealed reconstruction is recorded without advancing spacing", () => {
+  const item = variant("v:early-reconstruction");
+  let workspace = recordTransferOpened(
+    createTransferWorkspace(t0),
+    item.variantId,
+    { now: t0 },
+  );
+  workspace = recordTransferDebriefReveal(workspace, item.variantId, {
+    now: at(hour + 1),
+  });
+  const progress = progressFor(item, {
+    workspace,
+    attempts: [
+      solve(item.variantId, at(hour), { id: "cold-solve" }),
+      solve(item.variantId, at(12 * hour), { id: "early-retry" }),
+    ],
+    now: at(13 * hour),
+  });
+
+  assert.equal(progress.independentSolveCount, 1);
+  assert.equal(progress.unassistedRetestCount, 1);
+  assert.equal(progress.spacedSolveCount, 1);
   assert.equal(progress.lastProvenAt, at(hour));
   assert.equal(progress.dueAt, at(hour + day));
+  assert.equal(
+    progress.solveEvidenceEvents.at(-1)?.evidenceClass,
+    "early-reconstruction",
+  );
 });
 
 test("a revealed retry cannot launder an assisted first attempt into cold proof", () => {
@@ -392,7 +446,12 @@ test("a revealed retry cannot launder an assisted first attempt into cold proof"
   assert.equal(progress.status, "assisted");
   assert.equal(progress.isProven, false);
   assert.equal(progress.independentSolveCount, 0);
+  assert.equal(progress.unassistedRetestCount, 0);
   assert.equal(progress.spacedSolveCount, 0);
+  assert.equal(
+    progress.solveEvidenceEvents[0]?.evidenceClass,
+    "assisted-reconstruction",
+  );
 });
 
 test("failed submissions are attempted evidence, never proven evidence", () => {

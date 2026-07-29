@@ -122,7 +122,21 @@ export type TransferVariantProgress = {
   submissionCount: number;
   failedSubmissionCount: number;
   independentSolveCount: number;
+  unassistedRetestCount: number;
   spacedSolveCount: number;
+  solveEvidenceEvents: Array<{
+    source: "attempt" | "submission";
+    id: string;
+    at: string;
+    evidenceClass:
+      | "cold-proof"
+      | "spaced-recheck"
+      | "early-reconstruction"
+      | "assisted-reconstruction";
+    advancesSchedule: boolean;
+    intervalIndex: number | null;
+    nextDueAt: string | null;
+  }>;
   firstProvenAt: string | null;
   lastProvenAt: string | null;
   dueAt: string | null;
