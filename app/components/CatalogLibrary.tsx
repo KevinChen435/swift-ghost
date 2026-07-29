@@ -35,6 +35,8 @@ import {
   type PracticeKind,
 } from "../lib/product";
 import { STUDY_PLAN_LIMITS } from "../lib/study-plans.mjs";
+import { ProblemNotesDialog } from "./ProblemNotesDialog";
+import type { ProblemNote } from "../lib/problem-notes.mjs";
 
 // Question marks are deliberately outside the persisted study-collection ID allowlist.
 const ANY_COLLECTION_ID = "catalog:any-collection?";
@@ -69,22 +71,25 @@ const SORT_LABELS: Record<CatalogSort, string> = {
   "estimated-time": "Estimated time",
 };
 const STATUS_LABELS: Record<CatalogStatus, string> = {
-  new: "New",
-  learning: "Learning",
-  owned: "Owned",
+  new: "Not started",
+  learning: "Attempted",
+  owned: "Solved / owned",
   due: "Review due",
   favorite: "Favorite",
   custom: "Custom",
 };
 
 type CatalogRecordView = CatalogRecord & {
+  itemId: ItemId;
   item: PracticeItem;
   lifecycle: "new" | "learning" | "owned";
   recommendationReason:
     | "Review due"
     | "Needs independent Python solve"
     | "Continue current evidence"
-    | "New transfer item"
+    | "New iOS concept"
+    | "New Swift recall"
+    | "New interview problem"
     | "Retained—schedule later";
   collectionTitles: string[];
   currentRevision: number;
@@ -119,6 +124,8 @@ export type CatalogLibraryProps = {
     patch: { name?: string; query?: CatalogQuery },
   ) => void;
   onDeleteView: (id: string) => void;
+  onSaveProblemNote: (note: Omit<ProblemNote, "updatedAt">) => boolean;
+  onDeleteProblemNote: (id: ItemId) => boolean;
   onAppendToCollection: (collectionId: string, itemIds: ItemId[]) => void;
   onCreateCollection: (name: string, itemIds: ItemId[]) => void;
 };
@@ -210,17 +217,21 @@ function CollectionBadges({ titles }: { titles: string[] }) {
 }
 
 function Evidence({ record }: { record: CatalogRecordView }) {
+  const canSolve = record.item.track === "interview" && record.item.language === "python" && Boolean(record.item.verification);
+  const modalityEvidence = canSolve
+    ? record.verifiedSolves
+      ? `${record.verifiedSolves} accepted local solve${record.verifiedSolves === 1 ? "" : "s"}`
+      : "No accepted local solve"
+    : record.item.track === "ios"
+      ? record.strongConceptEvidence
+        ? `${record.strongConceptEvidence} strong concept recall${record.strongConceptEvidence === 1 ? "" : "s"}`
+        : "Self-assessed concept practice"
+      : record.highestPracticedStage
+        ? `Stage ${record.highestPracticedStage} implementation recall`
+        : "Swift recall · not locally executed";
   const evidenceParts = [
     `Revision ${record.currentRevision}`,
-    record.highestPracticedStage
-      ? `stage ${record.highestPracticedStage} practiced`
-      : "no stage evidence",
-    record.verifiedSolves
-      ? `${record.verifiedSolves} verified solve${record.verifiedSolves === 1 ? "" : "s"}`
-      : "no verified solve",
-    record.strongConceptEvidence
-      ? `${record.strongConceptEvidence} strong concept recall${record.strongConceptEvidence === 1 ? "" : "s"}`
-      : "no strong concept recall",
+    modalityEvidence,
   ];
   return (
     <div className="catalog-evidence">
@@ -247,10 +258,12 @@ function ItemActions({
   onFavorite,
   onEditSnippet,
   onArchiveSnippet,
+  onNotes,
+  hasNote,
 }: Pick<
   CatalogLibraryProps,
   "state" | "onOpen" | "onFavorite" | "onEditSnippet" | "onArchiveSnippet"
-> & { record: CatalogRecordView }) {
+> & { record: CatalogRecordView; onNotes: () => void; hasNote: boolean }) {
   const { item } = record;
   const isFavorite = state.favorites.includes(item.itemId);
   const concept = supportsConceptPractice(item);
@@ -274,6 +287,9 @@ function ItemActions({
           Solve
         </button>
       ) : null}
+      <button type="button" className={hasNote ? "has-note" : undefined} onClick={onNotes}>
+        {hasNote ? "Edit notes" : "Notes"}
+      </button>
       <button
         type="button"
         aria-pressed={isFavorite}
@@ -306,6 +322,8 @@ export function CatalogLibrary({
   onSaveView,
   onUpdateView,
   onDeleteView,
+  onSaveProblemNote,
+  onDeleteProblemNote,
   onAppendToCollection,
   onCreateCollection,
 }: CatalogLibraryProps) {
@@ -317,6 +335,7 @@ export function CatalogLibrary({
   const [renameName, setRenameName] = useState("");
   const [bulkCollectionId, setBulkCollectionId] = useState("");
   const [newCollectionName, setNewCollectionName] = useState("");
+  const [noteItemId, setNoteItemId] = useState<ItemId | null>(null);
 
   const liveCollections = state.studyWorkspace.collections;
   const liveItemIds = useMemo(
@@ -366,7 +385,11 @@ export function CatalogLibrary({
           : lifecycle === "learning"
             ? "Continue current evidence"
             : lifecycle === "new"
-              ? "New transfer item"
+              ? item.track === "ios"
+                ? "New iOS concept"
+                : item.language === "swift"
+                  ? "New Swift recall"
+                  : "New interview problem"
               : "Retained—schedule later";
       const recommendedRank = due
         ? 0
@@ -425,6 +448,18 @@ export function CatalogLibrary({
   }, [items, now, state]);
 
   const result = useMemo(() => discoverCatalog(records, query), [records, query]);
+  const workspaceStats = useMemo(() => ({
+    total: records.length,
+    solved: records.filter((record) => record.lifecycle === "owned").length,
+    attempted: records.filter((record) => record.lifecycle === "learning").length,
+    due: records.filter((record) => record.statuses.includes("due")).length,
+    notes: records.filter((record) => Boolean(state.problemNotes[record.itemId])).length,
+  }), [records, state.problemNotes]);
+  const laneCounts = useMemo(() => ({
+    python: records.filter((record) => record.lane === "python").length,
+    swift: records.filter((record) => record.lane === "swift").length,
+    ios: records.filter((record) => record.lane === "ios").length,
+  }), [records]);
   const activeSelectedIds = useMemo(
     () =>
       new Set([...selectedIds].filter((itemId) => liveItemIds.has(itemId))),
@@ -648,6 +683,8 @@ export function CatalogLibrary({
         onFavorite={onFavorite}
         onEditSnippet={onEditSnippet}
         onArchiveSnippet={onArchiveSnippet}
+        onNotes={() => setNoteItemId(record.itemId)}
+        hasNote={Boolean(state.problemNotes[record.itemId])}
       />
     </>
   );
@@ -656,12 +693,31 @@ export function CatalogLibrary({
     <main id="main-content" tabIndex={-1} className="catalog-library" aria-labelledby="catalog-library-title">
       <header className="catalog-library-header">
         <div>
-          <p className="catalog-eyebrow">Practice library</p>
-          <h1 id="catalog-library-title">Choose the next piece of evidence to build</h1>
-          <p>Filter the full local catalog, resume current-revision work, or collect a fixed selection for later.</p>
+          <p className="catalog-eyebrow">Problem workspace</p>
+          <h1 id="catalog-library-title">Build recall, one problem at a time</h1>
+          <p>Search the full local problem set, see honest progress by practice mode, and keep the approach notes you want before the next attempt.</p>
         </div>
         <button type="button" className="catalog-create-snippet" onClick={onCreateSnippet}>Build practice item</button>
       </header>
+
+      <section className="problem-workspace-overview" aria-label="Problem progress overview">
+        <div><strong>{workspaceStats.total}</strong><span>Problems</span><small>Python, Swift, and iOS</small></div>
+        <div><strong>{workspaceStats.solved}</strong><span>Solved / owned</span><small>Independent current-revision evidence</small></div>
+        <div><strong>{workspaceStats.attempted}</strong><span>Attempted</span><small>Work in progress</small></div>
+        <div><strong>{workspaceStats.due}</strong><span>Review due</span><small>Ready for retrieval</small></div>
+        <div><strong>{workspaceStats.notes}</strong><span>With notes</span><small>Saved only on this device</small></div>
+      </section>
+
+      <nav className="problem-lane-tabs" aria-label="Problem lanes">
+        <button type="button" aria-current={query.lanes.length === 0 ? "page" : undefined} onClick={() => changeQuery({ lanes: [] }, "push", true)}>
+          <span>All problems</span><strong>{records.length}</strong>
+        </button>
+        {LANE_OPTIONS.map(([lane, label]) => (
+          <button type="button" key={lane} aria-current={query.lanes.length === 1 && query.lanes[0] === lane ? "page" : undefined} onClick={() => changeQuery({ lanes: [lane] }, "push", true)}>
+            <span>{label}</span><strong>{laneCounts[lane]}</strong>
+          </button>
+        ))}
+      </nav>
 
       <section className="catalog-saved-views" aria-labelledby="catalog-saved-views-title">
         <div className="catalog-section-heading">
@@ -838,7 +894,7 @@ export function CatalogLibrary({
       <section className="catalog-results" aria-labelledby="catalog-results-title">
         <div className="catalog-results-toolbar">
           <div>
-            <h2 id="catalog-results-title">Library results</h2>
+            <h2 id="catalog-results-title">Problem set</h2>
             <p className="catalog-result-range" aria-live="polite" aria-atomic="true">
               {result.total ? `${result.from}–${result.to} of ${result.total}` : "0 results"}
             </p>
@@ -920,7 +976,7 @@ export function CatalogLibrary({
                       <td data-label="Lane / pattern" className="catalog-taxonomy"><span>{laneLabel(record.lane)}</span><span>{record.pattern}</span></td>
                       <td data-label="Difficulty / time" className="catalog-size"><span>{record.difficulty}</span><span>{record.lineCount} lines · about {record.estimatedMinutes} min</span></td>
                       <td data-label="Live collections"><CollectionBadges titles={record.collectionTitles} /></td>
-                      <td data-label="Actions"><ItemActions record={record} state={state} onOpen={onOpen} onFavorite={onFavorite} onEditSnippet={onEditSnippet} onArchiveSnippet={onArchiveSnippet} /></td>
+                      <td data-label="Actions"><ItemActions record={record} state={state} onOpen={onOpen} onFavorite={onFavorite} onEditSnippet={onEditSnippet} onArchiveSnippet={onArchiveSnippet} onNotes={() => setNoteItemId(record.itemId)} hasNote={Boolean(state.problemNotes[record.itemId])} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -1003,6 +1059,19 @@ export function CatalogLibrary({
           </form>
         </aside>
       ) : null}
+      {noteItemId ? (() => {
+        const noteItem = items.find((candidate) => candidate.itemId === noteItemId);
+        if (!noteItem) return null;
+        return (
+          <ProblemNotesDialog
+            item={noteItem}
+            note={state.problemNotes[noteItemId]}
+            onSave={onSaveProblemNote}
+            onDelete={() => onDeleteProblemNote(noteItemId)}
+            onClose={() => setNoteItemId(null)}
+          />
+        );
+      })() : null}
     </main>
   );
 }

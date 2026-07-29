@@ -19,16 +19,17 @@ const studio = await readFile(
   "utf8",
 );
 
-test("state v25 keeps v24 as a legacy fallback and gates authored judges", () => {
-  assert.match(product, /version: 25;/);
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v25"/);
+test("state v26 keeps v25 and v24 fallbacks and gates authored judges", () => {
+  assert.match(product, /version: 26;/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v26"/);
+  assert.match(product, /TWENTY_FIFTH_STORAGE_KEY = "swift-ghost-state-v25"/);
   assert.match(
     product,
     /TWENTY_FOURTH_STORAGE_KEY = "swift-ghost-state-v24"/,
   );
   assert.match(
     product,
-    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_FOURTH_STORAGE_KEY,/,
+    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_FIFTH_STORAGE_KEY,\s+TWENTY_FOURTH_STORAGE_KEY,/,
   );
   assert.match(product, /stateVersion >= 25/);
   assert.match(product, /CUSTOM_ITEM_STATE_BYTE_LIMIT = 2_500_000/);
