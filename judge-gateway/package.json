@@ -1,0 +1,25 @@
+{
+  "name": "swift-ghost-judge-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "deploy": "wrangler deploy --config wrangler.jsonc",
+    "dev": "wrangler dev --config wrangler.jsonc"
+  },
+  "dependencies": {
+    "@cloudflare/sandbox": "0.12.4"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260729.1",
+    "@types/node": "^24.1.0",
+    "tsx": "4.20.3",
+    "typescript": "5.9.2",
+    "wrangler": "4.115.0"
+  }
+}

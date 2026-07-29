@@ -1,0 +1,989 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "7f28018e-f8be-4e42-9bb0-d43f9ff895aa",
+  "prevId": "78610a1f-4b4f-4b3d-840d-7e6883d206b4",
+  "tables": {
+    "community_attempts": {
+      "name": "community_attempts",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "client_attempt_id": {
+          "name": "client_attempt_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item_revision": {
+          "name": "item_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item_title": {
+          "name": "item_title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "track": {
+          "name": "track",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "stage": {
+          "name": "stage",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mode": {
+          "name": "mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "accuracy_bps": {
+          "name": "accuracy_bps",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "wpm_bps": {
+          "name": "wpm_bps",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "duration_ms": {
+          "name": "duration_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "typed_chars": {
+          "name": "typed_chars",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "peeks": {
+          "name": "peeks",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "completed_day": {
+          "name": "completed_day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "challenge_date": {
+          "name": "challenge_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "feed_eligible": {
+          "name": "feed_eligible",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "ranking_eligible": {
+          "name": "ranking_eligible",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "uploaded_at": {
+          "name": "uploaded_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "community_attempts_user_client_uidx": {
+          "name": "community_attempts_user_client_uidx",
+          "columns": [
+            "user_id",
+            "client_attempt_id"
+          ],
+          "isUnique": true
+        },
+        "community_attempts_recent_idx": {
+          "name": "community_attempts_recent_idx",
+          "columns": [
+            "feed_eligible",
+            "completed_at"
+          ],
+          "isUnique": false
+        },
+        "community_attempts_item_rank_idx": {
+          "name": "community_attempts_item_rank_idx",
+          "columns": [
+            "item_id",
+            "item_revision",
+            "stage",
+            "mode",
+            "ranking_eligible",
+            "wpm_bps"
+          ],
+          "isUnique": false
+        },
+        "community_attempts_daily_rank_idx": {
+          "name": "community_attempts_daily_rank_idx",
+          "columns": [
+            "challenge_date",
+            "ranking_eligible",
+            "user_id"
+          ],
+          "isUnique": false
+        },
+        "community_attempts_user_idx": {
+          "name": "community_attempts_user_idx",
+          "columns": [
+            "user_id",
+            "completed_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "community_attempts_user_id_community_profiles_user_id_fk": {
+          "name": "community_attempts_user_id_community_profiles_user_id_fk",
+          "tableFrom": "community_attempts",
+          "tableTo": "community_profiles",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "user_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "community_attempts_stage_check": {
+          "name": "community_attempts_stage_check",
+          "value": "\"community_attempts\".\"stage\" BETWEEN 1 AND 5"
+        },
+        "community_attempts_accuracy_check": {
+          "name": "community_attempts_accuracy_check",
+          "value": "\"community_attempts\".\"accuracy_bps\" BETWEEN 0 AND 10000"
+        },
+        "community_attempts_ranking_check": {
+          "name": "community_attempts_ranking_check",
+          "value": "\"community_attempts\".\"ranking_eligible\" = 0 OR (\"community_attempts\".\"mode\" = 'strict' AND \"community_attempts\".\"peeks\" = 0 AND \"community_attempts\".\"accuracy_bps\" >= 9500 AND \"community_attempts\".\"wpm_bps\" <= 30000 AND \"community_attempts\".\"typed_chars\" >= 20 AND \"community_attempts\".\"duration_ms\" >= 1000)"
+        },
+        "community_attempts_feed_check": {
+          "name": "community_attempts_feed_check",
+          "value": "\"community_attempts\".\"feed_eligible\" = 0 OR (\"community_attempts\".\"mode\" = 'strict' AND \"community_attempts\".\"peeks\" = 0 AND \"community_attempts\".\"accuracy_bps\" >= 9500 AND \"community_attempts\".\"wpm_bps\" <= 30000 AND \"community_attempts\".\"typed_chars\" >= 20 AND \"community_attempts\".\"duration_ms\" >= 1000)"
+        }
+      }
+    },
+    "community_profiles": {
+      "name": "community_profiles",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "handle": {
+          "name": "handle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "bio": {
+          "name": "bio",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "timezone": {
+          "name": "timezone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "is_public": {
+          "name": "is_public",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "share_activity": {
+          "name": "share_activity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "show_on_leaderboards": {
+          "name": "show_on_leaderboards",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "community_profiles_email_uidx": {
+          "name": "community_profiles_email_uidx",
+          "columns": [
+            "email"
+          ],
+          "isUnique": true
+        },
+        "community_profiles_handle_uidx": {
+          "name": "community_profiles_handle_uidx",
+          "columns": [
+            "handle"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "community_profiles_private_off_check": {
+          "name": "community_profiles_private_off_check",
+          "value": "\"community_profiles\".\"is_public\" = 1 OR (\"community_profiles\".\"share_activity\" = 0 AND \"community_profiles\".\"show_on_leaderboards\" = 0)"
+        }
+      }
+    },
+    "daily_challenges": {
+      "name": "daily_challenges",
+      "columns": {
+        "date": {
+          "name": "date",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item_revision": {
+          "name": "item_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "item_title": {
+          "name": "item_title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "track": {
+          "name": "track",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "stage": {
+          "name": "stage",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mode": {
+          "name": "mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'strict'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "daily_challenges_stage_check": {
+          "name": "daily_challenges_stage_check",
+          "value": "\"daily_challenges\".\"stage\" = 1"
+        },
+        "daily_challenges_mode_check": {
+          "name": "daily_challenges_mode_check",
+          "value": "\"daily_challenges\".\"mode\" = 'strict'"
+        }
+      }
+    },
+    "study_workspaces": {
+      "name": "study_workspaces",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "payload_json": {
+          "name": "payload_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "study_workspaces_user_id_community_profiles_user_id_fk": {
+          "name": "study_workspaces_user_id_community_profiles_user_id_fk",
+          "tableFrom": "study_workspaces",
+          "tableTo": "community_profiles",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "user_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "study_workspaces_revision_check": {
+          "name": "study_workspaces_revision_check",
+          "value": "\"study_workspaces\".\"revision\" >= 1"
+        },
+        "study_workspaces_payload_size_check": {
+          "name": "study_workspaces_payload_size_check",
+          "value": "length(\"study_workspaces\".\"payload_json\") BETWEEN 2 AND 262144"
+        }
+      }
+    },
+    "trusted_assignment_secrets": {
+      "name": "trusted_assignment_secrets",
+      "columns": {
+        "assignment_id": {
+          "name": "assignment_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "judge_payload_json": {
+          "name": "judge_payload_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "purge_after": {
+          "name": "purge_after",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "trusted_assignment_secrets_purge_idx": {
+          "name": "trusted_assignment_secrets_purge_idx",
+          "columns": [
+            "purge_after"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "trusted_assignment_secrets_owner_fk": {
+          "name": "trusted_assignment_secrets_owner_fk",
+          "tableFrom": "trusted_assignment_secrets",
+          "tableTo": "trusted_assignments",
+          "columnsFrom": [
+            "assignment_id",
+            "user_id"
+          ],
+          "columnsTo": [
+            "id",
+            "user_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "trusted_assignment_secrets_payload_check": {
+          "name": "trusted_assignment_secrets_payload_check",
+          "value": "json_valid(\"trusted_assignment_secrets\".\"judge_payload_json\") = 1 AND length(\"trusted_assignment_secrets\".\"judge_payload_json\") BETWEEN 2 AND 65536"
+        }
+      }
+    },
+    "trusted_assignments": {
+      "name": "trusted_assignments",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "client_request_id": {
+          "name": "client_request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "request_hash": {
+          "name": "request_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "program_id": {
+          "name": "program_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "program_revision": {
+          "name": "program_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "challenge_key": {
+          "name": "challenge_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content_revision": {
+          "name": "content_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "judge_revision": {
+          "name": "judge_revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "public_payload_json": {
+          "name": "public_payload_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "assigned_at": {
+          "name": "assigned_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "purge_after": {
+          "name": "purge_after",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "trusted_assignments_id_user_uidx": {
+          "name": "trusted_assignments_id_user_uidx",
+          "columns": [
+            "id",
+            "user_id"
+          ],
+          "isUnique": true
+        },
+        "trusted_assignments_user_client_uidx": {
+          "name": "trusted_assignments_user_client_uidx",
+          "columns": [
+            "user_id",
+            "client_request_id"
+          ],
+          "isUnique": true
+        },
+        "trusted_assignments_user_assigned_idx": {
+          "name": "trusted_assignments_user_assigned_idx",
+          "columns": [
+            "user_id",
+            "assigned_at"
+          ],
+          "isUnique": false
+        },
+        "trusted_assignments_user_expiry_idx": {
+          "name": "trusted_assignments_user_expiry_idx",
+          "columns": [
+            "user_id",
+            "expires_at"
+          ],
+          "isUnique": false
+        },
+        "trusted_assignments_purge_idx": {
+          "name": "trusted_assignments_purge_idx",
+          "columns": [
+            "purge_after"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "trusted_assignments_user_id_community_profiles_user_id_fk": {
+          "name": "trusted_assignments_user_id_community_profiles_user_id_fk",
+          "tableFrom": "trusted_assignments",
+          "tableTo": "community_profiles",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "user_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "trusted_assignments_request_hash_check": {
+          "name": "trusted_assignments_request_hash_check",
+          "value": "length(\"trusted_assignments\".\"request_hash\") = 64"
+        },
+        "trusted_assignments_revision_check": {
+          "name": "trusted_assignments_revision_check",
+          "value": "\"trusted_assignments\".\"program_revision\" >= 1 AND \"trusted_assignments\".\"content_revision\" >= 1 AND \"trusted_assignments\".\"judge_revision\" >= 1"
+        },
+        "trusted_assignments_payload_check": {
+          "name": "trusted_assignments_payload_check",
+          "value": "json_valid(\"trusted_assignments\".\"public_payload_json\") = 1 AND length(\"trusted_assignments\".\"public_payload_json\") BETWEEN 2 AND 32768"
+        },
+        "trusted_assignments_status_check": {
+          "name": "trusted_assignments_status_check",
+          "value": "\"trusted_assignments\".\"status\" IN ('active', 'accepted', 'expired')"
+        },
+        "trusted_assignments_expiry_check": {
+          "name": "trusted_assignments_expiry_check",
+          "value": "\"trusted_assignments\".\"expires_at\" > \"trusted_assignments\".\"assigned_at\" AND \"trusted_assignments\".\"purge_after\" >= \"trusted_assignments\".\"expires_at\""
+        }
+      }
+    },
+    "trusted_submission_payloads": {
+      "name": "trusted_submission_payloads",
+      "columns": {
+        "submission_id": {
+          "name": "submission_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_text": {
+          "name": "source_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "purge_after": {
+          "name": "purge_after",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "trusted_submission_payloads_purge_idx": {
+          "name": "trusted_submission_payloads_purge_idx",
+          "columns": [
+            "purge_after"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "trusted_submission_payloads_owner_fk": {
+          "name": "trusted_submission_payloads_owner_fk",
+          "tableFrom": "trusted_submission_payloads",
+          "tableTo": "trusted_submissions",
+          "columnsFrom": [
+            "submission_id",
+            "user_id"
+          ],
+          "columnsTo": [
+            "id",
+            "user_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "trusted_submission_payloads_source_check": {
+          "name": "trusted_submission_payloads_source_check",
+          "value": "length(\"trusted_submission_payloads\".\"source_text\") BETWEEN 1 AND 49152"
+        }
+      }
+    },
+    "trusted_submissions": {
+      "name": "trusted_submissions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "assignment_id": {
+          "name": "assignment_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "client_submission_id": {
+          "name": "client_submission_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "request_hash": {
+          "name": "request_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_hash": {
+          "name": "source_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "verdict": {
+          "name": "verdict",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "result_json": {
+          "name": "result_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "settlement_hash": {
+          "name": "settlement_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "submitted_at": {
+          "name": "submitted_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "settled_at": {
+          "name": "settled_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "purge_after": {
+          "name": "purge_after",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "trusted_submissions_id_user_uidx": {
+          "name": "trusted_submissions_id_user_uidx",
+          "columns": [
+            "id",
+            "user_id"
+          ],
+          "isUnique": true
+        },
+        "trusted_submissions_user_client_uidx": {
+          "name": "trusted_submissions_user_client_uidx",
+          "columns": [
+            "user_id",
+            "client_submission_id"
+          ],
+          "isUnique": true
+        },
+        "trusted_submissions_assignment_idx": {
+          "name": "trusted_submissions_assignment_idx",
+          "columns": [
+            "assignment_id",
+            "user_id"
+          ],
+          "isUnique": false
+        },
+        "trusted_submissions_user_submitted_idx": {
+          "name": "trusted_submissions_user_submitted_idx",
+          "columns": [
+            "user_id",
+            "submitted_at"
+          ],
+          "isUnique": false
+        },
+        "trusted_submissions_purge_idx": {
+          "name": "trusted_submissions_purge_idx",
+          "columns": [
+            "purge_after"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "trusted_submissions_assignment_owner_fk": {
+          "name": "trusted_submissions_assignment_owner_fk",
+          "tableFrom": "trusted_submissions",
+          "tableTo": "trusted_assignments",
+          "columnsFrom": [
+            "assignment_id",
+            "user_id"
+          ],
+          "columnsTo": [
+            "id",
+            "user_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "trusted_submissions_hashes_check": {
+          "name": "trusted_submissions_hashes_check",
+          "value": "length(\"trusted_submissions\".\"request_hash\") = 64 AND length(\"trusted_submissions\".\"source_hash\") = 64 AND (\"trusted_submissions\".\"settlement_hash\" IS NULL OR length(\"trusted_submissions\".\"settlement_hash\") = 64)"
+        },
+        "trusted_submissions_status_check": {
+          "name": "trusted_submissions_status_check",
+          "value": "\"trusted_submissions\".\"status\" IN ('pending', 'settled')"
+        },
+        "trusted_submissions_verdict_check": {
+          "name": "trusted_submissions_verdict_check",
+          "value": "\"trusted_submissions\".\"verdict\" IS NULL OR \"trusted_submissions\".\"verdict\" IN ('accepted', 'wrong-answer', 'runtime-error', 'time-limit', 'judge-error')"
+        },
+        "trusted_submissions_settlement_check": {
+          "name": "trusted_submissions_settlement_check",
+          "value": "(\"trusted_submissions\".\"status\" = 'pending' AND \"trusted_submissions\".\"verdict\" IS NULL AND \"trusted_submissions\".\"result_json\" IS NULL AND \"trusted_submissions\".\"settlement_hash\" IS NULL AND \"trusted_submissions\".\"settled_at\" IS NULL) OR (\"trusted_submissions\".\"status\" = 'settled' AND \"trusted_submissions\".\"verdict\" IS NOT NULL AND \"trusted_submissions\".\"result_json\" IS NOT NULL AND json_valid(\"trusted_submissions\".\"result_json\") = 1 AND length(\"trusted_submissions\".\"result_json\") BETWEEN 2 AND 8192 AND \"trusted_submissions\".\"settlement_hash\" IS NOT NULL AND \"trusted_submissions\".\"settled_at\" IS NOT NULL AND \"trusted_submissions\".\"settled_at\" >= \"trusted_submissions\".\"submitted_at\")"
+        },
+        "trusted_submissions_purge_check": {
+          "name": "trusted_submissions_purge_check",
+          "value": "\"trusted_submissions\".\"purge_after\" >= \"trusted_submissions\".\"submitted_at\""
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

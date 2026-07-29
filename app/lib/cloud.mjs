@@ -5,6 +5,7 @@ const MAX_RESPONSE_CHARACTERS = 512_000;
 const MAX_ATTEMPT_BATCH = 100;
 const MAX_LIST_ENTRIES = 100;
 const MAX_STUDY_WORKSPACE_BYTES = 256 * 1024;
+const MAX_TRUSTED_SOURCE_BYTES = 40_000;
 
 function isRecord(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -248,6 +249,7 @@ function normalizeCapabilities(value) {
     studySync: value.studySync === true,
     community: value.community === true,
     leaderboards: value.leaderboards === true,
+    trustedAssessments: value.trustedAssessments === true,
     auth,
     maxAttemptBatch: finiteNumber(
       value.maxAttemptBatch,
@@ -334,6 +336,205 @@ function normalizeStudyConflict(value) {
     return undefined;
   if (workspace && workspace.revision !== revision) return undefined;
   return { revision, workspace };
+}
+
+function normalizeTrustedCase(value) {
+  if (!isRecord(value)) return undefined;
+  const caseId = id(value.id, 96);
+  const name = cleanString(value.name, 120);
+  if (!caseId || !name || !Array.isArray(value.args) || !Object.hasOwn(value, "expected"))
+    return undefined;
+  return {
+    id: caseId,
+    name,
+    args: value.args,
+    expected: value.expected,
+  };
+}
+
+function normalizeTrustedChallenge(value) {
+  if (!isRecord(value)) return undefined;
+  const key = id(value.key, 96);
+  const title = cleanString(value.title, 120);
+  const summary = cleanString(value.summary, 600);
+  const prompt = cleanString(value.prompt, 4_000);
+  const starterCode = typeof value.starterCode === "string"
+    ? value.starterCode.replace(/\r\n?/g, "\n").slice(0, 16_000)
+    : "";
+  const contentRevision = finiteNumber(value.contentRevision, 0, 0, 1_000_000, true);
+  const judgeRevision = finiteNumber(value.judgeRevision, 0, 0, 1_000_000, true);
+  const entrypoint = isRecord(value.entrypoint) && value.entrypoint.kind === "function"
+    ? { kind: "function", name: id(value.entrypoint.name, 96) }
+    : null;
+  const samples = Array.isArray(value.samples)
+    ? value.samples.flatMap((entry) => {
+        const normalized = normalizeTrustedCase(entry);
+        return normalized ? [normalized] : [];
+      }).slice(0, 8)
+    : [];
+  if (
+    !key ||
+    !title ||
+    !summary ||
+    !prompt ||
+    !starterCode ||
+    contentRevision < 1 ||
+    judgeRevision < 1 ||
+    !entrypoint?.name ||
+    samples.length < 1
+  )
+    return undefined;
+  return {
+    key,
+    contentRevision,
+    judgeRevision,
+    title,
+    difficulty: value.difficulty === "Easy" ? "Easy" : "Medium",
+    estimatedMinutes: finiteNumber(value.estimatedMinutes, 15, 5, 60, true),
+    summary,
+    prompt,
+    constraints: Array.isArray(value.constraints)
+      ? value.constraints.map((entry) => cleanString(entry, 300)).filter(Boolean).slice(0, 12)
+      : [],
+    tags: Array.isArray(value.tags)
+      ? value.tags.map((entry) => cleanString(entry, 40)).filter(Boolean).slice(0, 12)
+      : [],
+    starterCode,
+    entrypoint,
+    samples,
+  };
+}
+
+function normalizeTrustedSubmission(value) {
+  const raw = isRecord(value) && isRecord(value.submission)
+    ? value.submission
+    : value;
+  if (!isRecord(raw)) return undefined;
+  const submissionId = id(raw.id, 96);
+  const submittedAt = isoDateTime(raw.submittedAt);
+  if (!submissionId || !submittedAt) return undefined;
+  const status = raw.status === "pending" ? "pending" : raw.status === "settled" ? "settled" : null;
+  if (!status) return undefined;
+  if (status === "pending") {
+    return {
+      id: submissionId,
+      status,
+      verdict: null,
+      submittedAt,
+      settledAt: null,
+      result: null,
+    };
+  }
+  const verdicts = new Set([
+    "accepted",
+    "wrong-answer",
+    "runtime-error",
+    "time-limit",
+    "judge-error",
+  ]);
+  const settledAt = isoDateTime(raw.settledAt);
+  if (!verdicts.has(raw.verdict) || !settledAt || !isRecord(raw.result))
+    return undefined;
+  const total = finiteNumber(raw.result.total, 0, 0, 1_000, true);
+  const passed = finiteNumber(raw.result.passed, 0, 0, total, true);
+  const authority = raw.result.authority === "server-isolated-python"
+    ? "server-isolated-python"
+    : undefined;
+  if (total < 1 || !authority) return undefined;
+  return {
+    id: submissionId,
+    status,
+    verdict: raw.verdict,
+    submittedAt,
+    settledAt,
+    result: {
+      passed,
+      total,
+      authority,
+      contentRevision: finiteNumber(raw.result.contentRevision, 1, 1, 1_000_000, true),
+      judgeRevision: finiteNumber(raw.result.judgeRevision, 1, 1, 1_000_000, true),
+    },
+  };
+}
+
+function normalizeTrustedAssignment(value) {
+  const raw = isRecord(value) && isRecord(value.assignment)
+    ? value.assignment
+    : value;
+  if (!isRecord(raw)) return undefined;
+  const assignmentId = id(raw.id, 96);
+  const assignedAt = isoDateTime(raw.assignedAt);
+  const expiresAt = isoDateTime(raw.expiresAt);
+  const challenge = normalizeTrustedChallenge(raw.challenge);
+  const statuses = new Set(["active", "accepted", "expired"]);
+  const program = isRecord(raw.program) ? raw.program : {};
+  const programId = id(program.id, 96);
+  if (
+    !assignmentId ||
+    !assignedAt ||
+    !expiresAt ||
+    !challenge ||
+    !statuses.has(raw.status) ||
+    !programId ||
+    Date.parse(expiresAt) <= Date.parse(assignedAt)
+  )
+    return undefined;
+  const latestSubmission = raw.latestSubmission === null || raw.latestSubmission === undefined
+    ? null
+    : normalizeTrustedSubmission(raw.latestSubmission);
+  if (raw.latestSubmission && !latestSubmission) return undefined;
+  return {
+    id: assignmentId,
+    program: {
+      id: programId,
+      revision: finiteNumber(program.revision, 1, 1, 1_000_000, true),
+      title: cleanString(program.title, 120, "Verified Python checkpoint"),
+      evidenceLabel: cleanString(program.evidenceLabel, 120, "Server-verified code evidence"),
+    },
+    challenge,
+    status: raw.status,
+    assignedAt,
+    expiresAt,
+    latestSubmission,
+  };
+}
+
+function normalizeTrustedAssignmentList(value) {
+  if (!isRecord(value) || !Array.isArray(value.entries)) return undefined;
+  const entries = value.entries.flatMap((entry) => {
+    const assignment = normalizeTrustedAssignment(entry);
+    return assignment ? [assignment] : [];
+  }).slice(0, 50);
+  const program = isRecord(value.program)
+    ? {
+        id: id(value.program.id, 96),
+        revision: finiteNumber(value.program.revision, 1, 1, 1_000_000, true),
+        title: cleanString(value.program.title, 120),
+        description: cleanString(value.program.description, 600),
+        evidenceLabel: cleanString(value.program.evidenceLabel, 120),
+        language: value.program.language === "python" ? "python" : undefined,
+      }
+    : null;
+  if (!program?.id || !program.title || program.language !== "python") return undefined;
+  return { program, entries };
+}
+
+function trustedClientId(value) {
+  if (typeof value !== "string") return undefined;
+  const cleaned = value.trim();
+  if (cleaned.length > 128) return undefined;
+  return /^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$/.test(cleaned)
+    ? cleaned
+    : undefined;
+}
+
+function trustedSource(value) {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.replace(/\r\n?/g, "\n");
+  const bytes = new TextEncoder().encode(normalized).byteLength;
+  return bytes >= 1 && bytes <= MAX_TRUSTED_SOURCE_BYTES
+    ? normalized
+    : undefined;
 }
 
 function normalizeSession(value) {
@@ -720,6 +921,44 @@ export function createCloudClient(options = {}) {
             : snapshot;
         },
       );
+    },
+    trustedAssignments({ limit = 20, signal } = {}) {
+      const boundedLimit = listLimit(limit, 20, 50);
+      return request(
+        `/trusted/assignments?limit=${boundedLimit}`,
+        { signal },
+        normalizeTrustedAssignmentList,
+      );
+    },
+    issueTrustedAssignment(clientRequestIdInput, { signal } = {}) {
+      const clientRequestId = trustedClientId(clientRequestIdInput);
+      return clientRequestId
+        ? request(
+            "/trusted/assignments",
+            { method: "POST", body: { clientRequestId }, signal },
+            normalizeTrustedAssignment,
+          )
+        : Promise.resolve(unavailable("invalid-request"));
+    },
+    submitTrustedAssignment(
+      assignmentIdInput,
+      submissionInput,
+      { signal } = {},
+    ) {
+      const assignmentId = trustedClientId(assignmentIdInput);
+      const clientSubmissionId = trustedClientId(submissionInput?.clientSubmissionId);
+      const source = trustedSource(submissionInput?.source);
+      return assignmentId && clientSubmissionId && source
+        ? request(
+            `/trusted/assignments/${encodeURIComponent(assignmentId)}/submissions`,
+            {
+              method: "POST",
+              body: { clientSubmissionId, source },
+              signal,
+            },
+            normalizeTrustedSubmission,
+          )
+        : Promise.resolve(unavailable("invalid-request"));
     },
     patchProfile(patch, { signal } = {}) {
       const body = sanitizeProfilePatch(patch);

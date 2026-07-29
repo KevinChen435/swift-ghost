@@ -6515,6 +6515,12 @@ export default function SwiftGhostApp() {
             active: Boolean(state.virtualRoundWorkspace.active),
             finished: state.virtualRoundWorkspace.history.length,
           }}
+          trustedAssessmentsAvailable={
+            cloud.capabilities?.trustedAssessments === true
+          }
+          trustedAssessmentsAuthenticated={
+            cloud.session?.authenticated === true
+          }
           selectedAssessment={assessmentRouteId}
           activeDraft={state.draft}
           onSelect={selectAssessment}

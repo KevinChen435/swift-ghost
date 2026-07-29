@@ -57,6 +57,7 @@ test("local production capability checks degrade quietly without Worker bindings
     studySync: false,
     community: false,
     leaderboards: false,
+    trustedAssessments: false,
     auth: "anonymous",
     maxAttemptBatch: 100,
     privacy: {

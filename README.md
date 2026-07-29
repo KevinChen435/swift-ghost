@@ -44,6 +44,7 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - Separate mock and coach modes: mock interviews lock hints, while coach-mode hints are progressively revealed and permanently recorded in the local transcript
 - Reload-safe local interview transcripts, Python runner evidence, accepted-submission requirements, authored review criteria, and replayable interview history without automated semantic or pass/fail scoring
 - A self-contained Python Challenge Lab across all 48 exercises, with original task statements, callable contracts, parameters, constraints, public examples, persistent custom JSON cases, keyboard-first runs, and aggregate unshown-check submissions; those checks ship in the local client and are not a security boundary
+- A separate, fail-closed Verified Python checkpoint lane with server-selected prompt revisions, transient source upload, immutable pending receipts, signed asynchronous settlement, and aggregate-only results; it appears as unavailable until a VM-backed judge gateway is explicitly connected
 - A device-local Transfer Lab with 8 original concealed-identity Python variants, exact-revision prompt and hint exposure tracking, independent/assisted/proven/due evidence, conservative 1/3/7/14/30-day rechecks, and post-attempt contrastive debriefs; sealed variants stay out of generic sessions, and revealed reconstructions are recorded as assisted
 - Device-local Virtual Rounds with fixed 45/75/105-minute two-to-four problem formats, free problem switching and flags, per-problem source preservation, partial local scoring, five-minute solved-problem penalties, deadline-safe pending submissions, and immutable round reports without rank or readiness claims
 - A Hacker-style solve workbench with resizable Prompt/Notebook and Code panels on desktop, focused Problem/Notes/Code/Tests tabs on mobile, and independently scrolling panes
@@ -68,6 +69,8 @@ The GitHub Pages edition is entirely local: it has no account requirement, telem
 
 The hosted community edition uses ChatGPT identity. Signed-in learners can privately sync bounded Study Plan structure, collection membership, and plan/session links between devices. Code, transcripts, notebooks, custom testcases, solution-review records, reference answers, and custom practice-item contents are excluded from plan sync. Community uploads are off by default and must be explicitly enabled. Only completed built-in attempt summaries can upload; custom challenges and snippets, prompts, judge cases, drafts, source code, email addresses, and key-level telemetry are never public. Public profiles, activity sharing, and leaderboard participation each require a separate opt-in.
 
+The optional Verified Python lane is the one explicit exception to local source handling: pressing its sealed-test Submit button uploads that checkpoint source to the configured judge. The application keeps a transient retry copy only until the gateway durably accepts the queued job (or until the signed result settles) and persists only a source hash plus aggregate receipt. Browser-local assessments and ordinary practice never silently use this path or inherit its verified label.
+
 Custom Python challenge studio: Library → Build practice item can now create a complete local challenge with a problem statement, function or class-method contract, typed parameters, visible samples, hidden submission cases, starter code, and a reference solution. The reference must pass the complete local judge before the item can be saved. Editing prompt or code content creates a new content revision; editing the callable or judge cases also creates a new judge revision while older attempt and submission evidence remains in Records.
 
 ## Development
@@ -86,6 +89,23 @@ npm run lint
 npm test
 npm run build:pages
 ```
+
+The hosted Verified Python lane also requires the independently deployed
+`judge-gateway/` service and four server-only environment variables:
+
+```text
+TRUSTED_JUDGE_URL=https://<gateway>/v1/submissions
+TRUSTED_JUDGE_TOKEN=<32+ byte ingress service token>
+TRUSTED_JUDGE_CALLBACK_SECRET=<32+ byte callback HMAC secret>
+TRUSTED_JUDGE_CALLBACK_URL=https://<host>/api/internal/judge-results
+```
+
+The callback secret must match the gateway's `CALLBACK_HMAC_SECRET`, and the
+callback origin must be present in its exact allowlist. Do not set placeholder
+values: the capability stays off unless every value passes validation. Complete
+the Docker/Linux, paid Cloudflare Sandbox, Queue/DLQ, secret, and deployed
+egress/callback smoke-test checklist in `judge-gateway/README.md` before enabling
+the lane for learners.
 
 ## Content note
 

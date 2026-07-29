@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { PracticeItem } from "../lib/items";
+import { TrustedAssessmentPanel } from "./TrustedAssessmentPanel";
 import {
   ASSESSMENT_BLOCKERS,
   ASSESSMENT_PROGRAMS,
@@ -253,6 +254,8 @@ export function AssessmentCenter({
   items,
   transferSummary,
   virtualRoundSummary,
+  trustedAssessmentsAvailable,
+  trustedAssessmentsAuthenticated,
   selectedAssessment,
   activeDraft,
   onSelect,
@@ -280,6 +283,8 @@ export function AssessmentCenter({
     active: boolean;
     finished: number;
   };
+  trustedAssessmentsAvailable: boolean;
+  trustedAssessmentsAuthenticated: boolean;
   selectedAssessment?: string;
   activeDraft: { assessmentRunId?: string; assessmentProbeId?: string } | null;
   onSelect: (assessmentId?: string) => void;
@@ -321,7 +326,8 @@ export function AssessmentCenter({
           <h1>Find the rust before it costs interview time.</h1>
           <p>
             Use short, resumable checkpoints to separate Python fluency, algorithmic
-            reasoning, and Swift/iOS recall. Results stay local and become a targeted plan.
+            reasoning, and Swift/iOS recall. Local programs stay on this device;
+            verified Python checkpoints use server-owned receipts.
           </p>
         </div>
         <div className="assessment-trust-card">
@@ -330,6 +336,11 @@ export function AssessmentCenter({
           <small>Local practice · not proctored · not a certification</small>
         </div>
       </header>
+
+      <TrustedAssessmentPanel
+        available={trustedAssessmentsAvailable}
+        authenticated={trustedAssessmentsAuthenticated}
+      />
 
       <section className="assessment-program-grid" aria-label="Assessment programs">
         <article className="assessment-virtual-round-card">
