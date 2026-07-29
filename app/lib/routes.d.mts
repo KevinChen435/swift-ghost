@@ -11,6 +11,12 @@ export type RecordsSection =
   | "transfer"
   | "submissions"
   | "reviews";
+export type ContestSection =
+  | "overview"
+  | "live"
+  | "history"
+  | "standings"
+  | "review";
 export type AppRoute = {
   view: View;
   language?: CodeLanguage;
@@ -21,6 +27,8 @@ export type AppRoute = {
   communityTab?: CommunityTab;
   profile?: string;
   assessment?: string;
+  contestSection?: ContestSection;
+  contestRoundId?: string;
   catalog?: CatalogQuery;
   recordsSection?: RecordsSection;
   submissions?: SubmissionWorkLogQuery;
@@ -33,6 +41,7 @@ export type AppRoute = {
 export const ROUTE_VIEWS: View[];
 export const COMMUNITY_TABS: CommunityTab[];
 export const RECORDS_SECTIONS: RecordsSection[];
+export const CONTEST_SECTIONS: ContestSection[];
 export const ROUTE_LANGUAGES: CodeLanguage[];
 export function parseRoute(input: string | URL | URLSearchParams): AppRoute;
 export function itemRouteToken(item: PracticeItem): string;

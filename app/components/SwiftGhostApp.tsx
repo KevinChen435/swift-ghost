@@ -102,8 +102,13 @@ import {
   routeForItem,
   serializeRoute,
   type AppRoute,
+  type ContestSection,
   type RecordsSection,
 } from "../lib/routes.mjs";
+import {
+  buildContestSummary,
+  buildPersonalStandings,
+} from "../lib/contest-center.mjs";
 import {
   createCloudClient,
   type CloudCapabilities,
@@ -762,6 +767,9 @@ export default function SwiftGhostApp() {
       normalizeSubmissionWorkLogQuery(DEFAULT_SUBMISSION_WORK_LOG_QUERY),
     );
   const [assessmentRouteId, setAssessmentRouteId] = useState<string>();
+  const [contestSection, setContestSection] =
+    useState<ContestSection>("overview");
+  const [contestRoundId, setContestRoundId] = useState<string>();
   const [selectedSessionId, setSelectedSessionId] = useState<string>();
   const [selectedId, setSelectedId] = useState<ItemId>(BUILTIN_ITEMS[0].itemId);
   const [stage, setStage] = useState(1);
@@ -869,6 +877,8 @@ export default function SwiftGhostApp() {
         ),
       );
       setAssessmentRouteId(route.assessment);
+      setContestSection(route.contestSection ?? "overview");
+      setContestRoundId(route.contestRoundId);
       setSelectedSessionId(route.sessionId);
       setSelectedId(initialItem.itemId);
       setStage(
@@ -1007,6 +1017,8 @@ export default function SwiftGhostApp() {
         ),
       );
       setAssessmentRouteId(route.assessment);
+      setContestSection(route.contestSection ?? "overview");
+      setContestRoundId(route.contestRoundId);
       setSelectedSessionId(route.sessionId);
       if (routed) setSelectedId(routed.itemId);
       if (nextPracticeKind === "solving") setStage(5);
@@ -1789,25 +1801,31 @@ export default function SwiftGhostApp() {
   const virtualRoundReports = useMemo<VirtualRoundReportView[]>(
     () =>
       [...state.virtualRoundWorkspace.history]
-        .reverse()
         .flatMap((run) => {
           const report = deriveVirtualRoundReport(run);
           if (!report) return [];
           return [{
             id: report.id,
+            presetId: report.presetId,
             title: report.title,
             completedAt: report.completedAt,
+            outcome: report.outcome,
             score: report.score,
             maxScore: report.maxScore,
+            scorePercent: report.maxScore
+              ? Math.round((report.score / report.maxScore) * 100)
+              : 0,
             acceptedCount: report.acceptedCount,
             problemCount: report.problemCount,
             elapsed: formatDuration(report.elapsedMs),
+            elapsedMs: report.elapsedMs,
             penalty: report.penaltyMs
               ? `${formatDuration(report.penaltyMs)} contest penalty`
               : "No solved-problem penalty",
+            penaltyMs: report.penaltyMs,
             archived: report.status === "archived",
             problems: report.problems.map((problem) => ({
-              id: `${report.id}-${problem.id}`,
+              id: problem.id,
               index: problem.index,
               title: problem.title,
               pattern: problem.pattern,
@@ -1817,6 +1835,13 @@ export default function SwiftGhostApp() {
               score: problem.score,
               maxScore: problem.maxScore,
               submissionCount: problem.submissionCount,
+              availableForRetry: virtualRoundEligibleItems.some(
+                (candidate) =>
+                  candidate.itemId === problem.id &&
+                  candidate.contentRevision === problem.itemRevision &&
+                  (candidate.verification?.revision ?? 1) ===
+                    problem.verificationRevision,
+              ),
               submissions: problem.submissions.map((submission) => ({
                 id: submission.id,
                 elapsed: formatDuration(submission.elapsedMs),
@@ -1835,7 +1860,39 @@ export default function SwiftGhostApp() {
               })),
             })),
           }];
+        })
+        .sort(
+          (left, right) =>
+            right.completedAt.localeCompare(left.completedAt) ||
+            left.id.localeCompare(right.id),
+        ),
+    [state.virtualRoundWorkspace.history, virtualRoundEligibleItems],
+  );
+  const contestSummary = useMemo(
+    () => buildContestSummary(state.virtualRoundWorkspace.history),
+    [state.virtualRoundWorkspace.history],
+  );
+  const personalRoundStandings = useMemo(
+    () =>
+      buildPersonalStandings(state.virtualRoundWorkspace.history).map(
+        (entry) => ({
+          id: entry.id,
+          presetId: entry.presetId,
+          title: entry.title,
+          completedAt: entry.completedAt,
+          score: entry.score,
+          maxScore: entry.maxScore,
+          acceptedCount: entry.acceptedCount,
+          problemCount: entry.problemCount,
+          elapsed: formatDuration(entry.elapsedMs),
+          penalty: entry.penaltyMs
+            ? formatDuration(entry.penaltyMs)
+            : "None",
+          rank: entry.rank,
+          cohortSize: entry.cohortSize,
+          archived: entry.archived,
         }),
+      ),
     [state.virtualRoundWorkspace.history],
   );
   const todayMinutes = practicedMinutesToday(state);
@@ -3630,6 +3687,8 @@ export default function SwiftGhostApp() {
     if (blockVirtualRoundNavigation()) return;
     setView("assessments");
     setAssessmentRouteId(assessmentId);
+    setContestSection("overview");
+    setContestRoundId(undefined);
     setResult(null);
     writeRoute({ view: "assessments", assessment: assessmentId });
     window.setTimeout(() => document.getElementById("main-content")?.focus(), 0);
@@ -3653,8 +3712,43 @@ export default function SwiftGhostApp() {
     );
   }
 
-  function openVirtualRounds() {
-    selectAssessment("virtual-rounds");
+  function updateContestRoute(
+    nextSection: ContestSection,
+    roundId?: string,
+    replace = false,
+  ) {
+    if (blockVirtualRoundNavigation()) return;
+    const selectedRoundId = nextSection === "review" ? roundId : undefined;
+    setView("assessments");
+    setAssessmentRouteId("virtual-rounds");
+    setContestSection(nextSection);
+    setContestRoundId(selectedRoundId);
+    setResult(null);
+    writeRoute(
+      {
+        view: "assessments",
+        assessment: "virtual-rounds",
+        contestSection: nextSection,
+        contestRoundId: selectedRoundId,
+      },
+      replace,
+    );
+  }
+
+  function openVirtualRounds(section: ContestSection = "overview") {
+    updateContestRoute(section);
+  }
+
+  function openVirtualRoundReport(roundId: string) {
+    const exists = stateRef.current.virtualRoundWorkspace.history.some(
+      (run) => run.id === roundId,
+    );
+    if (!exists) {
+      setToast("That retained round report is no longer available");
+      updateContestRoute("history");
+      return;
+    }
+    updateContestRoute("review", roundId);
   }
 
   function openVirtualRoundItem(roundId: string, itemId: string) {
@@ -3736,11 +3830,21 @@ export default function SwiftGhostApp() {
       openVirtualRoundItem(existing.id, existing.currentProblemId);
       return;
     }
+    if (
+      !window.confirm(
+        `Start ${preset.title}?\n\n${preset.problemCount} problems · ${preset.durationMinutes} minutes · one continuous browser clock. Problem identities reveal as you open them, and a finished score cannot be changed.`,
+      )
+    )
+      return;
     const candidates = virtualRoundEligibleItems.map((candidate) => {
       const itemAttempts = stateRef.current.attempts.filter(
         (attempt) =>
           attempt.itemId === candidate.itemId &&
           attempt.itemRevision === candidate.contentRevision,
+      );
+      const roundAppearances = stateRef.current.virtualRoundWorkspace.history.filter(
+        (round) =>
+          round.problems.some((problem) => problem.itemId === candidate.itemId),
       );
       return {
         item: candidate,
@@ -3753,8 +3857,11 @@ export default function SwiftGhostApp() {
             attempt.outcome === "completed" &&
             attempt.qualification === "solved",
         ).length,
-        lastAttemptAt: itemAttempts
-          .map((attempt) => attempt.completedAt)
+        roundAppearances: roundAppearances.length,
+        lastAttemptAt: [
+          ...itemAttempts.map((attempt) => attempt.completedAt),
+          ...roundAppearances.map((round) => round.finishedAt),
+        ]
           .sort()
           .at(-1),
       };
@@ -3811,6 +3918,22 @@ export default function SwiftGhostApp() {
   }
 
   function finishActiveVirtualRound(roundId: string, outcome: "submitted" | "expired" = "submitted") {
+    const activeBeforeFinish = stateRef.current.virtualRoundWorkspace.active;
+    if (!activeBeforeFinish || activeBeforeFinish.id !== roundId) return;
+    if (outcome === "submitted") {
+      const unresolved = activeBeforeFinish.problems.filter(
+        (problem) => virtualRoundProblemStatus(problem) !== "accepted",
+      ).length;
+      const flagged = activeBeforeFinish.problems.filter(
+        (problem) => problem.flagged,
+      ).length;
+      if (
+        !window.confirm(
+          `Finish and lock ${activeBeforeFinish.title}?\n\n${unresolved} problem${unresolved === 1 ? "" : "s"} not accepted · ${flagged} flagged. The score and submission timeline become an immutable local report.`,
+        )
+      )
+        return;
+    }
     const next = commitStateImmediately((current) => {
       const virtualRoundWorkspace = finishVirtualRound(
         current.virtualRoundWorkspace,
@@ -3830,7 +3953,7 @@ export default function SwiftGhostApp() {
       setToast("Clock locked · waiting for the on-time submission to settle");
       return;
     }
-    openVirtualRounds();
+    openVirtualRoundReport(roundId);
     setToast(outcome === "expired" ? "Time expired · local report locked" : "Virtual round finished · local report locked");
   }
 
@@ -3852,7 +3975,7 @@ export default function SwiftGhostApp() {
       };
     });
     if (!next.virtualRoundWorkspace.active) {
-      openVirtualRounds();
+      openVirtualRoundReport(roundId);
       setToast("Time expired · local report locked");
     }
   }
@@ -3935,7 +4058,7 @@ export default function SwiftGhostApp() {
       };
     });
     if (!next.virtualRoundWorkspace.active) {
-      openVirtualRounds();
+      openVirtualRoundReport(roundId);
       setToast("Round report locked after the final on-time judgment");
     }
   }
@@ -3949,6 +4072,38 @@ export default function SwiftGhostApp() {
       ),
     }));
     setToast("Virtual round report archived");
+  }
+
+  function retryVirtualRoundProblem(roundId: string, itemId: string) {
+    const round = stateRef.current.virtualRoundWorkspace.history.find(
+      (candidate) => candidate.id === roundId,
+    );
+    const snapshot = round?.problems.find(
+      (problem) => problem.itemId === itemId,
+    );
+    const candidate = allItems.find(
+      (item) =>
+        item.itemId === itemId &&
+        item.contentRevision === snapshot?.itemRevision &&
+        (item.verification?.revision ?? 1) === snapshot?.verificationRevision,
+    );
+    if (!round || !snapshot || !candidate?.verification) {
+      setToast("That frozen problem revision is not available for a clean retry");
+      return;
+    }
+    openItem(candidate, 5, undefined, undefined, "solving");
+    setToast("Fresh practice opened · the locked contest report will not change");
+  }
+
+  function inspectVirtualRoundSubmission(submissionId: string) {
+    updateRecordsRoute(
+      "submissions",
+      normalizeSubmissionWorkLogQuery({
+        ...DEFAULT_SUBMISSION_WORK_LOG_QUERY,
+        origins: ["round"],
+        selectedId: submissionId,
+      }),
+    );
   }
 
   function startAssessmentProgram(programId: string) {
@@ -6081,19 +6236,27 @@ export default function SwiftGhostApp() {
       )}
       {view === "assessments" && assessmentRouteId === "virtual-rounds" && (
         <VirtualRounds
+          section={contestSection}
+          selectedReportId={contestRoundId}
           presets={virtualRoundPresets}
           activeRound={activeVirtualRoundView}
           history={virtualRoundReports}
+          standings={personalRoundStandings}
+          summary={contestSummary}
           remainingMs={virtualRoundRemainingMs(
             state.virtualRoundWorkspace.active,
             now,
           )}
+          onSectionChange={(section) => updateContestRoute(section)}
+          onOpenReport={openVirtualRoundReport}
           onStart={startVirtualRoundPreset}
           onResume={resumeVirtualRound}
           onOpenProblem={openVirtualRoundItem}
           onToggleFlag={flagVirtualRoundProblem}
           onFinish={finishActiveVirtualRound}
           onArchive={archiveVirtualRoundReport}
+          onRetryProblem={retryVirtualRoundProblem}
+          onInspectSubmission={inspectVirtualRoundSubmission}
         />
       )}
       {view === "assessments" &&

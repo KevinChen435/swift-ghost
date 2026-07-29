@@ -84,6 +84,7 @@ export type VirtualRoundCandidate = {
   pattern: string;
   difficulty: string;
   independentSolves?: number;
+  roundAppearances?: number;
   lastAttemptAt?: string;
   [key: string]: unknown;
 };
@@ -125,6 +126,7 @@ export function normalizeVirtualRoundWorkspace(
     now?: string;
     validItemIds?: Set<string>;
     revisions?: Map<string, number>;
+    verificationRevisions?: Map<string, number>;
   },
 ): VirtualRoundWorkspace;
 export function startVirtualRound(

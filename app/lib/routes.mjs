@@ -25,6 +25,13 @@ export const RECORDS_SECTIONS = [
   "submissions",
   "reviews",
 ];
+export const CONTEST_SECTIONS = [
+  "overview",
+  "live",
+  "history",
+  "standings",
+  "review",
+];
 export const ROUTE_LANGUAGES = ["python", "swift"];
 
 function sourceParams(input) {
@@ -80,6 +87,10 @@ function cleanSessionId(value) {
   )
     ? normalized
     : undefined;
+}
+
+function cleanContestRoundId(value) {
+  return cleanSessionId(value);
 }
 
 function legacyCatalogLanes(params) {
@@ -168,6 +179,17 @@ export function parseRoute(input) {
     view === "assessments"
       ? cleanAssessmentId(params.get("assessment"))
       : undefined;
+  const requestedContestSection = params.get("contest");
+  const contestSection =
+    view === "assessments" && assessment === "virtual-rounds"
+      ? CONTEST_SECTIONS.includes(requestedContestSection)
+        ? requestedContestSection
+        : "overview"
+      : undefined;
+  const contestRoundId =
+    contestSection === "review"
+      ? cleanContestRoundId(params.get("round"))
+      : undefined;
   const requestedRecordsSection = params.get("section");
   const recordsSection =
     view === "records" && RECORDS_SECTIONS.includes(requestedRecordsSection)
@@ -199,6 +221,12 @@ export function parseRoute(input) {
     communityTab,
     profile,
     assessment,
+    ...(contestSection
+      ? {
+          contestSection,
+          ...(contestRoundId ? { contestRoundId } : {}),
+        }
+      : {}),
     ...(sessionId ? { sessionId } : {}),
     ...(view === "library" ? { catalog: catalogQueryFromParams(params) } : {}),
     ...(recordsSection
@@ -373,6 +401,18 @@ export function serializeRoute(
   const assessment =
     view === "assessments" ? cleanAssessmentId(route?.assessment) : undefined;
   if (assessment) url.searchParams.set("assessment", assessment);
+  if (assessment === "virtual-rounds") {
+    const contestSection = CONTEST_SECTIONS.includes(route?.contestSection)
+      ? route.contestSection
+      : "overview";
+    if (contestSection !== "overview")
+      url.searchParams.set("contest", contestSection);
+    const contestRoundId =
+      contestSection === "review"
+        ? cleanContestRoundId(route?.contestRoundId)
+        : undefined;
+    if (contestRoundId) url.searchParams.set("round", contestRoundId);
+  }
   const profile = view === "records" ? cleanHandle(route?.profile) : undefined;
   if (profile) url.searchParams.set("profile", profile);
   return `${url.pathname}${url.search}${url.hash}`;

@@ -75,6 +75,87 @@ test("assessments have reload-safe list and detail routes", () => {
   );
 });
 
+test("the contest center has bounded reload-safe section and report routes", () => {
+  assert.deepEqual(
+    parseRoute(
+      "/swift-ghost/?view=assessments&assessment=virtual-rounds&contest=review&round=virtual-round_01%3Areport",
+    ),
+    {
+      view: "assessments",
+      language: undefined,
+      track: undefined,
+      item: undefined,
+      stage: undefined,
+      practiceKind: undefined,
+      communityTab: undefined,
+      profile: undefined,
+      assessment: "virtual-rounds",
+      contestSection: "review",
+      contestRoundId: "virtual-round_01:report",
+    },
+  );
+  assert.equal(
+    serializeRoute(
+      {
+        view: "assessments",
+        assessment: "virtual-rounds",
+        contestSection: "standings",
+      },
+      "https://example.test/swift-ghost/?stale=1",
+    ),
+    "/swift-ghost/?view=assessments&assessment=virtual-rounds&contest=standings",
+  );
+  assert.equal(
+    serializeRoute(
+      {
+        view: "assessments",
+        assessment: "virtual-rounds",
+        contestSection: "review",
+        contestRoundId: "virtual-round_01:report",
+      },
+      "https://example.test/swift-ghost/",
+    ),
+    "/swift-ghost/?view=assessments&assessment=virtual-rounds&contest=review&round=virtual-round_01%3Areport",
+  );
+  assert.equal(
+    serializeRoute(
+      {
+        view: "assessments",
+        assessment: "virtual-rounds",
+        contestSection: "overview",
+      },
+      "https://example.test/swift-ghost/",
+    ),
+    "/swift-ghost/?view=assessments&assessment=virtual-rounds",
+  );
+  assert.equal(
+    parseRoute(
+      "/?view=assessments&assessment=virtual-rounds&contest=../../admin&round=../../private",
+    ).contestSection,
+    "overview",
+  );
+  assert.equal(
+    parseRoute(
+      "/?view=assessments&assessment=virtual-rounds&contest=review&round=../../private",
+    ).contestRoundId,
+    undefined,
+  );
+  assert.equal(
+    parseRoute("/?view=library&contest=standings&round=round-1")
+      .contestSection,
+    undefined,
+  );
+  assert.doesNotMatch(
+    serializeRoute({
+      view: "library",
+      assessment: "virtual-rounds",
+      contestSection: "review",
+      contestRoundId: "round-1",
+    }),
+    /contest=|round=/,
+  );
+});
+
 test("the Records submission work log round-trips filters, selection, and compare state", () => {
   const route = parseRoute(
     "/swift-ghost/?view=records&section=submissions&sq=two+sum&verdict=accepted&verdict=pending&origin=mock&language=python&revision=older&range=30d&sort=oldest&page=3&size=50&submission=receipt-2&compare=receipt-1",
