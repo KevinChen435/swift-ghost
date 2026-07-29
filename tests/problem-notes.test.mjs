@@ -11,14 +11,14 @@ import {
 const validItemIds = new Set(["python:1", "builtin:1", "custom:archived"]);
 const revisions = new Map([["python:1", 3], ["builtin:1", 1], ["custom:archived", 7]]);
 
-test("state v29 retains notes while preserving the complete v26 fallback", async () => {
+test("state v30 retains notes while preserving the complete v29 fallback", async () => {
   const product = await readFile(new URL("../app/lib/product.ts", import.meta.url), "utf8");
-  assert.match(product, /version: 29;/);
+  assert.match(product, /version: 30;/);
   assert.match(product, /problemNotes: ProblemNotes/);
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v29"/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v30"/);
   assert.match(product, /TWENTY_SIXTH_STORAGE_KEY = "swift-ghost-state-v26"/);
   assert.match(product, /TWENTY_FIFTH_STORAGE_KEY = "swift-ghost-state-v25"/);
-  assert.match(product, /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_EIGHTH_STORAGE_KEY,\s+TWENTY_SEVENTH_STORAGE_KEY,\s+TWENTY_SIXTH_STORAGE_KEY,\s+TWENTY_FIFTH_STORAGE_KEY/);
+  assert.match(product, /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY,\s+TWENTY_EIGHTH_STORAGE_KEY,\s+TWENTY_SEVENTH_STORAGE_KEY,\s+TWENTY_SIXTH_STORAGE_KEY,\s+TWENTY_FIFTH_STORAGE_KEY/);
   assert.match(product, /Number\(value\.version\) >= 26 \? value\.problemNotes : undefined/);
 });
 

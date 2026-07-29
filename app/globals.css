@@ -401,6 +401,58 @@
   }
 }
 
+/* Test Design / Counterexample Lab */
+.test-design-page { max-width: 1180px; }
+.test-design-shell, .test-design-empty, .test-design-summary { display: grid; gap: 22px; padding: clamp(20px, 4vw, 42px); border: 1px solid var(--border); border-radius: 26px; background: var(--panel); }
+.test-design-empty { max-width: 780px; margin: 48px auto; }
+.test-design-header, .test-design-reveal, .test-design-summary-actions { display: flex; justify-content: space-between; align-items: center; gap: 18px; }
+.test-design-progress { height: 7px; overflow: hidden; border-radius: 999px; background: var(--panel-strong); }
+.test-design-progress span { display: block; height: 100%; background: var(--accent); transition: width .2s ease; }
+.test-design-prompt, .test-design-commit, .test-design-comparison { padding: clamp(18px, 3vw, 30px); border: 1px solid var(--border); border-radius: 20px; background: var(--surface); }
+.test-design-prompt > span, .test-reference-grid article > span, .test-design-comparison header > span { color: var(--accent); font-size: .75rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.test-design-commit { display: grid; gap: 18px; }
+.test-design-commit fieldset { display: grid; gap: 16px; border: 0; padding: 0; margin: 0; }
+.test-design-commit label { display: grid; gap: 8px; color: var(--muted); font-weight: 700; }
+.test-design-commit label small { font-weight: 500; }
+.test-design-commit textarea { min-height: 84px; width: 100%; resize: vertical; }
+.test-design-commit .test-code-input { font-family: var(--font-mono); }
+.test-purpose-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.test-purpose-grid label { position: relative; }
+.test-purpose-grid input { position: absolute; opacity: 0; }
+.test-purpose-grid span { display: grid; gap: 5px; height: 100%; padding: 14px; border: 1px solid var(--border); border-radius: 14px; cursor: pointer; }
+.test-purpose-grid input:checked + span { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
+.test-purpose-grid input:focus-visible + span { outline: 3px solid var(--accent); outline-offset: 2px; }
+.test-design-hint, .test-design-boundary, .test-reference-notice { padding: 14px 16px; border-left: 4px solid var(--accent); border-radius: 10px; background: var(--panel-strong); }
+.test-reference-notice { display: grid; gap: 4px; }
+.test-reference-grid, .test-design-results { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+.test-reference-grid article, .test-design-results article { padding: 18px; border: 1px solid var(--border); border-radius: 16px; background: var(--panel); }
+.test-reference-grid pre { overflow-x: auto; padding: 12px; border-radius: 10px; background: var(--code-bg); }
+.test-design-comparison { display: grid; gap: 18px; }
+.test-design-self-grade { display: grid; gap: 12px; }
+.test-design-self-grade > div { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.test-design-self-grade button { min-height: 48px; border: 1px solid var(--border); border-radius: 12px; }
+.oracle-confirmed { color: var(--success); }
+.oracle-contradicted { color: var(--danger); }
+.oracle-unverified { color: var(--muted); }
+.test-design-summary-stats, .academy-test-design-card dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.test-design-summary-stats > div, .academy-test-design-card dl > div { padding: 14px; border: 1px solid var(--border); border-radius: 14px; }
+.academy-test-design-card, .today-test-design { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 18px; padding: 24px; border: 1px solid var(--border); border-radius: 20px; background: var(--panel); }
+.academy-test-design-card small { grid-column: 1 / -1; }
+.assessment-test-design-card { border: 1px solid var(--border); }
+
+@media (max-width: 720px) {
+  .test-purpose-grid, .test-reference-grid, .test-design-results, .test-design-self-grade > div { grid-template-columns: 1fr; }
+  .test-design-header, .test-design-reveal, .test-design-summary-actions { align-items: stretch; flex-direction: column; }
+  .academy-test-design-card, .today-test-design { grid-template-columns: 1fr; }
+  .test-design-commit > .primary-button, .test-design-summary-actions button { width: 100%; justify-content: center; }
+}
+
+@media (max-width: 360px) {
+  .test-design-shell, .test-design-empty, .test-design-summary { padding: 16px; border-radius: 18px; }
+  .test-design-prompt, .test-design-commit, .test-design-comparison { padding: 15px; }
+  .test-design-summary-stats, .academy-test-design-card dl { grid-template-columns: 1fr; }
+}
+
 :root[data-theme="paper"] {
   --bg: #eeeade;
   --bg-raised: #f8f5eb;

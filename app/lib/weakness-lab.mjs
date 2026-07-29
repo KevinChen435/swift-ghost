@@ -320,6 +320,24 @@ function collectEvidence(input, itemById) {
     }
   }
 
+  const testProbes = new Map(
+    (Array.isArray(input.testDesignProbes) ? input.testDesignProbes : [])
+      .map((probe) => [probe?.id, probe]).filter(([id]) => Boolean(id)),
+  );
+  for (const attempt of Array.isArray(input.testDesignAttempts) ? input.testDesignAttempts : []) {
+    const probe = testProbes.get(attempt?.probeId);
+    const item = itemById.get(attempt?.itemId);
+    if (!attempt?.completedAt || !probe || !item || Number(attempt.probeRevision) !== Number(probe.revision) || attempt.itemId !== probe.itemId || Number(attempt.itemRevision) !== Number(probe.itemRevision) || Number(item.contentRevision) !== Number(probe.itemRevision)) continue;
+    if (attempt.oracleStatus === "contradicted") pushEvidence(evidence, {
+      id: `test-design:${attempt.id}:oracle`, kind: "test-design", weakness: "verification", itemId: probe.itemId, itemRevision: probe.itemRevision,
+      occurredAt: attempt.completedAt, weight: 3, label: "Test Design Lab", summary: `The committed expected result contradicted an original reference oracle for ${probe.title}. Free-form assumptions were not auto-scored.`, sourceId: attempt.id, lane: "python", topicKey: probe.skillLabel,
+    }, itemById);
+    if (attempt.purposeMatch === false) pushEvidence(evidence, {
+      id: `test-design:${attempt.id}:purpose`, kind: "test-design", weakness: "boundary", itemId: probe.itemId, itemRevision: probe.itemRevision,
+      occurredAt: attempt.completedAt, weight: 2, label: "Test Design Lab", summary: `The committed test purpose did not match the authored failure target for ${probe.title}.`, sourceId: attempt.id, lane: "python", topicKey: probe.skillLabel,
+    }, itemById);
+  }
+
   const byId = new Map();
   for (const entry of evidence) byId.set(entry.id, entry);
   return [...byId.values()]

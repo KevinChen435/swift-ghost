@@ -7,7 +7,7 @@ import type { WeaknessFilter, WeaknessLane } from "./weakness-lab.mjs";
 import type { PatternLessonStep } from "../data/pattern-lessons";
 
 export type CommunityTab = "recent" | "records" | "daily" | "profile";
-export type LearnReviewMode = "mixed";
+export type LearnReviewMode = "mixed" | "tests";
 export type RecordsSection =
   | "overview"
   | "trends"
@@ -46,6 +46,7 @@ export type AppRoute = {
   lessonStep?: PatternLessonStep;
   learnReview?: LearnReviewMode;
   patternSprintId?: string;
+  testDesignSprintId?: string;
 };
 
 export const ROUTE_VIEWS: View[];

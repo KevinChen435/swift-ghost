@@ -34,7 +34,7 @@ test("mixed review is routed, commit-before-reveal, and evidence-honest", async 
   ]);
   assert.match(app, /patternReviewMode === "mixed"[\s\S]*<PatternDecisionReview/);
   assert.match(app, /startPatternDecisionSprint/);
-  assert.match(routes, /LEARN_REVIEW_MODES = \["mixed"\]/);
+  assert.match(routes, /LEARN_REVIEW_MODES = \["mixed", "tests"\]/);
   assert.match(routes, /patternSprintId/);
   assert.match(academy, /Can you recognize the pattern without its label/);
   assert.match(component, /Commit before reveal/);
