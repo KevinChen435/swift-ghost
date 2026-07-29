@@ -38,7 +38,7 @@ test("state v21 retains bounded local assessments and the v20 fallback", async (
 
 test("an empty migrated assessment workspace is deterministic", () => {
   assert.deepEqual(normalizeAssessmentWorkspace(undefined), {
-    version: 1,
+    version: 2,
     revision: 0,
     updatedAt: "1970-01-01T00:00:00.000Z",
     activeRunId: null,

@@ -1,10 +1,11 @@
 import type { AttemptRecord } from "./product";
+import type { AssessmentBlueprintSection, AssessmentResponseMode } from "./assessment-bank.mjs";
 
-export type AssessmentLane = "python-fluency" | "algorithmic" | "ios-self-assessed";
+export type AssessmentLane = "python-fluency" | "algorithmic" | "ios-self-assessed" | "python" | "swift" | "ios";
 export type AssessmentRunStatus = "active" | "paused" | "completed" | "archived";
 export type AssessmentRunOutcome = "completed" | "ended";
 export type AssessmentProbeStatus = "pending" | "refreshed" | "attempted" | "debriefed";
-export type AssessmentEvidenceLevel = "not-observed" | "incomplete" | "assisted" | "independent" | "self-assessed";
+export type AssessmentEvidenceLevel = "not-observed" | "incomplete" | "assisted" | "independent" | "self-assessed" | "reconstruction";
 export type AssessmentRubricDimension = "recognition" | "reasoning" | "implementation" | "verification" | "communication";
 export type AssessmentBlocker = "syntax-fluency" | "missed-cue" | "wrong-invariant" | "data-structure" | "complexity" | "boundary" | "implementation" | "verification" | "communication" | "overfit";
 export type AssessmentRubric = Record<AssessmentRubricDimension, 0 | 1 | 2>;
@@ -16,17 +17,52 @@ export type AssessmentProbe = {
   title: string;
   focus: string;
   estimatedMinutes: number;
+  itemRevision?: number;
+  judgeRevision?: number;
+  responseMode?: AssessmentResponseMode;
+  stage?: 5;
+  conceptCheckIndex?: 1;
+  currentEvidenceEligible?: boolean;
+  sectionId?: string;
+  skillId?: string;
+  skillLabel?: string;
 };
 
 export type AssessmentProgram = {
-  id: "python-reentry" | "ios-pulse";
+  id: "python-reentry" | "ios-pulse" | "cross-lane-reentry";
   title: string;
   shortTitle: string;
-  track: "python" | "ios";
+  track: "python" | "ios" | "cross-lane";
   evidenceLabel: string;
   description: string;
   disclaimer: string;
   probes: readonly AssessmentProbe[];
+  blueprintId?: "cross-lane-reentry";
+  blueprintRevision?: number;
+  formSize?: 6;
+  candidateCount?: 24;
+  sections?: readonly AssessmentBlueprintSection[];
+};
+
+export type AssessmentFormEntry = {
+  entryId: string;
+  bankEntryId: string;
+  bankRevision: number;
+  sectionId: string;
+  itemId: string;
+  itemRevision: number;
+  judgeRevision?: number;
+  lane: AssessmentLane;
+  skillId: string;
+  skillLabelSnapshot: string;
+  titleSnapshot: string;
+  focusSnapshot: string;
+  responseMode: AssessmentResponseMode;
+  estimatedMinutes: number;
+  stage?: 5;
+  conceptCheckIndex?: 1;
+  formKind: "bank" | "legacy-fixed";
+  currentEvidenceEligible: boolean;
 };
 
 export type AssessmentRefresher = {
@@ -42,6 +78,10 @@ export type AssessmentObjectiveAttempt = Pick<
 > & {
   attemptId?: string;
   verification?: { revision?: number; passed: number; total: number };
+  responseMode?: AssessmentResponseMode;
+  stage?: number;
+  conceptCheckIndex?: number;
+  accepted?: boolean;
 };
 
 export type AssessmentDebrief = {
@@ -55,6 +95,10 @@ export type AssessmentProbeResult = {
   probeId: string;
   itemId: string;
   lane: AssessmentLane;
+  itemRevision: number;
+  judgeRevision?: number;
+  responseMode: AssessmentResponseMode;
+  currentEvidenceEligible: boolean;
   status: AssessmentProbeStatus;
   refresher?: AssessmentRefresher;
   objectiveAttempt?: AssessmentObjectiveAttempt;
@@ -64,6 +108,12 @@ export type AssessmentProbeResult = {
 export type AssessmentRun = {
   id: string;
   programId: AssessmentProgram["id"];
+  blueprintId: string;
+  blueprintRevision: number;
+  selectionSeed: string;
+  formKind: "bank" | "legacy-fixed";
+  formRevision: number;
+  form: AssessmentFormEntry[];
   status: AssessmentRunStatus;
   outcome?: AssessmentRunOutcome;
   startedAt: string;
@@ -75,7 +125,7 @@ export type AssessmentRun = {
 };
 
 export type AssessmentWorkspace = {
-  version: 1;
+  version: 2;
   revision: number;
   updatedAt: string;
   activeRunId: string | null;
@@ -86,7 +136,7 @@ export type AssessmentReport = {
   runId: string;
   programId: AssessmentProgram["id"];
   title: string;
-  track: "python" | "ios";
+  track: "python" | "ios" | "cross-lane";
   evidenceLabel: string;
   disclaimer: string;
   status: AssessmentRunStatus;
@@ -94,14 +144,15 @@ export type AssessmentReport = {
   startedAt: string;
   completedAt?: string;
   completion: { attempted: number; debriefed: number; total: number };
-  lanes: Record<"pythonFluency" | "algorithmic" | "ios", {
-    evidenceKind: "observed" | "self-assessed";
+  lanes: Record<"pythonFluency" | "algorithmic" | "ios" | "python" | "swift" | "crossLaneIos", {
+    evidenceKind: "observed" | "self-assessed" | "reconstruction";
     totalProbes: number;
     attempted: number;
     debriefed: number;
     independent: number;
     assisted: number;
     selfAssessed: number;
+    reconstruction: number;
     incomplete: number;
     rubricAverage: number | null;
   }>;
@@ -119,7 +170,13 @@ export type AssessmentReport = {
     blockers: AssessmentBlocker[];
     note: string;
     objectiveAttempt?: AssessmentObjectiveAttempt;
+    responseMode: AssessmentResponseMode;
+    itemRevision: number;
+    judgeRevision?: number;
+    currentEvidenceEligible: boolean;
+    trustLabel: string;
   }>;
+  sections: Array<{ sectionId: string; skillId: string; skillLabel: string; lane: AssessmentLane; responseMode: AssessmentResponseMode; itemId: string; title: string; status: AssessmentProbeStatus; evidenceLevel: AssessmentEvidenceLevel; trustLabel: string; currentEvidenceEligible: boolean }>;
   blockers: Array<{ id: AssessmentBlocker; label: string; count: number }>;
   recommendations: Array<{ id: string; itemId?: string; lane: AssessmentLane; title: string; reason: string }>;
 };
@@ -133,10 +190,10 @@ export function normalizeAssessmentProbeResult(value: unknown, probe?: Assessmen
 export function normalizeAssessmentRun(value: unknown, options?: { now?: string | Date | number; programId?: string }): AssessmentRun | null;
 export function normalizeAssessmentWorkspace(value: unknown, options?: { now?: string | Date | number; validItemIds?: Iterable<string>; revisions?: ReadonlyMap<string, number> }): AssessmentWorkspace;
 export function currentAssessmentProbe(run: unknown): AssessmentProbe | null;
-export function startAssessment(workspace: AssessmentWorkspace, programId: string, options?: { id?: string; now?: string | Date | number }): AssessmentWorkspace;
+export function startAssessment(workspace: AssessmentWorkspace, programId: string, options?: { id?: string; now?: string | Date | number; selectionSeed?: string; history?: unknown; evidence?: unknown }): AssessmentWorkspace;
 export function resumeAssessment(workspace: AssessmentWorkspace, runId: string, options?: { now?: string | Date | number }): AssessmentWorkspace;
 export function recordAssessmentRefresher(workspace: AssessmentWorkspace, runId: string, probeId: string, input?: Partial<AssessmentRefresher>, options?: { now?: string | Date | number }): AssessmentWorkspace;
-export function recordAssessmentObjectiveAttempt(workspace: AssessmentWorkspace, runId: string, probeId: string, attempt: Partial<AttemptRecord> & { attemptId?: string }, options?: { now?: string | Date | number }): AssessmentWorkspace;
+export function recordAssessmentObjectiveAttempt(workspace: AssessmentWorkspace, runId: string, probeId: string, attempt: Partial<AttemptRecord> & { attemptId?: string; responseMode?: AssessmentResponseMode; stage?: number; conceptCheckIndex?: number }, options?: { now?: string | Date | number }): AssessmentWorkspace;
 export function recordAssessmentDebrief(workspace: AssessmentWorkspace, runId: string, probeId: string, input: { rubric?: Partial<Record<AssessmentRubricDimension, number>>; blockers?: string[]; note?: string; mostImportantGap?: string; recordedAt?: string }, options?: { now?: string | Date | number }): AssessmentWorkspace;
 export function finishAssessment(workspace: AssessmentWorkspace, runId: string, options?: { now?: string | Date | number; outcome?: "completed" | "ended" }): AssessmentWorkspace;
 export function archiveAssessment(workspace: AssessmentWorkspace, runId: string, options?: { now?: string | Date | number }): AssessmentWorkspace;

@@ -8848,6 +8848,35 @@ kbd {
   border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent), var(--shadow-soft);
 }
+.assessment-program-grid > .assessment-cross-lane-card {
+  grid-column: 1 / -1;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 9%, transparent), transparent 48%),
+    var(--panel);
+}
+.assessment-mode-ledger,
+.assessment-freeze-contract {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+.assessment-mode-ledger span,
+.assessment-freeze-contract span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--panel-bright) 78%, transparent);
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+.assessment-mode-ledger b,
+.assessment-freeze-contract b {
+  color: var(--text);
+  font-size: 0.82rem;
+}
 .assessment-program-topline,
 .assessment-section-heading,
 .assessment-progress-head,
@@ -8934,6 +8963,28 @@ kbd {
   margin: 4px 0 0;
   color: var(--muted);
 }
+.assessment-freeze-contract {
+  margin-top: 18px;
+}
+.assessment-form-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 10px;
+  color: var(--muted);
+}
+.assessment-form-lock span,
+.assessment-response-contract > span {
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: var(--accent);
+  font-size: 0.69rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
 .assessment-progress-ring {
   display: grid;
   place-items: center;
@@ -8998,6 +9049,27 @@ kbd {
 }
 .assessment-briefing h2 {
   margin: 8px 0;
+}
+.assessment-response-contract {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin-top: 15px;
+  padding: 13px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel-bright) 72%, transparent);
+}
+.assessment-response-contract p {
+  font-size: 0.82rem;
+}
+.assessment-stale-warning {
+  margin-top: 14px !important;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--warning) 42%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+  color: var(--warning) !important;
 }
 .assessment-briefing ul,
 .assessment-practice-rail ul {
@@ -9166,6 +9238,7 @@ kbd {
 .evidence-independent { color: var(--success); }
 .evidence-assisted { color: var(--warning); }
 .evidence-self-assessed { color: var(--accent); }
+.evidence-reconstruction { color: var(--accent); }
 .evidence-incomplete,
 .evidence-not-observed { color: var(--muted); }
 .assessment-next-steps {
@@ -9590,8 +9663,14 @@ kbd {
   .assessment-program-grid,
   .assessment-rubric-grid,
   .assessment-lane-grid,
-  .assessment-program-stats {
+  .assessment-program-stats,
+  .assessment-mode-ledger,
+  .assessment-freeze-contract {
     grid-template-columns: 1fr;
+  }
+  .assessment-form-lock {
+    align-items: flex-start;
+    flex-direction: column;
   }
   .assessment-stepper {
     grid-template-columns: repeat(2, minmax(0, 1fr));

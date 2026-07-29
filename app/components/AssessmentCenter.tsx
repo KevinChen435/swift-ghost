@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { PracticeItem } from "../lib/items";
 import type { TestDesignLane } from "../data/test-design-probes";
 import type { ConceptTransferLane } from "../data/concept-transfer-variants";
+import { CROSS_LANE_REENTRY_BLUEPRINT } from "../lib/assessment-bank.mjs";
 import { TrustedAssessmentPanel } from "./TrustedAssessmentPanel";
 import {
   ASSESSMENT_BLOCKERS,
@@ -44,6 +45,23 @@ function evidenceLabel(value: string) {
     .split("-")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function responseModeLabel(value?: string) {
+  if (value === "local-verified-solve") return "Local verified Python solve";
+  if (value === "swift-reconstruction") return "Swift exact reconstruction";
+  if (value === "concept-recall") return "Self-assessed concept recall";
+  return "Practice response";
+}
+
+function responseModeTrust(value?: string) {
+  if (value === "local-verified-solve")
+    return "All bundled checks must pass in the device-local Python judge.";
+  if (value === "swift-reconstruction")
+    return "Exact authored reconstruction only; Swift is not compiled and alternatives are not evaluated.";
+  if (value === "concept-recall")
+    return "Commit before reveal, then self-grade against the authored reference.";
+  return "Evidence remains private, local, and explicitly labeled.";
 }
 
 function DebriefForm({
@@ -164,7 +182,13 @@ function AssessmentReportView({
         ["Python fluency", report.lanes.pythonFluency],
         ["Algorithmic work", report.lanes.algorithmic],
       ] as const
-    : [["Swift & iOS concepts", report.lanes.ios]] as const;
+    : report.track === "cross-lane"
+      ? [
+          ["Python · local judge", report.lanes.python],
+          ["Swift · reconstruction & recall", report.lanes.swift],
+          ["iOS · self-assessed", report.lanes.crossLaneIos],
+        ] as const
+      : [["Swift & iOS concepts", report.lanes.ios]] as const;
   return (
     <section className="assessment-report" aria-labelledby={`report-${run.id}`}>
       <div className="assessment-section-heading">
@@ -187,8 +211,10 @@ function AssessmentReportView({
             </strong>
             <p>
               {lane.evidenceKind === "self-assessed"
-                ? `${lane.selfAssessed} self-assessed observations`
-                : `${lane.independent} independent · ${lane.assisted} assisted`}
+                ? `${lane.selfAssessed} self-assessed · ${lane.assisted} assisted`
+                : lane.evidenceKind === "reconstruction"
+                  ? `${lane.reconstruction} exact reconstructions · ${lane.selfAssessed} self-assessed recalls · ${lane.assisted} assisted · ${lane.incomplete} incomplete`
+                  : `${lane.independent} independent · ${lane.assisted} assisted`}
             </p>
             <span>
               Rubric average: {lane.rubricAverage === null ? "Not enough evidence" : `${lane.rubricAverage}/10`}
@@ -207,10 +233,12 @@ function AssessmentReportView({
             <span role="cell">
               <strong>{probe.title}</strong>
               <small>{probe.focus}</small>
+              {probe.responseMode && <small>{responseModeLabel(probe.responseMode)}</small>}
             </span>
             <span role="cell" className={`evidence-${probe.evidenceLevel}`}>
               {evidenceLabel(probe.evidenceLevel)}
               {probe.usedRefresher ? <small>Refresher used</small> : null}
+              {probe.trustLabel ? <small>{probe.trustLabel}</small> : null}
             </span>
             <span role="cell">
               {probe.rubricTotal === null ? "Not recorded" : `${probe.rubricTotal}/10`}
@@ -339,6 +367,21 @@ export function AssessmentCenter({
     selectedAssessment && !selectedRun ? selectedAssessment : detailRun?.programId ?? "",
   );
   const availableItemIds = new Set(items.map((item) => item.itemId));
+  const crossLaneProgram = assessmentProgram("cross-lane-reentry");
+  const crossLaneRuns = workspace.runs.filter(
+    (run) => run.programId === "cross-lane-reentry",
+  );
+  const latestCrossLaneRun = crossLaneRuns.at(-1);
+  const latestCrossLaneReport = latestCrossLaneRun
+    ? deriveAssessmentReport(latestCrossLaneRun)
+    : null;
+  const crossLaneMinutes = CROSS_LANE_REENTRY_BLUEPRINT.sections.reduce(
+    (total, section) => ({
+      minimum: total.minimum + section.estimatedMinutes.minimum,
+      maximum: total.maximum + section.estimatedMinutes.maximum,
+    }),
+    { minimum: 0, maximum: 0 },
+  );
 
   return (
     <main id="main-content" tabIndex={-1} className="page-container assessments-page">
@@ -365,6 +408,63 @@ export function AssessmentCenter({
       />
 
       <section className="assessment-program-grid" aria-label="Assessment programs">
+        {crossLaneProgram && (
+          <article
+            className={`assessment-cross-lane-card ${
+              selectedProgram?.id === crossLaneProgram.id ? "selected" : ""
+            }`}
+          >
+            <div className="assessment-program-topline">
+              <span>Full re-entry diagnostic</span>
+              <small>
+                {crossLaneMinutes.minimum}–{crossLaneMinutes.maximum} min · one frozen form
+              </small>
+            </div>
+            <h2>{crossLaneProgram.title}</h2>
+            <p>{crossLaneProgram.description}</p>
+            <div className="assessment-program-stats">
+              <span><strong>{CROSS_LANE_REENTRY_BLUEPRINT.formSize}</strong> checkpoints</span>
+              <span><strong>{latestCrossLaneReport?.completion.debriefed ?? 0}</strong> reflected</span>
+              <span><strong>{crossLaneRuns.length}</strong> run{crossLaneRuns.length === 1 ? "" : "s"}</span>
+            </div>
+            <div className="assessment-mode-ledger" aria-label="Evidence modes">
+              <span><b>Python</b> local judge</span>
+              <span><b>Swift</b> exact reconstruction</span>
+              <span><b>iOS</b> self-assessed recall</span>
+            </div>
+            <small className="assessment-program-disclaimer">
+              A run selects one current entry from each of six revisioned sections,
+              then preserves that exact form. It never creates a readiness score,
+              certification, or mastery claim.
+            </small>
+            <div className="assessment-card-actions">
+              <button
+                className="outline-button"
+                type="button"
+                onClick={() => onSelect(crossLaneProgram.id)}
+              >
+                View six-section blueprint
+              </button>
+              {latestCrossLaneRun?.status === "paused" ? (
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={() => onResume(latestCrossLaneRun.id)}
+                >
+                  Resume frozen form →
+                </button>
+              ) : (
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={() => onStart(crossLaneProgram.id)}
+                >
+                  {crossLaneRuns.length ? "Start another form" : "Start re-entry assessment"} →
+                </button>
+              )}
+            </div>
+          </article>
+        )}
         <article className="assessment-pattern-decision-card">
           <div className="assessment-program-topline">
             <span>Pattern selection</span>
@@ -501,7 +601,9 @@ export function AssessmentCenter({
             </button>
           </div>
         </article>
-        {ASSESSMENT_PROGRAMS.map((program) => {
+        {ASSESSMENT_PROGRAMS.filter(
+          (program) => program.id !== "cross-lane-reentry",
+        ).map((program) => {
           const programAvailable = program.probes.every((probe) =>
             availableItemIds.has(probe.itemId as PracticeItem["itemId"]),
           );
@@ -544,7 +646,55 @@ export function AssessmentCenter({
         })}
       </section>
 
-      {selectedProgram && !detailRun && (
+      {selectedProgram?.id === "cross-lane-reentry" && !detailRun && (
+        <section className="assessment-outline assessment-cross-lane-outline">
+          <div className="assessment-section-heading">
+            <div>
+              <span className="eyebrow">Frozen-form blueprint · bank revision 1</span>
+              <h2>Six independent checkpoints across three lanes</h2>
+              <p>
+                The bank contains 24 authored candidates. Starting a run selects
+                one from each section and saves the complete form before the first
+                checkpoint opens.
+              </p>
+            </div>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => onStart(selectedProgram.id)}
+            >
+              Select and lock my form →
+            </button>
+          </div>
+          <ol>
+            {CROSS_LANE_REENTRY_BLUEPRINT.sections.map((section) => (
+              <li key={section.id}>
+                <span>{String(section.order).padStart(2, "0")}</span>
+                <div>
+                  <strong>{section.title}</strong>
+                  <p>
+                    One of {section.candidateCount} current candidates · {section.lane === "python"
+                      ? "local verified solve"
+                      : section.lane === "swift"
+                        ? "exact reconstruction or self-assessed recall"
+                        : "self-assessed engineering recall"}
+                  </p>
+                </div>
+                <small>
+                  {section.estimatedMinutes.minimum}–{section.estimatedMinutes.maximum} min
+                </small>
+              </li>
+            ))}
+          </ol>
+          <div className="assessment-freeze-contract">
+            <span><b>Rotation</b> least-seen current entries first</span>
+            <span><b>Persistence</b> reload-safe immutable form</span>
+            <span><b>Revisions</b> stale entries stay history-only</span>
+          </div>
+        </section>
+      )}
+
+      {selectedProgram && selectedProgram.id !== "cross-lane-reentry" && !detailRun && (
         <section className="assessment-outline">
           <div className="assessment-section-heading">
             <div>
@@ -577,6 +727,14 @@ export function AssessmentCenter({
               <p>
                 Checkpoint {detailRun.currentProbeIndex + 1} of {detailRun.results.length} · stop safely between checkpoints.
               </p>
+              {detailRun.formKind === "bank" && (
+                <div className="assessment-form-lock">
+                  <span>Form locked</span>
+                  <small>
+                    Blueprint r{detailRun.blueprintRevision} · bank r{detailRun.formRevision} · exact revisions preserved
+                  </small>
+                </div>
+              )}
             </div>
             <div className="assessment-progress-ring" aria-label={`${detailRun.results.filter((result) => result.status === "debriefed").length} of ${detailRun.results.length} checkpoints debriefed`}>
               <strong>{detailRun.results.filter((result) => result.status === "debriefed").length}/{detailRun.results.length}</strong>
@@ -619,17 +777,29 @@ export function AssessmentCenter({
                 <span className="eyebrow">Next checkpoint · {currentProbe.estimatedMinutes} min</span>
                 <h2>{currentProbe.title}</h2>
                 <p>{currentProbe.focus}</p>
+                <div className="assessment-response-contract">
+                  <span>{responseModeLabel(currentProbe.responseMode)}</span>
+                  <p>{responseModeTrust(currentProbe.responseMode)}</p>
+                </div>
                 <ul>
-                  <li>Pattern labels and solution help stay hidden during the checkpoint.</li>
-                  <li>Executable feedback is allowed; a refresher is recorded as assisted evidence.</li>
+                  <li>Item revision {currentProbe.itemRevision ?? "legacy"}{currentProbe.judgeRevision ? ` · judge revision ${currentProbe.judgeRevision}` : ""}</li>
+                  <li>Pattern labels and solution help stay hidden during the frozen response.</li>
+                  <li>A refresher is always labeled and never becomes clean current evidence.</li>
                   <li>You will reflect on recognition, reasoning, implementation, verification, and communication.</li>
                 </ul>
+                {currentProbe.currentEvidenceEligible === false && (
+                  <p className="assessment-stale-warning" role="status">
+                    This checkpoint revision remains in history, but the current
+                    build cannot use it to create new evidence.
+                  </p>
+                )}
               </div>
               <div className="assessment-briefing-actions">
                 {activeDraft?.assessmentRunId === detailRun.id && activeDraft.assessmentProbeId === currentProbe.id ? (
                   <button
                     className="primary-button"
                     type="button"
+                    disabled={currentProbe.currentEvidenceEligible === false}
                     onClick={() =>
                       onOpenProbe(
                         detailRun.id,
@@ -641,11 +811,21 @@ export function AssessmentCenter({
                     Resume checkpoint →
                   </button>
                 ) : (
-                  <button className="primary-button" type="button" onClick={() => onOpenProbe(detailRun.id, currentProbe)}>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={currentProbe.currentEvidenceEligible === false}
+                    onClick={() => onOpenProbe(detailRun.id, currentProbe)}
+                  >
                     Start without help →
                   </button>
                 )}
-                <button className="outline-button" type="button" onClick={() => onUseRefresher(detailRun.id, currentProbe)}>
+                <button
+                  className="outline-button"
+                  type="button"
+                  disabled={currentProbe.currentEvidenceEligible === false}
+                  onClick={() => onUseRefresher(detailRun.id, currentProbe)}
+                >
                   I need a refresher
                 </button>
                 <button className="text-button" type="button" onClick={() => onFinish(detailRun.id)}>

@@ -82,7 +82,7 @@ function recordAndDebrief(workspace, runId, probeId, attempt, options = {}) {
 }
 
 test("ships bounded Python and iOS programs with the exact requested item sequence", () => {
-  assert.equal(ASSESSMENT_PROGRAMS.length, 2);
+  assert.equal(ASSESSMENT_PROGRAMS.length, 3);
   assert.deepEqual(
     assessmentProgram("python-reentry").probes.map(({ itemId }) => itemId),
     ["python:10001", "python:1", "python:125", "python:20", "python:104", "python:200"],
@@ -282,7 +282,7 @@ test("normalization repairs malformed runs to the canonical program probe set", 
       { id: "invalid", programId: "invalid" },
     ],
   }, { now: t2 });
-  assert.equal(normalized.version, 1);
+  assert.equal(normalized.version, 2);
   assert.equal(normalized.revision, 0);
   assert.equal(normalized.updatedAt, t2);
   assert.equal(normalized.runs.length, 2);
