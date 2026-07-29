@@ -94,6 +94,19 @@ test("Pattern Decision Review routes preserve a bounded sprint and exclude lesso
   );
 });
 
+test("Test Design Lab uses an isolated bounded sprint route and clears incompatible lesson state", () => {
+  const route = parseRoute("/?view=learn&review=tests&sprint=test-lab%3Aabc&pattern=trees&lessonStep=trace");
+  assert.equal(route.learnReview, "tests");
+  assert.equal(route.testDesignSprintId, "test-lab:abc");
+  assert.equal(route.patternSprintId, undefined);
+  assert.equal(route.patternId, undefined);
+  assert.equal(route.lessonStep, undefined);
+  assert.equal(serializeRoute(route), "/?view=learn&review=tests&sprint=test-lab%3Aabc");
+  const mixed = parseRoute("/?view=learn&review=mixed&sprint=pattern-only");
+  assert.equal(mixed.testDesignSprintId, undefined);
+  assert.equal(serializeRoute({view:"learn",learnReview:"tests",patternSprintId:"wrong",testDesignSprintId:"right"}), "/?view=learn&review=tests&sprint=right");
+});
+
 test("Weakness Lab filters and selected cases are bounded and reload-safe", () => {
   const route = parseRoute(
     "/?view=improve&inbox=due&lane=python&case=python%3Aarrays-hashing%3Averification",

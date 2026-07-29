@@ -34,6 +34,9 @@ export function backupInventory(state) {
   const patternDecisions = isRecord(state?.patternLearning)
     ? boundedCount(state.patternLearning.decisionAttempts)
     : 0;
+  const testDesignAttempts = isRecord(state?.testDesign)
+    ? boundedCount(state.testDesign.attempts)
+    : 0;
   return {
     attempts: boundedCount(state?.attempts),
     submissions: submissionReceipts,
@@ -48,6 +51,7 @@ export function backupInventory(state) {
     collections: studyCollections,
     patternReviews,
     patternDecisions,
+    testDesignAttempts,
   };
 }
 

@@ -30,7 +30,7 @@ export const LEARN_STEPS = [
   "template",
   "practice",
 ];
-export const LEARN_REVIEW_MODES = ["mixed"];
+export const LEARN_REVIEW_MODES = ["mixed", "tests"];
 export const COMMUNITY_TABS = ["recent", "records", "daily", "profile"];
 export const RECORDS_SECTIONS = [
   "overview",
@@ -261,6 +261,8 @@ export function parseRoute(input) {
       : undefined;
   const patternSprintId =
     learnReview === "mixed" ? cleanSessionId(params.get("sprint")) : undefined;
+  const testDesignSprintId =
+    learnReview === "tests" ? cleanSessionId(params.get("sprint")) : undefined;
   const lessonStep =
     view === "learn" && LEARN_STEPS.includes(params.get("lessonStep"))
       ? params.get("lessonStep")
@@ -283,6 +285,7 @@ export function parseRoute(input) {
             ? {
                 learnReview,
                 ...(patternSprintId ? { patternSprintId } : {}),
+                ...(testDesignSprintId ? { testDesignSprintId } : {}),
               }
             : {
                 ...(patternId ? { patternId } : {}),
@@ -493,8 +496,10 @@ export function serializeRoute(
       : undefined;
     if (learnReview) {
       url.searchParams.set("review", learnReview);
-      const patternSprintId = cleanSessionId(route?.patternSprintId);
-      if (patternSprintId) url.searchParams.set("sprint", patternSprintId);
+      const sprintId = cleanSessionId(
+        learnReview === "tests" ? route?.testDesignSprintId : route?.patternSprintId,
+      );
+      if (sprintId) url.searchParams.set("sprint", sprintId);
     } else {
       const patternId = cleanPatternId(route?.patternId);
       if (patternId) url.searchParams.set("pattern", patternId);

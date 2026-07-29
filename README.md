@@ -17,6 +17,7 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - 16 iOS and Swift fundamentals covering language semantics, concurrency, UIKit, SwiftUI, networking, testing, and accessibility
 - A routeable Pattern Academy with 12 authored playbooks covering recognition cues, rejection rules, confusable patterns, invariants, worked state traces, incomplete Python and Swift skeletons, commit-before-reveal retrieval checks, and explicit handoffs from guided exposure to local solve and sealed transfer practice
 - A mixed Pattern Decision Review for Arrays & Hashing, Two Pointers, and Sliding Window: six unlabeled micro-prompts, explicit cue/invariant/rejected-alternative commitments, authored comparisons, objective pattern-choice matches, 1/3/7/14/30-day scheduling, distinct-prompt retention, reload-safe sprints, Today and assessment entry points, and repeated-miss handoffs to Weakness Lab without inflating solve evidence
+- A Python-first Test Design / Counterexample Lab with six original contract prompts, reload-safe committed drafts, explicit baseline/boundary/adversarial/regression purposes, conservative reference-oracle confirmation that never marks novel cases wrong, delayed distinct-probe retention, blank-solve handoffs, and boundary/verification evidence routed to Weakness Lab without pretending the designed case was executed
 - A first-class Swift/iOS Concept Recall lane: answer privately, commit before reveal, compare against 48 authored reference answers, optionally type over the grey answer, then self-grade without automated semantic scoring
 - A Today dashboard with a deterministic Daily Type, Python and iOS reactivation exercises, due recall, and resumable drafts
 - An Adaptive Daily Coach that builds deterministic 15-, 30-, or 45-minute plans from overdue work, missing evidence, Python fluency, independent solves, and iOS maintenance
@@ -67,7 +68,9 @@ Interview content and code-typing products usually exist separately. Swift Ghost
 
 ## Privacy
 
-The GitHub Pages edition is entirely local: it has no account requirement, telemetry, cookies, or network-backed progress. Pattern Academy retrieval responses, Pattern Decision Review history and due dates, practice history, interview notebooks, virtual-round reports, source snapshots, solution-review explanations and notes, rubric responses, and settings stay in the browser's local storage, and a portable JSON export is available in Settings. Python checks execute only inside an isolated browser worker and never send source code to a server. The fast local interpreter covers every shipped exercise and common interview helpers, but it is intentionally labeled as a subset: CPython-only packages and some newer Python language features are outside its scope.
+The GitHub Pages edition is entirely local: it has no account requirement, telemetry, cookies, or network-backed progress. Pattern Academy retrieval responses, Pattern Decision Review history and due dates, Test Design drafts/history/due dates, practice history, interview notebooks, virtual-round reports, source snapshots, solution-review explanations and notes, rubric responses, and settings stay in the browser's local storage, and a portable JSON export is available in Settings. Test Design reference cases are original teaching examples, not hidden judge payloads; learner cases are not executed or copied into solves. Python checks execute only inside an isolated browser worker and never send source code to a server. The fast local interpreter covers every shipped exercise and common interview helpers, but it is intentionally labeled as a subset: CPython-only packages and some newer Python language features are outside its scope.
+
+Browser persistence is designed for one active tab per profile. Concurrent edits to the same profile in multiple tabs are unsupported and resolve last-write-wins; bounded append-only attempt records are deduplicated by ID during normalization, and portable v30 backups remain the recovery path.
 
 The hosted community edition uses ChatGPT identity. Signed-in learners can privately sync bounded Study Plan structure, collection membership, and plan/session links between devices. Code, transcripts, notebooks, custom testcases, solution-review records, reference answers, and custom practice-item contents are excluded from plan sync. Community uploads are off by default and must be explicitly enabled. Only completed built-in attempt summaries can upload; custom challenges and snippets, prompts, judge cases, drafts, source code, email addresses, and key-level telemetry are never public. Public profiles, activity sharing, and leaderboard participation each require a separate opt-in.
 
@@ -115,7 +118,7 @@ Interview problem names link to their public LeetCode pages; iOS fundamentals li
 
 ## Roadmap
 
-The local-first training core remains the priority. Planned work includes a Test Design / Counterexample Lab, richer boundary suites, authored semantic masks, server-assigned private transfer judging, executable Swift solving through an isolated server-side toolchain, and private cross-device sync for learning evidence beyond the current Study Plan structure.
+The local-first training core remains the priority. Planned work includes richer boundary suites, authored semantic masks, server-assigned private transfer judging, executable Swift solving through an isolated server-side toolchain, and private cross-device sync for learning evidence beyond the current Study Plan structure.
 
 ## License
 

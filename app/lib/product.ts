@@ -112,6 +112,12 @@ import {
 } from "./pattern-learning.mjs";
 import { PATTERN_LESSONS } from "../data/pattern-lessons";
 import { PATTERN_DECISION_PROBES } from "../data/pattern-decision-probes";
+import { TEST_DESIGN_PROBES } from "../data/test-design-probes";
+import {
+  createTestDesignWorkspace,
+  normalizeTestDesignWorkspace,
+  type TestDesignWorkspace,
+} from "./test-design.mjs";
 
 export { analyzeEdit, correctPositionCount } from "./typing-engine.mjs";
 
@@ -321,7 +327,7 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 29;
+  version: 30;
   attempts: AttemptRecord[];
   submissionLog: SubmissionLog;
   submissionAnnotations: SubmissionAnnotations;
@@ -329,6 +335,7 @@ export type AppState = {
   solutionReviews: SolutionReviewRecord[];
   problemNotes: ProblemNotes;
   patternLearning: PatternLearningWorkspace;
+  testDesign: TestDesignWorkspace;
   favorites: ItemId[];
   customItems: PracticeItem[];
   customCaseInputs: Partial<Record<ItemId, string>>;
@@ -348,7 +355,8 @@ export type AppState = {
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v29";
+export const STORAGE_KEY = "swift-ghost-state-v30";
+export const TWENTY_NINTH_STORAGE_KEY = "swift-ghost-state-v29";
 export const TWENTY_EIGHTH_STORAGE_KEY = "swift-ghost-state-v28";
 export const TWENTY_SEVENTH_STORAGE_KEY = "swift-ghost-state-v27";
 export const TWENTY_SIXTH_STORAGE_KEY = "swift-ghost-state-v26";
@@ -377,10 +385,11 @@ export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
-  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
 ];
 export const STATE_STORAGE_KEYS = [
   STORAGE_KEY,
+  TWENTY_NINTH_STORAGE_KEY,
   TWENTY_EIGHTH_STORAGE_KEY,
   TWENTY_SEVENTH_STORAGE_KEY,
   TWENTY_SIXTH_STORAGE_KEY,
@@ -424,7 +433,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 29,
+  version: 30,
   attempts: [],
   submissionLog: createSubmissionLog(),
   submissionAnnotations: {},
@@ -432,6 +441,7 @@ export const EMPTY_STATE: AppState = {
   solutionReviews: [],
   problemNotes: {},
   patternLearning: createPatternLearningWorkspace(),
+  testDesign: createTestDesignWorkspace(),
   favorites: [],
   customItems: [],
   customCaseInputs: {},
@@ -1683,7 +1693,7 @@ export function normalizeState(value: unknown): AppState {
       .map((attempt) => attempt.id),
   );
   return {
-    version: 29,
+    version: 30,
     attempts,
     submissionLog,
     submissionAnnotations,
@@ -1715,6 +1725,14 @@ export function normalizeState(value: unknown): AppState {
       {
         lessons: PATTERN_LESSONS,
         probes: PATTERN_DECISION_PROBES,
+        now: "1970-01-01T00:00:00.000Z",
+      },
+    ),
+    testDesign: normalizeTestDesignWorkspace(
+      Number(value.version) >= 30 ? value.testDesign : undefined,
+      {
+        probes: TEST_DESIGN_PROBES,
+        items: BUILTIN_ITEMS,
         now: "1970-01-01T00:00:00.000Z",
       },
     ),

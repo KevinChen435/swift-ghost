@@ -8,8 +8,8 @@ async function read(relative) {
 
 test("v24 state adds bounded reviews while preserving the v23 migration fallback", async () => {
   const product = await read("../app/lib/product.ts");
-  assert.match(product, /version: 29;/);
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v29"/);
+  assert.match(product, /version: 30;/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v30"/);
   assert.match(product, /TWENTY_SIXTH_STORAGE_KEY = "swift-ghost-state-v26"/);
   assert.match(product, /TWENTY_FIFTH_STORAGE_KEY = "swift-ghost-state-v25"/);
   assert.match(product, /TWENTY_FOURTH_STORAGE_KEY = "swift-ghost-state-v24"/);

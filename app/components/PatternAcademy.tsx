@@ -47,6 +47,8 @@ type Props = {
   onBrowsePattern: (lesson: PatternLesson) => void;
   onOpenTransferLab: () => void;
   onOpenDecisionReview: () => void;
+  onOpenTestDesign: () => void;
+  testDesignSummary: { newCount: number; dueCount: number; retainedCount: number; totalSkills: number };
 };
 
 const STEP_META: {
@@ -216,6 +218,8 @@ export function PatternAcademy({
   onBrowsePattern,
   onOpenTransferLab,
   onOpenDecisionReview,
+  onOpenTestDesign,
+  testDesignSummary,
 }: Props) {
   const [templateLanguage, setTemplateLanguage] = useState<"python" | "swift">("python");
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -296,6 +300,20 @@ export function PatternAcademy({
             Retained recognition requires two distinct delayed, unassisted
             matches. It remains separate from solve and transfer evidence.
           </small>
+        </section>
+        <section className="academy-test-design-card" aria-labelledby="academy-test-design-title">
+          <div>
+            <p className="eyebrow">Counterexample retrieval · 7 minutes</p>
+            <h2 id="academy-test-design-title">Can you design the failure before coding?</h2>
+            <p>Turn one hidden Python contract into a minimal input, expected result, and named defect. Project-authored references are original teaching cases, not hidden judge payloads.</p>
+            <button className="primary-button" onClick={onOpenTestDesign}>Open Test Design Lab</button>
+          </div>
+          <dl>
+            <div><dt>New</dt><dd>{testDesignSummary.newCount}</dd></div>
+            <div><dt>Due</dt><dd>{testDesignSummary.dueCount}</dd></div>
+            <div><dt>Retained</dt><dd>{testDesignSummary.retainedCount}/{testDesignSummary.totalSkills}</dd></div>
+          </dl>
+          <small>Design evidence stays separate from executed tests, accepted submissions, solves, and transfer evidence.</small>
         </section>
         <section aria-labelledby="academy-curriculum-title">
           <div className="section-heading-row">

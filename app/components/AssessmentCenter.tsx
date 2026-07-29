@@ -270,7 +270,9 @@ export function AssessmentCenter({
   onOpenTransferLab,
   onOpenVirtualRounds,
   onOpenPatternReview,
+  onOpenTestDesign,
   patternDecisionSummary,
+  testDesignSummary,
 }: {
   workspace: AssessmentWorkspace;
   items: PracticeItem[];
@@ -305,12 +307,14 @@ export function AssessmentCenter({
   onOpenTransferLab: () => void;
   onOpenVirtualRounds: () => void;
   onOpenPatternReview: () => void;
+  onOpenTestDesign: () => void;
   patternDecisionSummary: {
     newCount: number;
     dueCount: number;
     retainedCount: number;
     totalPatterns: number;
   };
+  testDesignSummary: { newCount: number; dueCount: number; retainedCount: number; totalSkills: number };
 }) {
   const selectedRun = useMemo(
     () => workspace.runs.find((run) => run.id === selectedAssessment) ?? null,
@@ -376,6 +380,18 @@ export function AssessmentCenter({
               Open hidden-pattern review →
             </button>
           </div>
+        </article>
+        <article className="assessment-test-design-card">
+          <div className="assessment-program-topline"><span>Verification reasoning</span><small>Private · 7 minutes</small></div>
+          <h2>Test Design Lab</h2>
+          <p>Commit a purpose, assumption, minimal Python-call input, expected result, and defect before seeing original reference cases.</p>
+          <div className="assessment-program-stats">
+            <span><strong>{testDesignSummary.newCount}</strong> new</span>
+            <span><strong>{testDesignSummary.dueCount}</strong> due</span>
+            <span><strong>{testDesignSummary.retainedCount}/{testDesignSummary.totalSkills}</strong> retained</span>
+          </div>
+          <small className="assessment-program-disclaimer">Cases are not executed here. Novel oracles remain unverified rather than being marked wrong.</small>
+          <div className="assessment-card-actions"><button className="primary-button" type="button" onClick={onOpenTestDesign}>Open counterexample lab →</button></div>
         </article>
         <article className="assessment-virtual-round-card">
           <div className="assessment-program-topline">

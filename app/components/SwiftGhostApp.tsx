@@ -60,6 +60,7 @@ import {
   PatternDecisionReview,
   type DecisionInput,
 } from "./PatternDecisionReview";
+import { TestDesignLab } from "./TestDesignLab";
 import {
   PATTERN_LESSONS,
   type PatternLesson,
@@ -70,6 +71,11 @@ import {
   type PatternDecisionProbe,
   type PatternDecisionSource,
 } from "../data/pattern-decision-probes";
+import {
+  TEST_DESIGN_PROBES,
+  type TestDesignProbe,
+  type TestDesignSource,
+} from "../data/test-design-probes";
 import { getSolutionGuide } from "../data/solution-guides";
 import {
   InterviewStudioPanel,
@@ -267,6 +273,15 @@ import {
   revealPatternAnswer,
   startPatternDecisionSprint,
 } from "../lib/pattern-learning.mjs";
+import {
+  commitTestDesignAttempt,
+  deriveTestDesignOverview,
+  gradeTestDesignAttempt,
+  revealTestDesignAttempt,
+  saveTestDesignDraft,
+  startTestDesignSprint,
+  type TestDesignInput,
+} from "../lib/test-design.mjs";
 import {
   activateStudyPlan,
   appendStudyCollectionItems,
@@ -791,8 +806,9 @@ export default function SwiftGhostApp() {
   const [patternRouteId, setPatternRouteId] = useState<string>();
   const [patternLessonStep, setPatternLessonStep] =
     useState<PatternLessonStep>("recognize");
-  const [patternReviewMode, setPatternReviewMode] = useState<"mixed">();
+  const [patternReviewMode, setPatternReviewMode] = useState<"mixed" | "tests">();
   const [patternSprintId, setPatternSprintId] = useState<string>();
+  const [testDesignSprintId, setTestDesignSprintId] = useState<string>();
   const [catalogQuery, setCatalogQuery] = useState<CatalogQuery>(() =>
     normalizeCatalogQuery(DEFAULT_CATALOG_QUERY),
   );
@@ -913,6 +929,7 @@ export default function SwiftGhostApp() {
       setPatternLessonStep(route.lessonStep ?? "recognize");
       setPatternReviewMode(route.learnReview);
       setPatternSprintId(route.patternSprintId);
+      setTestDesignSprintId(route.testDesignSprintId);
       setCatalogQuery(
         normalizeCatalogQuery(route.catalog ?? DEFAULT_CATALOG_QUERY),
       );
@@ -972,6 +989,7 @@ export default function SwiftGhostApp() {
             lessonStep: route.lessonStep,
             learnReview: route.learnReview,
             patternSprintId: route.patternSprintId,
+            testDesignSprintId: route.testDesignSprintId,
           },
           window.location.href,
         );
@@ -1089,6 +1107,7 @@ export default function SwiftGhostApp() {
       setPatternLessonStep(route.lessonStep ?? "recognize");
       setPatternReviewMode(route.learnReview);
       setPatternSprintId(route.patternSprintId);
+      setTestDesignSprintId(route.testDesignSprintId);
       setCatalogQuery(
         normalizeCatalogQuery(route.catalog ?? DEFAULT_CATALOG_QUERY),
       );
@@ -2016,6 +2035,8 @@ export default function SwiftGhostApp() {
       patternDecisionAttempts: state.patternLearning.decisionAttempts,
       patternLessons: PATTERN_LESSONS,
       patternDecisionProbes: PATTERN_DECISION_PROBES,
+      testDesignAttempts: state.testDesign.attempts,
+      testDesignProbes: TEST_DESIGN_PROBES,
       itemSignals,
       now: weaknessNow,
     });
@@ -2089,6 +2110,7 @@ export default function SwiftGhostApp() {
     setPatternLessonStep("recognize");
     setPatternReviewMode(undefined);
     setPatternSprintId(undefined);
+    setTestDesignSprintId(undefined);
     if (nextView === "improve") {
       setWeaknessFilter("priority");
       setWeaknessLane("all");
@@ -2176,6 +2198,7 @@ export default function SwiftGhostApp() {
     setPatternLessonStep(patternId ? lessonStep : "recognize");
     setPatternReviewMode(undefined);
     setPatternSprintId(undefined);
+    setTestDesignSprintId(undefined);
     writeRoute(
       {
         view: "learn",
@@ -2214,6 +2237,7 @@ export default function SwiftGhostApp() {
     setPatternLessonStep("recognize");
     setPatternReviewMode("mixed");
     setPatternSprintId(sprintId);
+    setTestDesignSprintId(undefined);
     writeRoute({
       view: "learn",
       learnReview: "mixed",
@@ -2277,6 +2301,66 @@ export default function SwiftGhostApp() {
     setToast(
       "Blank local solve opened · pattern-choice evidence remains separate",
     );
+  }
+
+  function openTestDesignLab(source: TestDesignSource = "academy") {
+    if (blockVirtualRoundNavigation()) return;
+    const currentSprint = stateRef.current.testDesign.activeSprint;
+    const sprintId = currentSprint?.status === "active" ? currentSprint.id : makeId();
+    if (currentSprint?.status !== "active") {
+      mutateState((current) => ({
+        ...current,
+        testDesign: startTestDesignSprint(
+          current.testDesign,
+          TEST_DESIGN_PROBES,
+          BUILTIN_ITEMS,
+          { id: sprintId, source, count: 3, now: new Date().toISOString() },
+        ),
+      }));
+    }
+    setView("learn");
+    setPatternRouteId(undefined);
+    setPatternLessonStep("recognize");
+    setPatternReviewMode("tests");
+    setPatternSprintId(undefined);
+    setTestDesignSprintId(sprintId);
+    writeRoute({ view: "learn", learnReview: "tests", testDesignSprintId: sprintId });
+  }
+
+  function saveTestDraft(probe: TestDesignProbe, input: TestDesignInput) {
+    mutateState((current) => ({ ...current, testDesign: saveTestDesignDraft(
+      current.testDesign, probe, input,
+      { probes: TEST_DESIGN_PROBES, items: BUILTIN_ITEMS, now: new Date().toISOString() },
+    ) }));
+  }
+
+  function commitTestDesign(probe: TestDesignProbe, input: TestDesignInput) {
+    mutateState((current) => ({ ...current, testDesign: commitTestDesignAttempt(
+      current.testDesign, probe, input,
+      { id: makeId(), probes: TEST_DESIGN_PROBES, items: BUILTIN_ITEMS, now: new Date().toISOString() },
+    ) }));
+  }
+
+  function revealTestDesign(attemptId: string) {
+    mutateState((current) => ({ ...current, testDesign: revealTestDesignAttempt(
+      current.testDesign, attemptId,
+      { probes: TEST_DESIGN_PROBES, items: BUILTIN_ITEMS, now: new Date().toISOString() },
+    ) }));
+  }
+
+  function gradeTestDesign(
+    attemptId: string,
+    grade: "again" | "hard" | "good" | "easy",
+  ) {
+    mutateState((current) => ({ ...current, testDesign: gradeTestDesignAttempt(
+      current.testDesign, attemptId, grade,
+      { probes: TEST_DESIGN_PROBES, items: BUILTIN_ITEMS, now: new Date().toISOString() },
+    ) }));
+  }
+
+  function startTestDesignSolve(next: PracticeItem) {
+    openItem(next, 5, undefined, undefined, "solving");
+    setToast("Blank local solve opened · test-design evidence remains separate");
   }
 
   function commitAcademyResponse(
@@ -6109,7 +6193,7 @@ export default function SwiftGhostApp() {
         : "";
       if (
         !window.confirm(
-          `Replace ${profileLabel} with this backup${exportedLabel}?\n\nIt contains ${inventory.attempts} attempts, ${inventory.submissions} submissions, ${inventory.sessions} sessions, ${inventory.customItems} custom items, and ${inventory.plans} study plans. Community sharing stays off. Hosted Study Plans are preserved and merged after import.`,
+          `Replace ${profileLabel} with this backup${exportedLabel}?\n\nIt contains ${inventory.attempts} attempts, ${inventory.submissions} submissions, ${inventory.sessions} sessions, ${inventory.customItems} custom items, ${inventory.plans} study plans, and ${inventory.testDesignAttempts} Test Design attempts. Community sharing stays off. Hosted Study Plans are preserved and merged after import.`,
         )
       ) {
         event.target.value = "";
@@ -6207,7 +6291,7 @@ export default function SwiftGhostApp() {
     const inventory = backupInventory(guestState);
     if (
       !window.confirm(
-        `Copy guest progress into ${cloud.session?.user?.displayName ?? "this account"}?\n\nThis replaces browser-only account data with ${inventory.attempts} attempts, ${inventory.sessions} sessions, and ${inventory.customItems} custom items. Account Study Plans are merged, community sharing stays off, and the guest copy remains available.`,
+        `Copy guest progress into ${cloud.session?.user?.displayName ?? "this account"}?\n\nThis replaces browser-only account data with ${inventory.attempts} attempts, ${inventory.sessions} sessions, ${inventory.customItems} custom items, and ${inventory.testDesignAttempts} Test Design attempts. Account Study Plans are merged, community sharing stays off, and the guest copy remains available.`,
       )
     )
       return;
@@ -6533,6 +6617,7 @@ export default function SwiftGhostApp() {
             selectAssessment(state.assessments.activeRunId ?? "python-reentry")
           }
           onPatternReview={() => openPatternDecisionReview("today")}
+          onTestDesign={() => openTestDesignLab("today")}
           onStartCoach={(entries, budgetMinutes) =>
             startSession(
               {
@@ -6594,7 +6679,22 @@ export default function SwiftGhostApp() {
           onStartSolve={startDecisionSolve}
         />
       )}
-      {view === "learn" && patternReviewMode !== "mixed" && (
+      {view === "learn" && patternReviewMode === "tests" && (
+        <TestDesignLab
+          probes={TEST_DESIGN_PROBES}
+          items={BUILTIN_ITEMS}
+          workspace={state.testDesign}
+          routedSprintId={testDesignSprintId}
+          onStartSprint={openTestDesignLab}
+          onSaveDraft={saveTestDraft}
+          onCommit={commitTestDesign}
+          onReveal={revealTestDesign}
+          onGrade={gradeTestDesign}
+          onExit={() => openPatternLesson()}
+          onStartSolve={startTestDesignSolve}
+        />
+      )}
+      {view === "learn" && patternReviewMode === undefined && (
         <PatternAcademy
           lessons={PATTERN_LESSONS}
           decisionProbes={PATTERN_DECISION_PROBES}
@@ -6613,6 +6713,12 @@ export default function SwiftGhostApp() {
           onBrowsePattern={browseAcademyPattern}
           onOpenTransferLab={openTransferLab}
           onOpenDecisionReview={() => openPatternDecisionReview("academy")}
+          onOpenTestDesign={() => openTestDesignLab("academy")}
+          testDesignSummary={deriveTestDesignOverview(
+            TEST_DESIGN_PROBES,
+            state.testDesign,
+            { now: new Date(now).toISOString() },
+          )}
         />
       )}
       {view === "improve" && (
@@ -6847,11 +6953,17 @@ export default function SwiftGhostApp() {
           onOpenTransferLab={openTransferLab}
           onOpenVirtualRounds={openVirtualRounds}
           onOpenPatternReview={() => openPatternDecisionReview("assessment")}
+          onOpenTestDesign={() => openTestDesignLab("assessment")}
           patternDecisionSummary={derivePatternDecisionOverview(
             PATTERN_LESSONS,
             PATTERN_DECISION_PROBES,
             state.patternLearning,
             { now: new Date(now || Date.now()).toISOString() },
+          )}
+          testDesignSummary={deriveTestDesignOverview(
+            TEST_DESIGN_PROBES,
+            state.testDesign,
+            { now: new Date(now).toISOString() },
           )}
         />
       )}
@@ -7021,6 +7133,7 @@ function TodayView({
   onWeakness,
   onAssess,
   onPatternReview,
+  onTestDesign,
   onStartCoach,
   onResumeSession,
 }: {
@@ -7047,6 +7160,7 @@ function TodayView({
   onWeakness: () => void;
   onAssess: () => void;
   onPatternReview: () => void;
+  onTestDesign: () => void;
   onStartCoach: (
     entries: SessionQueueEntry[],
     budgetMinutes: number,
@@ -7116,6 +7230,11 @@ function TodayView({
     PATTERN_LESSONS,
     PATTERN_DECISION_PROBES,
     state.patternLearning,
+    { now: todayDate.toISOString() },
+  );
+  const testDesignOverview = deriveTestDesignOverview(
+    TEST_DESIGN_PROBES,
+    state.testDesign,
     { now: todayDate.toISOString() },
   );
   return (
@@ -7207,6 +7326,19 @@ function TodayView({
         <button className="secondary-button" onClick={onPatternReview}>
           Start mixed review →
         </button>
+      </section>
+      <section className="today-test-design" aria-label="Test design lab">
+        <div>
+          <span className="eyebrow">Counterexample Lab · Python-first</span>
+          <h2>{testDesignOverview.readyCount ? `${testDesignOverview.readyCount} test-design skill${testDesignOverview.readyCount === 1 ? " is" : "s are"} ready.` : "Practice turning assumptions into tiny counterexamples."}</h2>
+          <p>Commit a purpose, minimal input, expected result, and defect before seeing original reference cases. Novel cases are never auto-marked wrong.</p>
+        </div>
+        <div className="today-pattern-review-stats" aria-label="Test design status">
+          <span><strong>{testDesignOverview.newCount}</strong> new</span>
+          <span><strong>{testDesignOverview.dueCount}</strong> due</span>
+          <span><strong>{testDesignOverview.retainedCount}</strong> retained</span>
+        </div>
+        <button className="secondary-button" onClick={onTestDesign}>Open Test Design Lab →</button>
       </section>
       <DailyCoach
         ready={ready}
@@ -11140,8 +11272,8 @@ function SettingsView({
             attempt summaries when you explicitly turn sharing on.
           </p>
           <p>
-            Exports use a portable v29 backup envelope and imports accept
-            supported v2-v29 backups. Account-bound sharing consent and upload
+            Exports use a portable v30 backup envelope and imports accept
+            supported v2-v30 backups. Account-bound sharing consent and upload
             receipts are never carried into another profile.
           </p>
         </div>
