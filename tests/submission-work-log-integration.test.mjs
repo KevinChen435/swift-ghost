@@ -6,12 +6,12 @@ const read = (path) => readFile(new URL(path, import.meta.url), "utf8");
 
 test("v23 state migrates v22 submissions into durable receipts and preserves every fallback", async () => {
   const product = await read("../app/lib/product.ts");
-  assert.match(product, /version: 24/);
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v24"/);
+  assert.match(product, /version: 25/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v25"/);
   assert.match(product, /TWENTY_SECOND_STORAGE_KEY = "swift-ghost-state-v22"/);
   assert.match(
     product,
-    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_THIRD_STORAGE_KEY,\s+TWENTY_SECOND_STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY/,
+    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_FOURTH_STORAGE_KEY,\s+TWENTY_THIRD_STORAGE_KEY,\s+TWENTY_SECOND_STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY/,
   );
   assert.match(product, /submissionLog: SubmissionLog/);
   assert.match(product, /submissionAnnotations: SubmissionAnnotations/);
@@ -49,6 +49,15 @@ test("ordinary and timed submissions persist pending receipts before invoking th
   assert.match(localRequest, /\{ requirePersistence: true \}/);
   assert.match(roundRequest, /\{ requirePersistence: true \}/);
   assert.match(app, /activeSubmissionRequest\.current = submissionRequest/);
+  assert.match(
+    app,
+    /activeSubmissionRequest\.current\?\.id === submissionRequest\.id/,
+  );
+  assert.ok(
+    app.indexOf("activeSubmissionRequest.current?.id === submissionRequest.id") <
+      app.indexOf("if (runId !== verificationRunId.current) return;"),
+    "a stale UI run still settles its durable submission receipt",
+  );
   assert.match(app, /interruptionReason: "local-judge-error"/);
 });
 

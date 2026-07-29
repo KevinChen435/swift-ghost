@@ -8,6 +8,13 @@ import {
   type PythonChallengeMetadata,
 } from "../data/python-challenges";
 import type { PythonVerification } from "./python-runner.mjs";
+import {
+  deriveCustomChallengeRevisions,
+  normalizeCustomReferenceCode,
+  normalizeCustomChallenge,
+  type CustomChallengeBundle,
+  type CustomChallengeInput,
+} from "./custom-challenges";
 
 export type PracticeTrack = "interview" | "ios";
 export type CodeLanguage = "swift" | "python";
@@ -154,7 +161,7 @@ export function itemDisplayId(item: PracticeItem) {
     : `#${item.id}`;
 }
 
-export function makeCustomItem(input: {
+export type CustomItemInput = {
   title: string;
   track: PracticeTrack;
   language: CodeLanguage;
@@ -167,15 +174,41 @@ export function makeCustomItem(input: {
   languageNote: string;
   tags?: string[];
   sourceUrl?: string;
-}): PracticeItem {
+  challenge?: CustomChallengeInput | null;
+};
+
+function bundleForItem(item: PracticeItem): CustomChallengeBundle | null {
+  return item.challenge && item.verification && item.starterCode
+    ? {
+        challenge: item.challenge,
+        verification: item.verification,
+        starterCode: item.starterCode,
+      }
+    : null;
+}
+
+export function makeCustomItem(input: CustomItemInput): PracticeItem {
   const token =
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const now = new Date().toISOString();
   const title = input.title.trim();
+  const itemId = `custom:${token}` as ItemId;
+  if (input.challenge && (input.track !== "interview" || input.language !== "python"))
+    throw new Error("Runnable challenges require the Python interview track");
+  const code = input.challenge
+    ? normalizeCustomReferenceCode(input.code)
+    : input.code.replace(/\r\n?/g, "\n").trimEnd();
+  const challengeBundle = input.challenge
+    ? normalizeCustomChallenge(input.challenge, {
+        stableId: itemId,
+        title,
+        revision: 1,
+      })
+    : null;
   return {
-    itemId: `custom:${token}`,
+    itemId,
     track: input.track,
     language: input.track === "ios" ? "swift" : input.language,
     source: "custom",
@@ -184,7 +217,9 @@ export function makeCustomItem(input: {
     slug: `custom-${token}`,
     difficulty: input.difficulty,
     pattern: input.pattern,
-    summary: `A device-local ${input.track === "ios" || input.language === "swift" ? "Swift" : "Python"} snippet for deliberate recall practice.`,
+    summary: input.challenge
+      ? "A device-local Python coding challenge with visible examples and a private submission suite."
+      : `A device-local ${input.track === "ios" || input.language === "swift" ? "Swift" : "Python"} snippet for deliberate recall practice.`,
     cue:
       input.cue.trim() ||
       "State what this code is trying to preserve before typing.",
@@ -199,7 +234,7 @@ export function makeCustomItem(input: {
       2,
       Math.min(30, Math.ceil(input.code.split("\n").length / 3)),
     ),
-    code: input.code.replace(/\r\n?/g, "\n").trimEnd(),
+    code,
     isCustom: true,
     sourceUrl: input.sourceUrl?.trim() || undefined,
     tags: [
@@ -208,15 +243,45 @@ export function makeCustomItem(input: {
     contentRevision: 1,
     createdAt: now,
     updatedAt: now,
+    ...(challengeBundle ?? {}),
   };
 }
 
 export function updateCustomItem(
   item: PracticeItem,
-  input: Parameters<typeof makeCustomItem>[0],
+  input: CustomItemInput,
 ): PracticeItem {
   const title = input.title.trim();
-  const code = input.code.replace(/\r\n?/g, "\n").trimEnd();
+  if (input.challenge && (input.track !== "interview" || input.language !== "python"))
+    throw new Error("Runnable challenges require the Python interview track");
+  const code = input.challenge
+    ? normalizeCustomReferenceCode(input.code)
+    : input.code.replace(/\r\n?/g, "\n").trimEnd();
+  const currentBundle = bundleForItem(item);
+  const requestedBundle = input.challenge
+    ? normalizeCustomChallenge(input.challenge, {
+        stableId: item.itemId,
+        title,
+        revision: item.verification?.revision ?? 1,
+      })
+    : null;
+  const revisions = deriveCustomChallengeRevisions({
+    current: currentBundle,
+    requested: requestedBundle,
+    contentRevision: item.contentRevision,
+    judgeRevision: item.verification?.revision ?? 0,
+    referenceChanged: code !== item.code,
+  });
+  const nextBundle =
+    requestedBundle && revisions.judgeChanged
+      ? {
+          ...requestedBundle,
+          verification: {
+            ...requestedBundle.verification,
+            revision: revisions.judgeRevision,
+          },
+        }
+      : requestedBundle;
   return {
     ...item,
     title,
@@ -224,6 +289,9 @@ export function updateCustomItem(
     language: input.track === "ios" ? "swift" : input.language,
     difficulty: input.difficulty,
     pattern: input.pattern,
+    summary: nextBundle
+      ? "A device-local Python coding challenge with visible examples and a private submission suite."
+      : `A device-local ${input.track === "ios" || input.language === "swift" ? "Swift" : "Python"} snippet for deliberate recall practice.`,
     cue:
       input.cue.trim() ||
       "State what this code is trying to preserve before typing.",
@@ -249,8 +317,10 @@ export function updateCustomItem(
         : [
             ...new Set(input.tags.map((tag) => tag.trim()).filter(Boolean)),
           ].slice(0, 8),
-    contentRevision:
-      code === item.code ? item.contentRevision : item.contentRevision + 1,
+    contentRevision: revisions.contentRevision,
     updatedAt: new Date().toISOString(),
+    challenge: nextBundle?.challenge,
+    verification: nextBundle?.verification,
+    starterCode: nextBundle?.starterCode,
   };
 }

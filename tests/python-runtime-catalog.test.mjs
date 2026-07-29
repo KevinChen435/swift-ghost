@@ -115,3 +115,21 @@ test("the direct JavaScript bridge is not exposed to learner code by default", a
   );
   assert.equal(result.ok, true, JSON.stringify(result));
 });
+
+test("deleting the shadow module cannot restore the native JavaScript bridge", async () => {
+  const result = await execute(
+    `def solve():
+    import sys
+    del sys.modules["js"]
+    import js
+    return hasattr(js, "eval") or hasattr(js, "globalThis")`.replace(
+      /^  /gm,
+      "",
+    ),
+    {
+      entrypoint: { kind: "function", name: "solve" },
+      cases: [{ name: "bridge remains hidden", args: [], expected: false }],
+    },
+  );
+  assert.equal(result.ok, true, JSON.stringify(result));
+});

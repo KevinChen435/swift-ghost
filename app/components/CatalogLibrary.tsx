@@ -284,8 +284,8 @@ function ItemActions({
       </button>
       {item.source === "custom" ? (
         <>
-          <button type="button" aria-label={`Edit custom snippet ${item.title}`} onClick={() => onEditSnippet(item)}>Edit</button>
-          <button type="button" aria-label={`Archive custom snippet ${item.title}`} onClick={() => onArchiveSnippet(item.itemId)}>Archive</button>
+          <button type="button" aria-label={`Edit custom ${item.verification ? "challenge" : "snippet"} ${item.title}`} onClick={() => onEditSnippet(item)}>Edit</button>
+          <button type="button" aria-label={`Archive custom practice item ${item.title}`} onClick={() => onArchiveSnippet(item.itemId)}>Archive</button>
         </>
       ) : null}
     </div>
@@ -660,7 +660,7 @@ export function CatalogLibrary({
           <h1 id="catalog-library-title">Choose the next piece of evidence to build</h1>
           <p>Filter the full local catalog, resume current-revision work, or collect a fixed selection for later.</p>
         </div>
-        <button type="button" className="catalog-create-snippet" onClick={onCreateSnippet}>Create snippet</button>
+        <button type="button" className="catalog-create-snippet" onClick={onCreateSnippet}>Build practice item</button>
       </header>
 
       <section className="catalog-saved-views" aria-labelledby="catalog-saved-views-title">
@@ -948,7 +948,7 @@ export function CatalogLibrary({
           <div className="catalog-empty-state">
             <h3>No items match these filters</h3>
             <p>Remove a filter or clear the current search to return to the full practice library.</p>
-            {activeFilters.length ? <button type="button" onClick={clearAll}>Clear all filters</button> : <button type="button" onClick={onCreateSnippet}>Create the first snippet</button>}
+            {activeFilters.length ? <button type="button" onClick={clearAll}>Clear all filters</button> : <button type="button" onClick={onCreateSnippet}>Build the first practice item</button>}
           </div>
         )}
 
