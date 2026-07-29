@@ -44,6 +44,9 @@ const state = {
   attemptClosures: {
     closures: [{ id: "closure:submission:failed" }],
   },
+  runManifests: {
+    manifests: [{ id: "challenge-set-1" }],
+  },
 };
 
 test("round trips a versioned backup envelope", () => {
@@ -80,6 +83,7 @@ test("reports a human-checkable inventory", () => {
     conceptTransferDrafts: 1,
     activeConceptTransferAttempts: 1,
     attemptClosures: 1,
+    challengeSets: 1,
   });
   assert.equal(hasMeaningfulBackupState(state), true);
   assert.equal(hasMeaningfulBackupState({ version: 31 }), false);
@@ -184,6 +188,13 @@ test("reports a human-checkable inventory", () => {
     backupInventory({ attemptClosures: { closures: "invalid" } })
       .attemptClosures,
     0,
+  );
+  assert.equal(
+    hasMeaningfulBackupState({
+      version: 34,
+      runManifests: { manifests: [{ id: "challenge-set-only" }] },
+    }),
+    true,
   );
 });
 

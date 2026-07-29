@@ -82,7 +82,7 @@ test("v32 migration creates a v33 closure draft from current abandoned solve evi
   });
   const normalized = normalizeState(rawState(32, [abandoned]));
 
-  assert.equal(normalized.version, 33);
+  assert.equal(normalized.version, 34);
   assert.equal(normalized.attemptClosures.version, 1);
   assert.equal(normalized.attemptClosures.closures.length, 1);
   assert.deepEqual(

@@ -42,6 +42,7 @@ export const CONCEPT_TRANSFER_SOURCES = [
 export const COMMUNITY_TABS = ["recent", "records", "daily", "profile"];
 export const RECORDS_SECTIONS = [
   "overview",
+  "activity",
   "trends",
   "transfer",
   "submissions",
@@ -509,6 +510,9 @@ export function serializeRoute(
     url.searchParams.set("section", "closures");
     const closureId = cleanReviewAttemptId(route?.closureId);
     if (closureId) url.searchParams.set("closure", closureId);
+  }
+  if (view === "records" && route?.recordsSection === "activity") {
+    url.searchParams.set("section", "activity");
   }
   if (view === "records" && route?.recordsSection === "trends") {
     url.searchParams.set("section", "trends");

@@ -17,9 +17,9 @@ test("current state preserves Pattern Decision Review while retaining the comple
     new URL("../app/lib/product.ts", import.meta.url),
     "utf8",
   );
-  assert.match(product, /export type AppState = \{\s+version: 33;/);
+  assert.match(product, /export type AppState = \{\s+version: 34;/);
   assert.match(product, /patternLearning: PatternLearningWorkspace/);
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v33"/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v34"/);
   assert.match(product, /THIRTY_SECOND_STORAGE_KEY = "swift-ghost-state-v32"/);
   assert.match(product, /THIRTY_FIRST_STORAGE_KEY = "swift-ghost-state-v31"/);
   assert.match(product, /THIRTIETH_STORAGE_KEY = "swift-ghost-state-v30"/);
@@ -28,7 +28,7 @@ test("current state preserves Pattern Decision Review while retaining the comple
   assert.match(product, /TWENTY_SEVENTH_STORAGE_KEY = "swift-ghost-state-v27"/);
   assert.match(
     product,
-    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+THIRTY_SECOND_STORAGE_KEY,\s+THIRTY_FIRST_STORAGE_KEY,\s+THIRTIETH_STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY,\s+TWENTY_EIGHTH_STORAGE_KEY,\s+TWENTY_SEVENTH_STORAGE_KEY,\s+TWENTY_SIXTH_STORAGE_KEY/,
+    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+THIRTY_THIRD_STORAGE_KEY,\s+THIRTY_SECOND_STORAGE_KEY,\s+THIRTY_FIRST_STORAGE_KEY,\s+THIRTIETH_STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY,\s+TWENTY_EIGHTH_STORAGE_KEY,\s+TWENTY_SEVENTH_STORAGE_KEY,\s+TWENTY_SIXTH_STORAGE_KEY/,
   );
   assert.match(product, /patternLearning: createPatternLearningWorkspace\(\)/);
   assert.match(
@@ -118,6 +118,6 @@ test("a current Pattern Academy workspace round-trips through product normalizat
     studyWorkspace: {},
     patternLearning: workspace,
   });
-  assert.equal(normalized.version, 33);
+  assert.equal(normalized.version, 34);
   assert.deepEqual(normalized.patternLearning, workspace);
 });

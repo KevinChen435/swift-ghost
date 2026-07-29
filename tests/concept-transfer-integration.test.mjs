@@ -32,7 +32,7 @@ test("Cold Reconstruction is a routed, autosaved, evidence-honest product surfac
 
   assert.match(routes, /CONCEPT_TRANSFER_SOURCES/);
   assert.match(routes, /url\.searchParams\.set\("from", route\.conceptTransferSource\)/);
-  assert.match(product, /version: 33;/);
+  assert.match(product, /version: 34;/);
   assert.match(product, /typingProgress: TypingProgressionWorkspace/);
   assert.match(product, /conceptTransfer: ConceptTransferWorkspace/);
   assert.match(product, /THIRTY_FIRST_STORAGE_KEY = "swift-ghost-state-v31"/);

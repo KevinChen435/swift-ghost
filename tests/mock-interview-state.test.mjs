@@ -12,14 +12,14 @@ test("state v17 preserves multi-problem mock notebooks and debriefs", async () =
     "utf8",
   );
 
-  assert.match(product, /export type AppState = \{\s+version: 33;/);
-  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v33"/);
+  assert.match(product, /export type AppState = \{\s+version: 34;/);
+  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v34"/);
   assert.match(product, /THIRTY_SECOND_STORAGE_KEY = "swift-ghost-state-v32"/);
   assert.match(product, /THIRTY_FIRST_STORAGE_KEY = "swift-ghost-state-v31"/);
   assert.match(product, /THIRTIETH_STORAGE_KEY = "swift-ghost-state-v30"/);
   assert.match(
     product,
-    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+THIRTY_SECOND_STORAGE_KEY,\s+THIRTY_FIRST_STORAGE_KEY,\s+THIRTIETH_STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY/,
+    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+THIRTY_THIRD_STORAGE_KEY,\s+THIRTY_SECOND_STORAGE_KEY,\s+THIRTY_FIRST_STORAGE_KEY,\s+THIRTIETH_STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY/,
   );
   assert.match(product, /TWENTY_FIRST_STORAGE_KEY = "swift-ghost-state-v21"/);
   assert.match(product, /TWENTIETH_STORAGE_KEY = "swift-ghost-state-v20"/);
@@ -63,7 +63,7 @@ test("state v17 preserves multi-problem mock notebooks and debriefs", async () =
   assert.match(app, /expireMockInterviewRef/);
   assert.match(app, /mockInterviewRemainingMs\(session, now\) !== 0/);
   assert.match(app, /recordAbandon\(current\)/);
-  assert.match(app, /sessionHistoryRecord\(archived, archived\.entries, "expired"\)/);
+  assert.match(app, /sessionHistoryRecord\(archived, archived\.entries, "expired", expiredAt\)/);
   assert.match(app, /selectMockInterviewItems/);
   assert.match(app, /withMockDraftSnapshot/);
   assert.match(app, /withMockCheckpoint/);

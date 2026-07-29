@@ -103,6 +103,12 @@ import {
   type VirtualRoundWorkspace,
 } from "./virtual-rounds.mjs";
 import {
+  createRunManifestWorkspace,
+  finishRunManifest,
+  normalizeRunManifestWorkspace,
+  type RunManifestWorkspace,
+} from "./run-manifests.mjs";
+import {
   normalizeSolutionReviews,
   type SolutionReviewRecord,
 } from "./solution-review.mjs";
@@ -348,7 +354,7 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 33;
+  version: 34;
   attempts: AttemptRecord[];
   attemptClosures: AttemptClosureWorkspace;
   typingProgress: TypingProgressionWorkspace;
@@ -376,10 +382,12 @@ export type AppState = {
   catalogWorkspace: CatalogWorkspace;
   transferWorkspace: TransferWorkspace;
   virtualRoundWorkspace: VirtualRoundWorkspace;
+  runManifests: RunManifestWorkspace;
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v33";
+export const STORAGE_KEY = "swift-ghost-state-v34";
+export const THIRTY_THIRD_STORAGE_KEY = "swift-ghost-state-v33";
 export const THIRTY_SECOND_STORAGE_KEY = "swift-ghost-state-v32";
 export const THIRTY_FIRST_STORAGE_KEY = "swift-ghost-state-v31";
 export const THIRTIETH_STORAGE_KEY = "swift-ghost-state-v30";
@@ -412,10 +420,11 @@ export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
-  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
 ];
 export const STATE_STORAGE_KEYS = [
   STORAGE_KEY,
+  THIRTY_THIRD_STORAGE_KEY,
   THIRTY_SECOND_STORAGE_KEY,
   THIRTY_FIRST_STORAGE_KEY,
   THIRTIETH_STORAGE_KEY,
@@ -463,7 +472,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 33,
+  version: 34,
   attempts: [],
   attemptClosures: createAttemptClosureWorkspace(
     "1970-01-01T00:00:00.000Z",
@@ -493,6 +502,7 @@ export const EMPTY_STATE: AppState = {
   catalogWorkspace: createCatalogWorkspace("1970-01-01T00:00:00.000Z"),
   transferWorkspace: createTransferWorkspace("1970-01-01T00:00:00.000Z"),
   virtualRoundWorkspace: createVirtualRoundWorkspace(),
+  runManifests: createRunManifestWorkspace(),
   cloud: { communityEnabled: false, uploadedAttemptIds: [] },
 };
 
@@ -1696,6 +1706,13 @@ export function normalizeState(value: unknown): AppState {
     Number(value.version) >= 23 ? value.submissionAnnotations : undefined,
     new Set(submissionLog.receipts.map((receipt) => receipt.id)),
   );
+  let runManifests = normalizeRunManifestWorkspace(
+    Number(value.version) >= 34 ? value.runManifests : undefined,
+    {
+      registry: BUILTIN_ITEMS,
+      now: new Date().toISOString(),
+    },
+  );
   const attemptClosures = reconcileAttemptClosureWorkspace(
     Number(value.version) >= 33 ? value.attemptClosures : undefined,
     {
@@ -1710,6 +1727,47 @@ export function normalizeState(value: unknown): AppState {
     validIds,
     Number(value.version),
   );
+  const activeRunManifest = runManifests.manifests.find(
+    (manifest) => manifest.status === "active",
+  );
+  if (activeRunManifest?.execution) {
+    const linkedSession =
+      activeRunManifest.execution.kind === "session"
+        ? sessionHistory.find(
+            (session) => session.id === activeRunManifest.execution?.id,
+          )
+        : undefined;
+    const linkedRound =
+      activeRunManifest.execution.kind === "virtual-round"
+        ? virtualRoundWorkspace.history.find(
+            (round) => round.id === activeRunManifest.execution?.id,
+          )
+        : undefined;
+    const executionStillActive =
+      activeRunManifest.execution.kind === "session"
+        ? activeSession?.id === activeRunManifest.execution.id
+        : virtualRoundWorkspace.active?.id === activeRunManifest.execution.id;
+    if (!executionStillActive) {
+      const outcome =
+        linkedSession?.outcome === "completed" ||
+        (linkedRound && linkedRound.outcome !== "expired")
+          ? "completed"
+          : "ended";
+      const candidateFinishedAt =
+        linkedSession?.completedAt ?? linkedRound?.finishedAt ?? submissionNow;
+      const finishedAt =
+        Date.parse(candidateFinishedAt) >=
+        Date.parse(activeRunManifest.startedAt)
+          ? candidateFinishedAt
+          : activeRunManifest.startedAt;
+      runManifests = finishRunManifest(
+        runManifests,
+        activeRunManifest.id,
+        outcome,
+        { now: finishedAt },
+      );
+    }
+  }
   const submissionsById = new Map(
     submissionLog.receipts.map((receipt) => [receipt.id, receipt]),
   );
@@ -1763,7 +1821,7 @@ export function normalizeState(value: unknown): AppState {
     }
   }
   return {
-    version: 33,
+    version: 34,
     attempts,
     attemptClosures,
     typingProgress,
@@ -1856,6 +1914,7 @@ export function normalizeState(value: unknown): AppState {
       { now: "1970-01-01T00:00:00.000Z" },
     ),
     virtualRoundWorkspace,
+    runManifests,
     cloud: normalizeCloudPreferences(value.cloud),
   };
 }
