@@ -252,12 +252,12 @@ test("legacy aggregate-only records stay readable but cannot fabricate a replay 
   assert.deepEqual(buildSessionReplayQueue(legacy, attempts, items), []);
 });
 
-test("state v27 persists session snapshots while retaining the complete v26 fallback", async () => {
+test("state v28 persists session snapshots while retaining the complete v26 fallback", async () => {
   const product = await readFile(new URL("../app/lib/product.ts", import.meta.url), "utf8");
   const app = await readFile(new URL("../app/components/SwiftGhostApp.tsx", import.meta.url), "utf8");
   const recapUi = await readFile(new URL("../app/components/SessionRecap.tsx", import.meta.url), "utf8");
-  assert.match(product, /version: 27;/);
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v27"/);
+  assert.match(product, /version: 28;/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v28"/);
   assert.match(product, /TWENTY_SIXTH_STORAGE_KEY = "swift-ghost-state-v26"/);
   assert.match(product, /entries\?: SessionQueueEntry\[\]/);
   assert.match(product, /kind === "practice" && stateVersion >= 27[\s\S]*normalizeSessionHistoryEntries\(raw\.entries\)/);

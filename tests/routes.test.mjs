@@ -18,6 +18,45 @@ test("study plans have a first-class reload-safe route", () => {
   );
 });
 
+test("Pattern Academy routes round-trip bounded lesson state and ignore it elsewhere", () => {
+  const route = parseRoute(
+    "/swift-ghost/?view=learn&pattern=arrays-hashing&lessonStep=trace&stale=1#lesson",
+  );
+  assert.equal(route.view, "learn");
+  assert.equal(route.patternId, "arrays-hashing");
+  assert.equal(route.lessonStep, "trace");
+  assert.equal(
+    serializeRoute(route, "https://example.test/swift-ghost/?old=1#lesson"),
+    "/swift-ghost/?view=learn&pattern=arrays-hashing&lessonStep=trace#lesson",
+  );
+
+  const defaultStep = parseRoute("/?view=learn&pattern=trees");
+  assert.equal(defaultStep.lessonStep, "recognize");
+  assert.equal(serializeRoute(defaultStep), "/?view=learn&pattern=trees");
+
+  for (const value of ["../../private", "UPPER CASE", "x".repeat(65)]) {
+    const invalid = parseRoute(`/?view=learn&pattern=${encodeURIComponent(value)}`);
+    assert.equal(invalid.patternId, undefined);
+    assert.equal(invalid.lessonStep, undefined);
+  }
+  assert.equal(
+    parseRoute("/?view=learn&pattern=stack&lessonStep=admin").lessonStep,
+    "recognize",
+  );
+  assert.equal(
+    parseRoute("/?view=improve&pattern=arrays-hashing&lessonStep=trace").patternId,
+    undefined,
+  );
+  assert.doesNotMatch(
+    serializeRoute({
+      view: "improve",
+      patternId: "arrays-hashing",
+      lessonStep: "trace",
+    }),
+    /pattern=|lessonStep=/,
+  );
+});
+
 test("Weakness Lab filters and selected cases are bounded and reload-safe", () => {
   const route = parseRoute(
     "/?view=improve&inbox=due&lane=python&case=python%3Aarrays-hashing%3Averification",

@@ -11,9 +11,9 @@ test("state v21 persists catalog saved views after every v20 field", async () =>
     new URL("../app/lib/product.ts", import.meta.url),
     "utf8",
   );
-  assert.match(product, /export type AppState = \{\s+version: 27;/);
+  assert.match(product, /export type AppState = \{\s+version: 28;/);
   assert.match(product, /catalogWorkspace: CatalogWorkspace/);
-  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v27"/);
+  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v28"/);
   assert.match(product, /TWENTY_SIXTH_STORAGE_KEY = "swift-ghost-state-v26"/);
   assert.match(product, /TWENTY_FIFTH_STORAGE_KEY = "swift-ghost-state-v25"/);
   assert.match(product, /TWENTY_FIRST_STORAGE_KEY = "swift-ghost-state-v21"/);
@@ -25,7 +25,7 @@ test("state v21 persists catalog saved views after every v20 field", async () =>
   );
   assert.match(
     product,
-    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_SIXTH_STORAGE_KEY,\s+TWENTY_FIFTH_STORAGE_KEY,\s+TWENTY_FOURTH_STORAGE_KEY,\s+TWENTY_THIRD_STORAGE_KEY,\s+TWENTY_SECOND_STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY,\s+TWENTIETH_STORAGE_KEY,\s+NINETEENTH_STORAGE_KEY,\s+EIGHTEENTH_STORAGE_KEY/,
+    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_SEVENTH_STORAGE_KEY,\s+TWENTY_SIXTH_STORAGE_KEY,\s+TWENTY_FIFTH_STORAGE_KEY,\s+TWENTY_FOURTH_STORAGE_KEY,\s+TWENTY_THIRD_STORAGE_KEY,\s+TWENTY_SECOND_STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY,\s+TWENTIETH_STORAGE_KEY,\s+NINETEENTH_STORAGE_KEY,\s+EIGHTEENTH_STORAGE_KEY/,
   );
   assert.match(
     product,

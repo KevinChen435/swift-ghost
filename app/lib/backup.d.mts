@@ -13,6 +13,7 @@ export type BackupInventory = {
   virtualRounds: number;
   plans: number;
   collections: number;
+  patternReviews: number;
 };
 
 export function backupInventory(state: unknown): BackupInventory;

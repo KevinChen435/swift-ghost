@@ -28,6 +28,9 @@ export function backupInventory(state) {
   const virtualRoundHistory = isRecord(state?.virtualRoundWorkspace)
     ? boundedCount(state.virtualRoundWorkspace.history)
     : 0;
+  const patternReviews = isRecord(state?.patternLearning)
+    ? boundedCount(state.patternLearning.reviews)
+    : 0;
   return {
     attempts: boundedCount(state?.attempts),
     submissions: submissionReceipts,
@@ -40,6 +43,7 @@ export function backupInventory(state) {
     virtualRounds: virtualRoundHistory,
     plans: studyPlans,
     collections: studyCollections,
+    patternReviews,
   };
 }
 
