@@ -22,6 +22,7 @@ import {
 import { CommunityPanel } from "./CommunityPanel";
 import { AttemptForensics } from "./AttemptForensics";
 import { LearningAnalytics } from "./LearningAnalytics";
+import { FluencyClinic } from "./FluencyClinic";
 import { DailyCoach } from "./DailyCoach";
 import {
   StudyPlans,
@@ -274,7 +275,17 @@ import {
 import {
   normalizeTimelineSamples,
   type TimelineSample,
+  type WeakLine,
 } from "../lib/analytics.mjs";
+import {
+  deriveFluencyClinicModel,
+  enqueueFluencyClinicCase,
+  fluencyClinicCaseId,
+  reconcileFluencyClinicWorkspace,
+  recordFluencyClinicPass,
+  type FluencyClinicPassKind,
+  type FluencyClinicRecord,
+} from "../lib/fluency-clinic.mjs";
 import {
   deleteProblemNote,
   saveProblemNote,
@@ -414,6 +425,7 @@ import {
 } from "../lib/challenge-lab.mjs";
 import {
   deriveTransferProgress,
+  recordTransferTargeted,
   recordTransferDebriefReveal,
   recordTransferHint,
   recordTransferOpened,
@@ -908,6 +920,7 @@ export default function SwiftGhostApp() {
     useState<RecordsSection>("overview");
   const [reviewAttemptId, setReviewAttemptId] = useState<string>();
   const [closureRouteId, setClosureRouteId] = useState<string>();
+  const [fluencyClinicRouteId, setFluencyClinicRouteId] = useState<string>();
   const [transferRecordVariantId, setTransferRecordVariantId] =
     useState<string>();
   const [transferRecordAttemptId, setTransferRecordAttemptId] =
@@ -1053,6 +1066,7 @@ export default function SwiftGhostApp() {
       setRecordsSection(route.recordsSection ?? "overview");
       setReviewAttemptId(route.reviewAttemptId);
       setClosureRouteId(route.closureId);
+      setFluencyClinicRouteId(route.fluencyClinicCaseId);
       setTransferRecordVariantId(route.transferVariantId);
       setTransferRecordAttemptId(route.transferAttemptId);
       setSubmissionLogQuery(
@@ -1157,6 +1171,19 @@ export default function SwiftGhostApp() {
             view: "records",
             recordsSection: "closures",
             closureId: route.closureId,
+          },
+          window.location.href,
+        );
+        const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        if (canonicalHref !== currentHref)
+          window.history.replaceState({}, "", canonicalHref);
+      }
+      if (route.view === "records" && route.recordsSection === "fluency") {
+        const canonicalHref = serializeRoute(
+          {
+            view: "records",
+            recordsSection: "fluency",
+            fluencyClinicCaseId: route.fluencyClinicCaseId,
           },
           window.location.href,
         );
@@ -1279,6 +1306,7 @@ export default function SwiftGhostApp() {
       setRecordsSection(route.recordsSection ?? "overview");
       setReviewAttemptId(route.reviewAttemptId);
       setClosureRouteId(route.closureId);
+      setFluencyClinicRouteId(route.fluencyClinicCaseId);
       setTransferRecordVariantId(route.transferVariantId);
       setTransferRecordAttemptId(route.transferAttemptId);
       setSubmissionLogQuery(
@@ -1506,6 +1534,7 @@ export default function SwiftGhostApp() {
         setSelectedSessionId(undefined);
         setReviewAttemptId(undefined);
         setClosureRouteId(undefined);
+        setFluencyClinicRouteId(undefined);
         setTransferRecordVariantId(undefined);
         setTransferRecordAttemptId(undefined);
         window.history.replaceState(
@@ -1562,6 +1591,7 @@ export default function SwiftGhostApp() {
             : undefined,
         );
         setClosureRouteId(route.closureId);
+        setFluencyClinicRouteId(route.fluencyClinicCaseId);
       }
       setReady(true);
     });
@@ -2215,6 +2245,43 @@ export default function SwiftGhostApp() {
       >,
     [now, state.conceptTransfer],
   );
+  const fluencyClinicModel = useMemo(() => {
+    const conceptProgress = CONCEPT_TRANSFER_VARIANTS.map((variant) => {
+      const targetedTransferObservedAt = state.conceptTransfer.attempts
+        .filter(
+          (attempt) =>
+            attempt.variantId === variant.id &&
+            attempt.variantRevision === variant.revision &&
+            attempt.clinicTargeted === true &&
+            Boolean(attempt.finishedAt),
+        )
+        .map((attempt) => attempt.finishedAt as string)
+        .sort()
+        .at(-1) ?? null;
+      return {
+        variantId: variant.id,
+        targetedTransferObserved: Boolean(targetedTransferObservedAt),
+        targetedTransferObservedAt,
+      };
+    });
+    return deriveFluencyClinicModel(state.fluencyClinic, {
+      items: allItems,
+      attempts: state.attempts,
+      transferVariants: [...transferItems, ...CONCEPT_TRANSFER_VARIANTS],
+      transferProgress: [...transferProgress, ...conceptProgress],
+      selectedId: fluencyClinicRouteId,
+      now: new Date(now).toISOString(),
+    });
+  }, [
+    allItems,
+    fluencyClinicRouteId,
+    now,
+    state.attempts,
+    state.conceptTransfer,
+    state.fluencyClinic,
+    transferItems,
+    transferProgress,
+  ]);
   const attemptClosureModel = useMemo(
     () =>
       deriveAttemptClosureModel(state.attemptClosures, {
@@ -2314,7 +2381,7 @@ export default function SwiftGhostApp() {
     });
   }
 
-  function withReconciledAttemptClosures(
+  function withReconciledAttemptEvidence(
     current: AppState,
     at = new Date().toISOString(),
   ): AppState {
@@ -2329,6 +2396,14 @@ export default function SwiftGhostApp() {
           now: at,
         },
       ),
+      fluencyClinic: reconcileFluencyClinicWorkspace(current.fluencyClinic, {
+        items: [
+          ...BUILTIN_ITEMS,
+          ...current.customItems.filter((item) => !item.archivedAt),
+        ],
+        attempts: current.attempts,
+        now: at,
+      }),
     };
   }
 
@@ -2368,6 +2443,8 @@ export default function SwiftGhostApp() {
     if (nextView === "records") {
       setRecordsSection("overview");
       setReviewAttemptId(undefined);
+      setClosureRouteId(undefined);
+      setFluencyClinicRouteId(undefined);
       setTransferRecordVariantId(undefined);
       setTransferRecordAttemptId(undefined);
       setSubmissionLogQuery(
@@ -2749,6 +2826,8 @@ export default function SwiftGhostApp() {
             variantId: selected.id,
             lane: selected.lane,
             now: nowIso,
+            assisted: source === "clinic",
+            clinicTargeted: source === "clinic",
           },
         ),
       }));
@@ -2896,6 +2975,7 @@ export default function SwiftGhostApp() {
     else if (conceptTransferSource === "assessment")
       navigateView("assessments");
     else if (conceptTransferSource === "weakness") navigateView("improve");
+    else if (conceptTransferSource === "clinic") openFluencyClinic();
     else openPatternLesson();
   }
 
@@ -3183,6 +3263,7 @@ export default function SwiftGhostApp() {
     setRecordsSection(nextSection);
     setReviewAttemptId(undefined);
     setClosureRouteId(undefined);
+    setFluencyClinicRouteId(undefined);
     setTransferRecordVariantId(undefined);
     setTransferRecordAttemptId(undefined);
     setSubmissionLogQuery(normalized);
@@ -3197,6 +3278,8 @@ export default function SwiftGhostApp() {
           ? { view: "records", recordsSection: "reviews" }
           : nextSection === "closures"
             ? { view: "records", recordsSection: "closures" }
+          : nextSection === "fluency"
+            ? { view: "records", recordsSection: "fluency" }
           : nextSection === "activity"
             ? { view: "records", recordsSection: "activity" }
           : nextSection === "trends"
@@ -3306,6 +3389,7 @@ export default function SwiftGhostApp() {
     setRecordsSection("transfer");
     setReviewAttemptId(undefined);
     setClosureRouteId(undefined);
+    setFluencyClinicRouteId(undefined);
     setTransferRecordVariantId(variantId);
     setTransferRecordAttemptId(variantId ? attemptId : undefined);
     setResult(null);
@@ -3323,6 +3407,7 @@ export default function SwiftGhostApp() {
     setRecordsSection("closures");
     setReviewAttemptId(undefined);
     setClosureRouteId(closureId);
+    setFluencyClinicRouteId(undefined);
     setTransferRecordVariantId(undefined);
     setTransferRecordAttemptId(undefined);
     setResult(null);
@@ -3331,6 +3416,155 @@ export default function SwiftGhostApp() {
       recordsSection: "closures",
       closureId,
     });
+  }
+
+  function openFluencyClinic(caseId?: string) {
+    if (blockVirtualRoundNavigation()) return;
+    setView("records");
+    setRecordsSection("fluency");
+    setReviewAttemptId(undefined);
+    setClosureRouteId(undefined);
+    setFluencyClinicRouteId(caseId);
+    setTransferRecordVariantId(undefined);
+    setTransferRecordAttemptId(undefined);
+    setResult(null);
+    writeRoute({
+      view: "records",
+      recordsSection: "fluency",
+      fluencyClinicCaseId: caseId,
+    });
+  }
+
+  function openWeakLineInFluencyClinic(item: PracticeItem, weakLine: WeakLine) {
+    const caseId = fluencyClinicCaseId(
+      item.itemId,
+      item.contentRevision,
+      weakLine.line,
+    );
+    try {
+      commitStateImmediately((current) => ({
+        ...current,
+        fluencyClinic: enqueueFluencyClinicCase(
+          current.fluencyClinic,
+          { item, weakLine },
+          { now: new Date().toISOString() },
+        ),
+      }));
+      openFluencyClinic(caseId);
+    } catch (error) {
+      setToast(
+        error instanceof Error ? error.message : "That line could not be queued",
+      );
+    }
+  }
+
+  function saveFluencyClinicPass(
+    caseId: string,
+    input: {
+      kind: FluencyClinicPassKind;
+      startedAt: string;
+      durationMs: number;
+      corrections: number;
+    },
+    expectedRevision: number,
+  ) {
+    const completedAt = new Date().toISOString();
+    try {
+      commitStateImmediately((current) => {
+        return {
+          ...current,
+          fluencyClinic: recordFluencyClinicPass(
+            current.fluencyClinic,
+            caseId,
+            input,
+            {
+              now: completedAt,
+              expectedRevision,
+              attempts: current.attempts,
+            },
+          ),
+        };
+      });
+      setToast(
+        input.kind === "recheck"
+          ? "Delayed blank recheck saved · implementation-fluency evidence only"
+          : `${input.kind} line repair saved · guided evidence only`,
+      );
+    } catch (error) {
+      setToast(
+        error instanceof Error ? error.message : "That Clinic pass could not be saved",
+      );
+    }
+  }
+
+  function startFluencyReconstruction(record: FluencyClinicRecord) {
+    const candidate = allItems.find(
+      (entry) =>
+        entry.itemId === record.itemId &&
+        entry.contentRevision === record.itemRevision,
+    );
+    if (!candidate) {
+      setToast("That frozen item revision is no longer available");
+      return;
+    }
+    openItem(
+      candidate,
+      5,
+      undefined,
+      undefined,
+      "typing",
+      undefined,
+      undefined,
+      true,
+    );
+    setToast("Fresh stage-5 reconstruction opened · the line repair stays guided");
+  }
+
+  function startFluencyTransfer(record: FluencyClinicRecord) {
+    if (!record.transferVariantId) {
+      setToast("No current mapped transfer is available for this case");
+      return;
+    }
+    if (record.transferKind === "python-transfer") {
+      const candidate = transferItems.find(
+        (entry) => entry.itemId === record.transferVariantId,
+      );
+      if (!candidate) {
+        setToast("That mapped Python transfer is unavailable in this build");
+        return;
+      }
+      commitStateImmediately((current) => ({
+        ...current,
+        transferWorkspace: recordTransferTargeted(
+          current.transferWorkspace,
+          candidate.itemId,
+          {
+            now: new Date().toISOString(),
+            variantRevision: candidate.contentRevision,
+          },
+        ),
+      }));
+      openItem(candidate, 5, undefined, undefined, "solving");
+      setToast("Targeted sibling opened · it cannot count as cold-transfer proof");
+      return;
+    }
+    const variant = CONCEPT_TRANSFER_VARIANTS.find(
+      (entry) => entry.id === record.transferVariantId,
+    );
+    if (!variant) {
+      setToast("That mapped Swift/iOS reconstruction is unavailable");
+      return;
+    }
+    const active = stateRef.current.conceptTransfer.attempts.find(
+      (attempt) => attempt.id === stateRef.current.conceptTransfer.activeAttemptId,
+    );
+    if (active && active.variantId !== variant.id) {
+      setToast("Finish the active reconstruction scenario before opening this mapping");
+      openConceptTransferLab("clinic", active.lane, active.variantId);
+      return;
+    }
+    startConceptTransferLab("clinic", variant.lane, variant.id);
+    setToast("Targeted sibling opened · it is recorded as assisted selection");
   }
 
   function timedSolutionReviewAttemptIds(current: AppState) {
@@ -3968,7 +4202,7 @@ export default function SwiftGhostApp() {
         ),
       };
     }
-    return withReconciledAttemptClosures({
+    return withReconciledAttemptEvidence({
       ...synchronized,
       activeSession,
       attempts: [...synchronized.attempts, attempt].slice(-1000),
@@ -3989,6 +4223,7 @@ export default function SwiftGhostApp() {
     nextPracticeKind?: PracticeKind,
     assessment?: { runId: string; probeId: string },
     virtualRoundId?: string,
+    forceFresh = false,
   ) {
     if (!virtualRoundId && blockVirtualRoundNavigation()) return;
     const chosenPracticeKind = coercePracticeKind(next, nextPracticeKind);
@@ -4000,6 +4235,7 @@ export default function SwiftGhostApp() {
           : (nextStage ?? recommendedStage(state, next));
     mutateState((current) => {
       const resuming =
+        !forceFresh &&
         !challengeDate &&
         current.draft?.itemId === next.itemId &&
         current.draft.stage === chosenStage &&
@@ -4411,7 +4647,7 @@ export default function SwiftGhostApp() {
     try {
       const settledAt = new Date().toISOString();
       commitStateImmediately((current) =>
-        withReconciledAttemptClosures(
+        withReconciledAttemptEvidence(
           withPrunedSubmissionAnnotations(
           current,
           settleSubmissionReceipt(current.submissionLog, submission.id, {
@@ -4707,7 +4943,7 @@ export default function SwiftGhostApp() {
           };
         }
       }
-      return committed;
+      return withReconciledAttemptEvidence(committed, attempt.completedAt);
     });
     if (next.assessmentRunId && next.assessmentProbeId) {
       setResult(null);
@@ -5792,7 +6028,7 @@ export default function SwiftGhostApp() {
       const finishedRound = !virtualRoundWorkspace.active
         ? virtualRoundWorkspace.history.find((round) => round.id === roundId)
         : undefined;
-      return withReconciledAttemptClosures({
+      return withReconciledAttemptEvidence({
         ...withPrunedSubmissionAnnotations(current, submissionLog),
         virtualRoundWorkspace,
         runManifests: finishedRound
@@ -7447,7 +7683,7 @@ export default function SwiftGhostApp() {
     link.download = `swift-ghost-progress-${dayKey(new Date())}.json`;
     link.click();
     URL.revokeObjectURL(link.href);
-    setToast("Progress exported · typing progress and Cold Reconstruction included");
+    setToast("Progress exported · Fluency Clinic and spaced evidence included");
   }
 
   async function importProgress(event: ChangeEvent<HTMLInputElement>) {
@@ -7471,7 +7707,7 @@ export default function SwiftGhostApp() {
         : "";
       if (
         !window.confirm(
-          `Replace ${profileLabel} with this backup${exportedLabel}?\n\nIt contains ${inventory.attempts} attempts, ${inventory.submissions} submissions, ${inventory.attemptClosures} attempt closures, ${inventory.challengeSets} Challenge Sets, ${inventory.sessions} sessions, ${inventory.customItems} custom items, ${inventory.typingProgressRecords} typing progress records, ${inventory.plans} study plans, ${inventory.testDesignAttempts} Test Design attempts, ${inventory.testDesignDrafts} Test Design drafts, ${inventory.activeTestDesignSprints} active Test Design lab, ${inventory.conceptTransferAttempts} Cold Reconstruction attempts, ${inventory.conceptTransferDrafts} Cold Reconstruction drafts, and ${inventory.activeConceptTransferAttempts} active Cold Reconstruction attempt. Community sharing stays off. Hosted Study Plans are preserved and merged after import.`,
+          `Replace ${profileLabel} with this backup${exportedLabel}?\n\nIt contains ${inventory.attempts} attempts, ${inventory.submissions} submissions, ${inventory.attemptClosures} attempt closures, ${inventory.fluencyClinicCases} Fluency Clinic cases, ${inventory.challengeSets} Challenge Sets, ${inventory.sessions} sessions, ${inventory.customItems} custom items, ${inventory.typingProgressRecords} typing progress records, ${inventory.plans} study plans, ${inventory.testDesignAttempts} Test Design attempts, ${inventory.testDesignDrafts} Test Design drafts, ${inventory.activeTestDesignSprints} active Test Design lab, ${inventory.conceptTransferAttempts} Cold Reconstruction attempts, ${inventory.conceptTransferDrafts} Cold Reconstruction drafts, and ${inventory.activeConceptTransferAttempts} active Cold Reconstruction attempt. Community sharing stays off. Hosted Study Plans are preserved and merged after import.`,
         )
       ) {
         event.target.value = "";
@@ -7569,7 +7805,7 @@ export default function SwiftGhostApp() {
     const inventory = backupInventory(guestState);
     if (
       !window.confirm(
-        `Copy guest progress into ${cloud.session?.user?.displayName ?? "this account"}?\n\nThis replaces browser-only account data with ${inventory.attempts} attempts, ${inventory.attemptClosures} attempt closures, ${inventory.challengeSets} Challenge Sets, ${inventory.sessions} sessions, ${inventory.customItems} custom items, ${inventory.typingProgressRecords} typing progress records, ${inventory.testDesignAttempts} Test Design attempts, ${inventory.testDesignDrafts} Test Design drafts, ${inventory.activeTestDesignSprints} active Test Design lab, ${inventory.conceptTransferAttempts} Cold Reconstruction attempts, ${inventory.conceptTransferDrafts} Cold Reconstruction drafts, and ${inventory.activeConceptTransferAttempts} active Cold Reconstruction attempt. Account Study Plans are merged, community sharing stays off, and the guest copy remains available.`,
+        `Copy guest progress into ${cloud.session?.user?.displayName ?? "this account"}?\n\nThis replaces browser-only account data with ${inventory.attempts} attempts, ${inventory.attemptClosures} attempt closures, ${inventory.fluencyClinicCases} Fluency Clinic cases, ${inventory.challengeSets} Challenge Sets, ${inventory.sessions} sessions, ${inventory.customItems} custom items, ${inventory.typingProgressRecords} typing progress records, ${inventory.testDesignAttempts} Test Design attempts, ${inventory.testDesignDrafts} Test Design drafts, ${inventory.activeTestDesignSprints} active Test Design lab, ${inventory.conceptTransferAttempts} Cold Reconstruction attempts, ${inventory.conceptTransferDrafts} Cold Reconstruction drafts, and ${inventory.activeConceptTransferAttempts} active Cold Reconstruction attempt. Account Study Plans are merged, community sharing stays off, and the guest copy remains available.`,
       )
     )
       return;
@@ -7876,6 +8112,7 @@ export default function SwiftGhostApp() {
           cloudStatus={cloud.status}
           cloudDaily={cloud.dailyChallenge}
           attemptClosureModel={attemptClosureModel}
+          fluencyClinic={fluencyClinicModel}
           weaknessCase={weaknessModel.nextCase}
           weaknessActiveCount={weaknessModel.summary.active}
           onOpen={openItem}
@@ -7886,6 +8123,7 @@ export default function SwiftGhostApp() {
           onSessions={() => navigateView("sessions")}
           onPlans={() => navigateView("plans")}
           onAttemptClosure={openAttemptClosure}
+          onFluencyClinic={openFluencyClinic}
           onWeakness={() =>
             updateWeaknessRoute({
               filter: "priority",
@@ -8313,6 +8551,8 @@ export default function SwiftGhostApp() {
           reviewAttemptId={reviewAttemptId}
           closureRouteId={closureRouteId}
           attemptClosureModel={attemptClosureModel}
+          fluencyClinicRouteId={fluencyClinicRouteId}
+          fluencyClinicModel={fluencyClinicModel}
           transferRecordVariantId={transferRecordVariantId}
           transferRecordAttemptId={transferRecordAttemptId}
           submissionQuery={submissionLogQuery}
@@ -8340,6 +8580,11 @@ export default function SwiftGhostApp() {
           onSaveAttemptClosure={saveAttemptClosureDraft}
           onCompleteAttemptClosure={finishAttemptClosure}
           onRetryAttemptClosure={retryAttemptClosure}
+          onSelectFluencyClinic={openFluencyClinic}
+          onSaveFluencyClinicPass={saveFluencyClinicPass}
+          onOpenFluencyReconstruction={startFluencyReconstruction}
+          onOpenFluencyTransfer={startFluencyTransfer}
+          onOpenWeakLineInFluencyClinic={openWeakLineInFluencyClinic}
           onSelectTransferRecord={openTransferRecords}
           onOpenTransferVariant={startTransferVariant}
           onSubmissionQueryChange={(nextQuery, history) =>
@@ -8447,6 +8692,7 @@ function TodayView({
   cloudStatus,
   cloudDaily,
   attemptClosureModel,
+  fluencyClinic,
   weaknessCase,
   weaknessActiveCount,
   onOpen,
@@ -8457,6 +8703,7 @@ function TodayView({
   onSessions,
   onPlans,
   onAttemptClosure,
+  onFluencyClinic,
   onWeakness,
   onAssess,
   onPatternReview,
@@ -8471,6 +8718,7 @@ function TodayView({
   cloudStatus: CloudRuntime["status"];
   cloudDaily: CloudDailyChallenge | null;
   attemptClosureModel: ReturnType<typeof deriveAttemptClosureModel>;
+  fluencyClinic: ReturnType<typeof deriveFluencyClinicModel>;
   weaknessCase: WeaknessCase | null;
   weaknessActiveCount: number;
   onOpen: (
@@ -8487,6 +8735,7 @@ function TodayView({
   onSessions: () => void;
   onPlans: () => void;
   onAttemptClosure: (closureId?: string) => void;
+  onFluencyClinic: (caseId?: string) => void;
   onWeakness: () => void;
   onAssess: () => void;
   onPatternReview: () => void;
@@ -8781,6 +9030,8 @@ function TodayView({
         items={items}
         onStart={onStartCoach}
         onResume={onResumeSession}
+        fluencyClinic={fluencyClinic}
+        onOpenFluencyClinic={onFluencyClinic}
       />
       <section className="today-hero">
         <div className="today-copy">
@@ -11660,6 +11911,7 @@ const RECORDS_SECTION_LABELS: Record<RecordsSection, string> = {
   transfer: "Transfer",
   submissions: "Submissions",
   closures: "Closures",
+  fluency: "Fluency",
   reviews: "Reviews",
 };
 
@@ -11695,6 +11947,8 @@ function RecordsView({
   reviewAttemptId,
   closureRouteId,
   attemptClosureModel,
+  fluencyClinicRouteId,
+  fluencyClinicModel,
   transferRecordVariantId,
   transferRecordAttemptId,
   submissionQuery,
@@ -11715,6 +11969,11 @@ function RecordsView({
   onSaveAttemptClosure,
   onCompleteAttemptClosure,
   onRetryAttemptClosure,
+  onSelectFluencyClinic,
+  onSaveFluencyClinicPass,
+  onOpenFluencyReconstruction,
+  onOpenFluencyTransfer,
+  onOpenWeakLineInFluencyClinic,
   onSelectTransferRecord,
   onOpenTransferVariant,
   onSubmissionQueryChange,
@@ -11733,6 +11992,8 @@ function RecordsView({
   reviewAttemptId?: string;
   closureRouteId?: string;
   attemptClosureModel: ReturnType<typeof deriveAttemptClosureModel>;
+  fluencyClinicRouteId?: string;
+  fluencyClinicModel: ReturnType<typeof deriveFluencyClinicModel>;
   transferRecordVariantId?: string;
   transferRecordAttemptId?: string;
   submissionQuery: SubmissionWorkLogQuery;
@@ -11778,6 +12039,23 @@ function RecordsView({
     expectedUpdatedAt: string,
   ) => boolean;
   onRetryAttemptClosure: (closureId: string) => void;
+  onSelectFluencyClinic: (caseId?: string) => void;
+  onSaveFluencyClinicPass: (
+    caseId: string,
+    input: {
+      kind: FluencyClinicPassKind;
+      startedAt: string;
+      durationMs: number;
+      corrections: number;
+    },
+    expectedRevision: number,
+  ) => void;
+  onOpenFluencyReconstruction: (record: FluencyClinicRecord) => void;
+  onOpenFluencyTransfer: (record: FluencyClinicRecord) => void;
+  onOpenWeakLineInFluencyClinic: (
+    item: PracticeItem,
+    weakLine: WeakLine,
+  ) => void;
   onSelectTransferRecord: (variantId?: string, attemptId?: string) => void;
   onOpenTransferVariant: (variantId: string) => void;
   onSubmissionQueryChange: (
@@ -11831,6 +12109,31 @@ function RecordsView({
           onResume={onResumeChallengeSet}
           onOpenExecution={onOpenChallengeSetExecution}
           onArchive={onArchiveChallengeSet}
+        />
+      </main>
+    );
+  }
+  if (section === "fluency") {
+    return (
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="page-container fluency-clinic-page"
+      >
+        <PageHeading
+          eyebrow="Private implementation evidence"
+          title="Repair the exact syntax that keeps breaking."
+          copy="Move from progressively weaker line cues to a fresh full reconstruction, a delayed blank recheck, and a source-mapped sibling—without turning guided repetitions into a mastery claim."
+        />
+        <RecordsSectionSwitch section="fluency" onChange={onSectionChange} />
+        <FluencyClinic
+          model={fluencyClinicModel}
+          workspaceRevision={state.fluencyClinic.revision}
+          routedCaseId={fluencyClinicRouteId}
+          onSelect={onSelectFluencyClinic}
+          onRecordPass={onSaveFluencyClinicPass}
+          onOpenReconstruction={onOpenFluencyReconstruction}
+          onOpenTransfer={onOpenFluencyTransfer}
         />
       </main>
     );
@@ -12517,7 +12820,7 @@ function RecordsView({
       <LearningAnalytics
         attempts={state.attempts}
         items={items}
-        onOpenItem={onOpen}
+        onOpenFluencyClinic={onOpenWeakLineInFluencyClinic}
       />
       <section className="dashboard-card records-card">
         <div className="section-head">
@@ -12858,8 +13161,8 @@ function SettingsView({
             attempt summaries when you explicitly turn sharing on.
           </p>
           <p>
-            Exports use a portable v34 backup envelope and imports accept
-            supported v2-v34 backups, including Challenge Sets, typing progress, Cold
+            Exports use a portable v35 backup envelope and imports accept
+            supported v2-v35 backups, including Fluency Clinic cases, Challenge Sets, typing progress, Cold
             Reconstruction work, and attempt-closure drafts. Account-bound
             sharing consent and upload receipts are never carried into another
             profile.

@@ -7,9 +7,9 @@ test("state v23 preserves virtual rounds after the complete v22 fallback", async
     new URL("../app/lib/product.ts", import.meta.url),
     "utf8",
   );
-  assert.match(product, /export type AppState = \{\s+version: 34;/);
+  assert.match(product, /export type AppState = \{\s+version: 35;/);
   assert.match(product, /virtualRoundWorkspace: VirtualRoundWorkspace/);
-  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v34"/);
+  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v35"/);
   assert.match(product, /THIRTY_SECOND_STORAGE_KEY = "swift-ghost-state-v32"/);
   assert.match(product, /THIRTY_FIRST_STORAGE_KEY = "swift-ghost-state-v31"/);
   assert.match(product, /THIRTIETH_STORAGE_KEY = "swift-ghost-state-v30"/);
@@ -17,7 +17,7 @@ test("state v23 preserves virtual rounds after the complete v22 fallback", async
   assert.match(product, /TWENTY_FIRST_STORAGE_KEY = "swift-ghost-state-v21"/);
   assert.match(
     product,
-    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+THIRTY_THIRD_STORAGE_KEY,\s+THIRTY_SECOND_STORAGE_KEY,\s+THIRTY_FIRST_STORAGE_KEY,\s+THIRTIETH_STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY,\s+TWENTY_EIGHTH_STORAGE_KEY,\s+TWENTY_SEVENTH_STORAGE_KEY,\s+TWENTY_SIXTH_STORAGE_KEY,\s+TWENTY_FIFTH_STORAGE_KEY,\s+TWENTY_FOURTH_STORAGE_KEY,\s+TWENTY_THIRD_STORAGE_KEY,\s+TWENTY_SECOND_STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY/,
+    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+THIRTY_FOURTH_STORAGE_KEY,\s+THIRTY_THIRD_STORAGE_KEY,\s+THIRTY_SECOND_STORAGE_KEY,\s+THIRTY_FIRST_STORAGE_KEY,\s+THIRTIETH_STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY,\s+TWENTY_EIGHTH_STORAGE_KEY,\s+TWENTY_SEVENTH_STORAGE_KEY,\s+TWENTY_SIXTH_STORAGE_KEY,\s+TWENTY_FIFTH_STORAGE_KEY,\s+TWENTY_FOURTH_STORAGE_KEY,\s+TWENTY_THIRD_STORAGE_KEY,\s+TWENTY_SECOND_STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY/,
   );
   assert.match(product, /virtualRoundWorkspace: createVirtualRoundWorkspace\(\)/);
   assert.match(
@@ -172,7 +172,7 @@ test("starting an ordinary virtual round closes the active learning run atomical
   assert.match(launch, /virtualRoundWorkspace: startVirtualRound\(/);
 });
 
-test("backup copy advertises the v34 envelope and all older supported imports", async () => {
+test("backup copy advertises the v35 envelope and all older supported imports", async () => {
   const app = await readFile(
     new URL("../app/components/SwiftGhostApp.tsx", import.meta.url),
     "utf8",
@@ -181,7 +181,7 @@ test("backup copy advertises the v34 envelope and all older supported imports", 
     new URL("../app/lib/backup.mjs", import.meta.url),
     "utf8",
   );
-  assert.match(app, /portable v34 backup envelope/);
-  assert.match(app, /supported v2-v34 backups/);
+  assert.match(app, /portable v35 backup envelope/);
+  assert.match(app, /supported v2-v35 backups/);
   assert.match(backup, /virtualRoundWorkspace/);
 });

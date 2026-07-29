@@ -18,6 +18,8 @@ export type TransferExposure = {
   firstHintedAt: string | null;
   lastHintedAt: string | null;
   referenceRevealedAt: string | null;
+  targetedSelectionAt?: string;
+  lastTargetedSelectionAt?: string;
 };
 
 export type TransferWorkspace = {
@@ -112,6 +114,8 @@ export type TransferVariantProgress = {
   isUnseen: boolean;
   isOpened: boolean;
   isAttempted: boolean;
+  targetedTransferObserved: boolean;
+  targetedTransferObservedAt: string | null;
   isAssisted: boolean;
   isProven: boolean;
   isDue: boolean;
@@ -162,6 +166,12 @@ export function normalizeTransferWorkspace(
 ): TransferWorkspace;
 
 export function recordTransferOpened(
+  workspace: unknown,
+  variantId: string,
+  options?: { now?: string | Date | number; variantRevision?: number },
+): TransferWorkspace;
+
+export function recordTransferTargeted(
   workspace: unknown,
   variantId: string,
   options?: { now?: string | Date | number; variantRevision?: number },

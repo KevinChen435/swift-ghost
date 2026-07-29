@@ -10,6 +10,7 @@ import {
   recordTransferDebriefReveal,
   recordTransferHint,
   recordTransferOpened,
+  recordTransferTargeted,
   selectNextTransferVariant,
 } from "../app/lib/transfer-lab.mjs";
 import {
@@ -213,6 +214,52 @@ test("records first and repeated prompt opens immutably for an exact revision", 
     referenceRevealedAt: null,
   });
   assert.equal(first.exposures[0].openCount, 1);
+});
+
+test("a Clinic-targeted sibling can never become cold-transfer proof", () => {
+  const workspace = recordTransferTargeted(
+    createTransferWorkspace(t0),
+    "v:clinic",
+    { now: at(hour), variantRevision: 1 },
+  );
+  assert.equal(workspace.exposures[0].targetedSelectionAt, at(hour));
+  assert.equal(workspace.exposures[0].lastTargetedSelectionAt, at(hour));
+  const progress = deriveTransferProgress({
+    variants: [variant("v:clinic")],
+    workspace,
+    attempts: [solve("v:clinic", at(hour * 2))],
+    now: at(day * 2),
+  })[0];
+  assert.equal(progress.isAssisted, true);
+  assert.equal(progress.isProven, false);
+  assert.equal(progress.targetedTransferObserved, true);
+  assert.equal(progress.targetedTransferObservedAt, at(hour * 2));
+  assert.equal(progress.solveEvidenceEvents[0].evidenceClass, "assisted-reconstruction");
+
+  const retargeted = recordTransferTargeted(workspace, "v:clinic", {
+    now: at(hour * 3),
+    variantRevision: 1,
+  });
+  const beforeRetry = deriveTransferProgress({
+    variants: [variant("v:clinic")],
+    workspace: retargeted,
+    attempts: [solve("v:clinic", at(hour * 2))],
+    now: at(hour * 4),
+  })[0];
+  assert.equal(beforeRetry.targetedTransferObserved, false);
+  assert.equal(beforeRetry.targetedTransferObservedAt, null);
+
+  const afterRetry = deriveTransferProgress({
+    variants: [variant("v:clinic")],
+    workspace: retargeted,
+    attempts: [
+      solve("v:clinic", at(hour * 2)),
+      solve("v:clinic", at(hour * 4), { id: "targeted-retry" }),
+    ],
+    now: at(hour * 5),
+  })[0];
+  assert.equal(afterRetry.targetedTransferObserved, true);
+  assert.equal(afterRetry.targetedTransferObservedAt, at(hour * 4));
 });
 
 test("records bounded hints and reference exposure without laundering prior evidence", () => {

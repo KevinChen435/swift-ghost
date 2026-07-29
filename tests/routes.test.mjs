@@ -158,7 +158,7 @@ test("Test Design Academy round-trips lane, sprint, and exact evidence while cle
 
 test("Cold Reconstruction Lab routes preserve only bounded Swift and iOS variant state", () => {
   assert.deepEqual(CONCEPT_TRANSFER_LANES, ["swift", "ios"]);
-  assert.deepEqual(CONCEPT_TRANSFER_SOURCES, ["academy", "today", "assessment", "weakness"]);
+  assert.deepEqual(CONCEPT_TRANSFER_SOURCES, ["academy", "today", "assessment", "weakness", "clinic"]);
   const route = parseRoute(
     "/?view=learn&review=reconstruct&lane=swift&variant=concept-transfer%3Aarc-capture&from=weakness&pattern=trees&sprint=wrong",
   );
@@ -266,6 +266,51 @@ test("attempt closures have a bounded reload-safe Records route", () => {
   assert.doesNotMatch(
     serializeRoute({ view: "library", closureId: "closure:submission:abc" }),
     /closure=/,
+  );
+});
+
+test("Fluency Clinic cases have a bounded reload-safe Records route", () => {
+  assert.ok(RECORDS_SECTIONS.includes("fluency"));
+  const caseId = "python:101:r2:line4";
+  const route = parseRoute(
+    `/?view=records&section=fluency&clinic=${encodeURIComponent(caseId)}&attempt=ignored`,
+  );
+  assert.equal(route.recordsSection, "fluency");
+  assert.equal(route.fluencyClinicCaseId, caseId);
+  assert.equal(
+    serializeRoute(route, "https://example.test/swift-ghost/?stale=1"),
+    "/swift-ghost/?view=records&section=fluency&clinic=python%3A101%3Ar2%3Aline4",
+  );
+
+  const longestValid = `a${"b".repeat(198)}c`;
+  assert.equal(
+    parseRoute(
+      `/?view=records&section=fluency&clinic=${longestValid}`,
+    ).fluencyClinicCaseId,
+    longestValid,
+  );
+  assert.equal(
+    parseRoute(
+      `/?view=records&section=fluency&clinic=${longestValid}d`,
+    ).fluencyClinicCaseId,
+    undefined,
+  );
+  assert.equal(
+    parseRoute("/?view=records&section=fluency&clinic=..%2Fprivate")
+      .fluencyClinicCaseId,
+    undefined,
+  );
+  assert.equal(
+    parseRoute("/?view=records&section=trends&clinic=python:101:r2:line4")
+      .fluencyClinicCaseId,
+    undefined,
+  );
+  assert.doesNotMatch(
+    serializeRoute({
+      view: "library",
+      fluencyClinicCaseId: caseId,
+    }),
+    /clinic=/,
   );
 });
 

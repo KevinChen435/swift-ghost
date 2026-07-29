@@ -5,6 +5,7 @@ import type { PracticeItem } from "../lib/items";
 import { buildDailyPlan } from "../lib/planner.mjs";
 import type { AppState } from "../lib/product";
 import type { SessionQueueEntry } from "../lib/sessions.mjs";
+import type { FluencyClinicModel } from "../lib/fluency-clinic.mjs";
 
 const BUDGETS = [15, 30, 45] as const;
 
@@ -23,18 +24,30 @@ function taskLabel(item: PracticeItem | undefined, entry: SessionQueueEntry) {
   return entry.stage === 5 ? "Blank-editor recall" : `Stage ${entry.stage} recall`;
 }
 
+function clinicPriorityLabel(status: FluencyClinicModel["records"][number]["status"]) {
+  if (status === "recheck-due") return "Delayed blank recheck";
+  if (status === "repairing") return "Implementation repair";
+  if (status === "reconstruction-ready") return "Full blank reconstruction";
+  if (status === "transfer-ready") return "Mapped transfer check";
+  return "Implementation fluency";
+}
+
 export function DailyCoach({
   ready,
   state,
   items,
   onStart,
   onResume,
+  fluencyClinic,
+  onOpenFluencyClinic,
 }: {
   ready: boolean;
   state: AppState;
   items: PracticeItem[];
   onStart: (entries: SessionQueueEntry[], budgetMinutes: number) => void;
   onResume: () => void;
+  fluencyClinic: FluencyClinicModel;
+  onOpenFluencyClinic: (caseId?: string) => void;
 }) {
   const [budgetMinutes, setBudgetMinutes] = useState<15 | 30 | 45>(() =>
     nearestBudget(state.settings.dailyGoalMinutes),
@@ -108,9 +121,28 @@ export function DailyCoach({
             <span>{plan.deferredDueCount} due item(s) deferred</span>
           )}
         </div>
+        {fluencyClinic.next && (
+          <div className="coach-clinic-priority">
+            <span>
+              <small>Priority before new work</small>
+              <strong>{clinicPriorityLabel(fluencyClinic.next.status)}</strong>
+            </span>
+            <p>
+              {fluencyClinic.next.titleSnapshot} · line {fluencyClinic.next.line}.
+              This measures implementation fluency, not problem mastery.
+            </p>
+          </div>
+        )}
         {active ? (
           <button className="primary-button" onClick={onResume}>
             Resume {active.name} →
+          </button>
+        ) : fluencyClinic.next ? (
+          <button
+            className="primary-button"
+            onClick={() => onOpenFluencyClinic(fluencyClinic.next?.id)}
+          >
+            Open priority Clinic case →
           </button>
         ) : (
           <button

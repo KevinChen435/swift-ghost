@@ -18,7 +18,8 @@ export type ConceptTransferSource =
   | "academy"
   | "today"
   | "assessment"
-  | "weakness";
+  | "weakness"
+  | "clinic";
 
 type Props = {
   variants: readonly ConceptTransferVariant[];
@@ -89,6 +90,7 @@ function sourceLabel(source: ConceptTransferSource) {
     today: "Today",
     assessment: "Assessment Center",
     weakness: "Weakness Lab",
+    clinic: "Fluency Clinic",
   }[source];
 }
 

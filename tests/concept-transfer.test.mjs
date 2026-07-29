@@ -32,6 +32,26 @@ const options = (now = T0) => ({ variants: CONCEPT_TRANSFER_VARIANTS, now });
 const variantById = (id) =>
   CONCEPT_TRANSFER_VARIANTS.find((variant) => variant.id === id);
 
+test("Clinic-targeted concept reconstruction starts assisted in attempt and draft", () => {
+  const variant = CONCEPT_TRANSFER_VARIANTS[0];
+  const workspace = startConceptTransferAttempt(
+    createConceptTransferWorkspace(T0),
+    CONCEPT_TRANSFER_VARIANTS,
+    {
+      id: "clinic-targeted",
+      variantId: variant.id,
+      lane: variant.lane,
+      assisted: true,
+      clinicTargeted: true,
+      now: T0,
+    },
+  );
+  assert.equal(workspace.attempts[0].assisted, true);
+  assert.equal(workspace.drafts[0].assisted, true);
+  assert.equal(workspace.attempts[0].clinicTargeted, true);
+  assert.equal(workspace.drafts[0].clinicTargeted, true);
+});
+
 function authoredNeutralText(variant) {
   return JSON.stringify({
     neutralLabel: variant.neutralLabel,

@@ -44,6 +44,11 @@ import {
   reconcileAttemptClosureWorkspace,
   type AttemptClosureWorkspace,
 } from "./attempt-closures.mjs";
+import {
+  createFluencyClinicWorkspace,
+  reconcileFluencyClinicWorkspace,
+  type FluencyClinicWorkspace,
+} from "./fluency-clinic.mjs";
 import { deriveReviewProgression } from "./review-progression.mjs";
 import {
   deriveCustomTestcaseSchema,
@@ -354,9 +359,10 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 34;
+  version: 35;
   attempts: AttemptRecord[];
   attemptClosures: AttemptClosureWorkspace;
+  fluencyClinic: FluencyClinicWorkspace;
   typingProgress: TypingProgressionWorkspace;
   submissionLog: SubmissionLog;
   submissionAnnotations: SubmissionAnnotations;
@@ -386,7 +392,8 @@ export type AppState = {
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v34";
+export const STORAGE_KEY = "swift-ghost-state-v35";
+export const THIRTY_FOURTH_STORAGE_KEY = "swift-ghost-state-v34";
 export const THIRTY_THIRD_STORAGE_KEY = "swift-ghost-state-v33";
 export const THIRTY_SECOND_STORAGE_KEY = "swift-ghost-state-v32";
 export const THIRTY_FIRST_STORAGE_KEY = "swift-ghost-state-v31";
@@ -420,10 +427,11 @@ export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
-  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34,
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
 ];
 export const STATE_STORAGE_KEYS = [
   STORAGE_KEY,
+  THIRTY_FOURTH_STORAGE_KEY,
   THIRTY_THIRD_STORAGE_KEY,
   THIRTY_SECOND_STORAGE_KEY,
   THIRTY_FIRST_STORAGE_KEY,
@@ -472,11 +480,12 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 34,
+  version: 35,
   attempts: [],
   attemptClosures: createAttemptClosureWorkspace(
     "1970-01-01T00:00:00.000Z",
   ),
+  fluencyClinic: createFluencyClinicWorkspace("1970-01-01T00:00:00.000Z"),
   typingProgress: createTypingProgression(),
   submissionLog: createSubmissionLog(),
   submissionAnnotations: {},
@@ -1722,6 +1731,14 @@ export function normalizeState(value: unknown): AppState {
       now: submissionNow,
     },
   );
+  const fluencyClinic = reconcileFluencyClinicWorkspace(
+    Number(value.version) >= 35 ? value.fluencyClinic : undefined,
+    {
+      items: [...BUILTIN_ITEMS, ...customItems.filter((item) => !item.archivedAt)],
+      attempts,
+      now: submissionNow,
+    },
+  );
   const sessionHistory = normalizeSessionHistory(
     value.sessionHistory,
     validIds,
@@ -1821,9 +1838,10 @@ export function normalizeState(value: unknown): AppState {
     }
   }
   return {
-    version: 34,
+    version: 35,
     attempts,
     attemptClosures,
+    fluencyClinic,
     typingProgress,
     submissionLog,
     submissionAnnotations,

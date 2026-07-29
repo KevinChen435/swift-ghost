@@ -23,6 +23,7 @@ export type BackupInventory = {
   conceptTransferDrafts: number;
   activeConceptTransferAttempts: number;
   attemptClosures: number;
+  fluencyClinicCases: number;
   challengeSets: number;
 };
 
