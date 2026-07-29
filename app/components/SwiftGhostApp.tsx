@@ -1853,11 +1853,17 @@ export default function SwiftGhostApp() {
     item.language,
   );
   const stats = itemStats(state, selectedId);
-  const conceptCheckIndex = selectConceptCheckIndex(
-    state.attempts,
-    selectedId,
-    item.contentRevision,
-  );
+  const assessmentEntry = state.draft?.assessmentRunId && state.draft.assessmentProbeId
+    ? state.assessments.runs
+        .find((run) => run.id === state.draft?.assessmentRunId)
+        ?.form?.find((entry) => entry.entryId === state.draft?.assessmentProbeId)
+    : undefined;
+  const conceptCheckIndex = assessmentEntry?.conceptCheckIndex ??
+    selectConceptCheckIndex(
+      state.attempts,
+      selectedId,
+      item.contentRevision,
+    );
   const dueItems = curriculumItems.filter((candidate) =>
     isReviewDue(state, candidate.itemId),
   );
@@ -3949,6 +3955,10 @@ export default function SwiftGhostApp() {
   }
 
   function chooseStage(nextStage: number) {
+    if (state.draft?.assessmentRunId) {
+      setToast("This assessment checkpoint has a frozen response stage");
+      return;
+    }
     if (state.draft?.sessionId) {
       setToast("Stage is fixed for this session step");
       return;
@@ -4008,6 +4018,10 @@ export default function SwiftGhostApp() {
 
   function choosePracticeKind(nextKind: PracticeKind) {
     if (nextKind === practiceKind) return;
+    if (draft.assessmentRunId) {
+      setToast("This assessment checkpoint has a frozen response mode");
+      return;
+    }
     if (draft.sessionId) {
       setToast("This session step has a fixed practice mode");
       return;
@@ -4480,13 +4494,23 @@ export default function SwiftGhostApp() {
             : current.draft,
       };
       if (next.assessmentRunId && next.assessmentProbeId) {
+        const frozenAssessmentEntry = current.assessments.runs
+          .find((run) => run.id === next.assessmentRunId)
+          ?.form?.find((entry) => entry.entryId === next.assessmentProbeId);
         committed = {
           ...committed,
           assessments: recordAssessmentObjectiveAttempt(
             current.assessments,
             next.assessmentRunId,
             next.assessmentProbeId,
-            attempt,
+            {
+              ...attempt,
+              responseMode: frozenAssessmentEntry?.responseMode,
+              conceptCheckIndex:
+                attempt.conceptCheckIndex ??
+                frozenAssessmentEntry?.conceptCheckIndex,
+              stage: frozenAssessmentEntry?.stage ?? attempt.stage,
+            },
             { now: attempt.completedAt },
           ),
         };
@@ -5390,6 +5414,7 @@ export default function SwiftGhostApp() {
       assessments: startAssessment(current.assessments, programId, {
         id: runId,
         now: new Date().toISOString(),
+        evidence: current.attempts,
       }),
     }));
     selectAssessment(runId);
@@ -5412,25 +5437,55 @@ export default function SwiftGhostApp() {
     probe: AssessmentProbe,
     refresher = false,
   ) {
-    const candidate = allItems.find((entry) => entry.itemId === probe.itemId);
+    const candidate = allItems.find(
+      (entry) =>
+        entry.itemId === probe.itemId &&
+        (!probe.itemRevision || entry.contentRevision === probe.itemRevision),
+    );
     if (!candidate) {
-      setToast("This checkpoint is unavailable in the current catalog");
+      setToast("This frozen checkpoint revision is unavailable in this build");
       return;
     }
-    const chosenPracticeKind: PracticeKind =
-      candidate.track === "ios" ? "concept" : refresher ? "typing" : "solving";
+    if (
+      probe.currentEvidenceEligible === false ||
+      (probe.judgeRevision &&
+        candidate.verification?.revision !== probe.judgeRevision)
+    ) {
+      setToast("This checkpoint is preserved for history but cannot create current evidence");
+      return;
+    }
+    const responseMode = probe.responseMode ??
+      (candidate.track === "ios"
+        ? "concept-recall"
+        : candidate.language === "swift"
+          ? "swift-reconstruction"
+          : "local-verified-solve");
+    const chosenPracticeKind: PracticeKind = refresher
+      ? responseMode === "concept-recall"
+        ? "concept"
+        : "typing"
+      : responseMode === "local-verified-solve"
+        ? "solving"
+        : responseMode === "concept-recall"
+          ? "concept"
+          : "typing";
+    const chosenStage = refresher && chosenPracticeKind === "typing"
+      ? 1
+      : (probe.stage ?? 5);
     openItem(
       candidate,
-      chosenPracticeKind === "typing" ? 1 : 5,
+      chosenStage,
       undefined,
       undefined,
       chosenPracticeKind,
-      { runId, probeId: probe.id },
+      refresher ? undefined : { runId, probeId: probe.id },
     );
     setToast(
       refresher
-        ? "Refresher opened · this checkpoint will stay labeled assisted"
-        : "Checkpoint started · guidance is locked until the debrief",
+        ? responseMode === "concept-recall"
+          ? "Concept refresher opened · this checkpoint stays labeled assisted"
+          : "Known answer opened · return for the frozen response when ready"
+        : "Frozen checkpoint started · response mode and revision are locked",
     );
   }
 
@@ -5442,8 +5497,16 @@ export default function SwiftGhostApp() {
         runId,
         probe.id,
         {
-          kind: probe.lane === "ios-self-assessed" ? "concept-review" : "known-answer",
-          stage: probe.lane === "ios-self-assessed" ? 0 : 1,
+          kind:
+            probe.responseMode === "concept-recall" ||
+            probe.lane === "ios-self-assessed"
+              ? "concept-review"
+              : "known-answer",
+          stage:
+            probe.responseMode === "concept-recall" ||
+            probe.lane === "ios-self-assessed"
+              ? 0
+              : 1,
         },
         { now: new Date().toISOString() },
       ),
@@ -7490,6 +7553,7 @@ export default function SwiftGhostApp() {
           ghostCode={ghostCode}
           stats={stats}
           conceptCheckIndex={conceptCheckIndex}
+          assessmentResponseMode={assessmentEntry?.responseMode}
           dueCount={dueItems.length}
           reveal={reveal}
           focusMode={focusMode}
@@ -8390,6 +8454,10 @@ type PracticeProps = {
   ghostCode: string;
   stats: ReturnType<typeof itemStats>;
   conceptCheckIndex: 0 | 1 | 2;
+  assessmentResponseMode?:
+    | "local-verified-solve"
+    | "swift-reconstruction"
+    | "concept-recall";
   dueCount: number;
   reveal: boolean;
   focusMode: boolean;
@@ -9239,14 +9307,23 @@ function PracticeView(props: PracticeProps) {
         ) : isAssessment ? (
           <div className="assessment-practice-rail">
             <span className="eyebrow">Evidence contract</span>
-            <strong>One prompt. No solution help.</strong>
+            <strong>
+              {props.assessmentResponseMode === "swift-reconstruction"
+                ? "Reconstruct one authored Swift solution from a blank editor."
+                : props.assessmentResponseMode === "concept-recall"
+                  ? "Commit your explanation before the reference appears."
+                  : "Solve one Python prompt against the local judge."}
+            </strong>
             <p>
-              Use the prompt and executable feedback. Pattern recognition and
-              reference material return after you record the checkpoint.
+              {props.assessmentResponseMode === "swift-reconstruction"
+                ? "Keystroke correction can verify this exact reconstruction; it does not compile Swift or evaluate alternate solutions."
+                : props.assessmentResponseMode === "concept-recall"
+                  ? "The comparison and grade are self-assessed. They are never presented as compiled code or certified iOS knowledge."
+                  : "Executable feedback is local and unproctored. An accepted result is objective device-local practice evidence, not certification."}
             </p>
             <ul>
               <li>Source stays on this device</li>
-              <li>Assistance remains separately labeled</li>
+              <li>Answer reveal is unavailable during the frozen response</li>
               <li>No proctoring or identity claim</li>
             </ul>
             <button className="outline-button" onClick={props.onSession}>
@@ -9842,6 +9919,7 @@ function PracticeView(props: PracticeProps) {
                 reveal={props.reveal}
                 focusMode={props.focusMode}
                 copied={copied}
+                hideReveal={isAssessment}
                 onCopyLink={() => void copyPracticeLink()}
                 onReveal={props.onReveal}
                 onRestart={resetPractice}
@@ -10058,12 +10136,16 @@ function PracticeView(props: PracticeProps) {
                   key={step.id}
                   className={`${props.stage === step.id ? "active" : ""} ${props.stats.typingCompletedStages.includes(step.id as 1 | 2 | 3 | 4 | 5) ? "complete" : ""}`}
                   aria-pressed={props.stage === step.id}
-                  disabled={Boolean(props.draft.sessionId)}
+                  disabled={Boolean(
+                    props.draft.sessionId || props.draft.assessmentRunId,
+                  )}
                   onClick={() => props.onChooseStage(step.id)}
                   title={
-                    props.draft.sessionId
-                      ? "This session step has a fixed recall stage"
-                      : step.note
+                    props.draft.assessmentRunId
+                      ? "This assessment checkpoint has a frozen response stage"
+                      : props.draft.sessionId
+                        ? "This session step has a fixed recall stage"
+                        : step.note
                   }
                 >
                   <span>
@@ -10112,6 +10194,7 @@ function PracticeView(props: PracticeProps) {
             reveal={props.reveal}
             focusMode={props.focusMode}
             copied={copied}
+            hideReveal={isAssessment}
             onCopyLink={() => void copyPracticeLink()}
             onReveal={props.onReveal}
             onRestart={resetPractice}

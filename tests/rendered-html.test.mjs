@@ -181,7 +181,8 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(product, /attempt\.practiceKind === "solving"/);
   assert.match(product, /resolveSessionCurrentIndex/);
   assert.match(page, /Stage is fixed for this session step/);
-  assert.match(page, /disabled=\{Boolean\(props\.draft\.sessionId\)\}/);
+  assert.match(page, /props\.draft\.sessionId \|\| props\.draft\.assessmentRunId/);
+  assert.match(page, /This assessment checkpoint has a frozen response stage/);
   assert.match(
     product,
     /attempt\.verification\.passed === attempt\.verification\.total/,

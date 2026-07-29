@@ -33,6 +33,7 @@ export type PracticeEditorProps = {
   reveal: boolean;
   focusMode: boolean;
   copied: boolean;
+  hideReveal?: boolean;
   onCopyLink: () => void;
   onReveal: () => void;
   onRestart: () => void;
@@ -75,7 +76,7 @@ export function PracticeEditor(props: PracticeEditorProps) {
           <button className="copy-action" onClick={props.onCopyLink}>
             {props.copied ? "Copied" : "Copy link"}
           </button>
-          {props.practiceKind === "typing" && (
+          {props.practiceKind === "typing" && !props.hideReveal && (
             <button className="peek-action" onClick={props.onReveal}>
               {props.reveal ? "Hide answer" : "Peek"}
             </button>

@@ -1,3 +1,11 @@
+import {
+  ASSESSMENT_BANK_REVISION,
+  CROSS_LANE_REENTRY_BLUEPRINT,
+  assessmentBankEntry,
+  isAssessmentResponseMode,
+  selectAssessmentForm,
+} from "./assessment-bank.mjs";
+
 const ISO_EPOCH = "1970-01-01T00:00:00.000Z";
 const MAX_RUNS = 50;
 const MAX_TEXT = 480;
@@ -129,6 +137,21 @@ export const ASSESSMENT_PROGRAMS = Object.freeze([
     disclaimer: "iOS results are self-assessed practice evidence, not validated certification.",
     probes: IOS_PROBES,
   }),
+  freezeProgram({
+    id: "cross-lane-reentry",
+    title: "Cross-lane re-entry assessment",
+    shortTitle: "Cross-lane re-entry",
+    track: "cross-lane",
+    evidenceLabel: "Local practice evidence by response mode",
+    description: "A frozen six-checkpoint form samples Python fluency, algorithmic state, Swift reconstruction, and iOS engineering boundaries.",
+    disclaimer: "This device-local learning assessment is not proctored, sealed, certified, or a prediction of interview readiness.",
+    probes: [],
+    blueprintId: CROSS_LANE_REENTRY_BLUEPRINT.id,
+    blueprintRevision: CROSS_LANE_REENTRY_BLUEPRINT.revision,
+    formSize: CROSS_LANE_REENTRY_BLUEPRINT.formSize,
+    candidateCount: CROSS_LANE_REENTRY_BLUEPRINT.candidateCount,
+    sections: CROSS_LANE_REENTRY_BLUEPRINT.sections,
+  }),
 ]);
 
 const PROGRAM_BY_ID = new Map(ASSESSMENT_PROGRAMS.map((program) => [program.id, program]));
@@ -165,6 +188,133 @@ function boundedInt(value, fallback, minimum, maximum) {
     : fallback;
 }
 
+function responseModeForLegacyProbe(probe) {
+  return probe.lane === "ios-self-assessed" ? "concept-recall" : "local-verified-solve";
+}
+
+function formEntryCurrent(entry) {
+  if (!entry || entry.formKind === "legacy-fixed") return Boolean(entry.currentEvidenceEligible);
+  const current = assessmentBankEntry(entry.bankEntryId);
+  if (!current) return false;
+  return Number(entry.bankRevision) === current.revision &&
+    entry.sectionId === current.sectionId &&
+    entry.itemId === current.itemId &&
+    Number(entry.itemRevision) === current.itemRevision &&
+    Number(entry.judgeRevision ?? 0) === Number(current.judgeRevision ?? 0) &&
+    entry.lane === current.lane &&
+    entry.skillId === current.skillId &&
+    entry.responseMode === current.responseMode &&
+    Number(entry.stage) === current.stage &&
+    Number(entry.conceptCheckIndex ?? 0) === Number(current.conceptCheckIndex ?? 0);
+}
+
+function normalizeFormEntry(value, options = {}) {
+  if (!isRecord(value)) return null;
+  const entryId = cleanId(value.entryId ?? value.probeId ?? value.id);
+  const bankEntryId = cleanId(value.bankEntryId);
+  const sectionId = cleanId(value.sectionId);
+  const itemId = cleanId(value.itemId);
+  const skillId = cleanId(value.skillId);
+  const lanes = ["python", "swift", "ios", "python-fluency", "algorithmic", "ios-self-assessed"];
+  const responseMode = isAssessmentResponseMode(value.responseMode)
+    ? value.responseMode
+    : options.legacy
+      ? responseModeForLegacyProbe(value)
+      : null;
+  if (!entryId || !bankEntryId || !sectionId || !itemId || !skillId || !lanes.includes(value.lane) || !responseMode) return null;
+  const normalized = {
+    entryId,
+    bankEntryId,
+    bankRevision: boundedInt(value.bankRevision, options.legacy ? 0 : 1, 0, 1_000_000),
+    sectionId,
+    itemId,
+    itemRevision: boundedInt(value.itemRevision, 1, 1, 1_000_000),
+    ...(Number.isFinite(Number(value.judgeRevision))
+      ? { judgeRevision: boundedInt(value.judgeRevision, 1, 1, 1_000_000) }
+      : {}),
+    lane: value.lane,
+    skillId,
+    skillLabelSnapshot: cleanText(value.skillLabelSnapshot ?? value.skillLabel, 120, skillId),
+    titleSnapshot: cleanText(value.titleSnapshot ?? value.title, 160, itemId),
+    focusSnapshot: cleanText(value.focusSnapshot ?? value.focus, 240),
+    responseMode,
+    estimatedMinutes: boundedInt(value.estimatedMinutes, 10, 1, 240),
+    ...(Number.isFinite(Number(value.stage)) ? { stage: boundedInt(value.stage, 5, 0, 5) } : {}),
+    ...(Number.isFinite(Number(value.conceptCheckIndex))
+      ? { conceptCheckIndex: boundedInt(value.conceptCheckIndex, 1, 0, 1_000) }
+      : {}),
+    formKind: options.legacy ? "legacy-fixed" : "bank",
+  };
+  normalized.currentEvidenceEligible = options.legacy
+    ? Boolean(value.currentEvidenceEligible ?? true)
+    : formEntryCurrent(normalized);
+  return normalized;
+}
+
+function bankFormEntry(entry) {
+  return normalizeFormEntry({
+    entryId: entry.id,
+    bankEntryId: entry.id,
+    bankRevision: entry.revision,
+    sectionId: entry.sectionId,
+    itemId: entry.itemId,
+    itemRevision: entry.itemRevision,
+    judgeRevision: entry.judgeRevision,
+    lane: entry.lane,
+    skillId: entry.skillId,
+    skillLabelSnapshot: entry.skillLabel,
+    titleSnapshot: entry.title,
+    focusSnapshot: entry.focus,
+    responseMode: entry.responseMode,
+    estimatedMinutes: entry.estimatedMinutes,
+    stage: entry.stage,
+    conceptCheckIndex: entry.conceptCheckIndex,
+  });
+}
+
+function priorAssessmentEvidence(workspace) {
+  return (Array.isArray(workspace?.runs) ? workspace.runs : []).flatMap((run) =>
+    (Array.isArray(run?.results) ? run.results : []).map((result) => ({
+      ...result,
+      exposedAt: run.completedAt ?? run.updatedAt ?? run.startedAt,
+    })),
+  );
+}
+
+function legacyFixedForm(program, rawRun = {}) {
+  const rawByProbe = new Map((Array.isArray(rawRun.results) ? rawRun.results : []).map((result) => [
+    cleanId(result?.probeId ?? result?.itemId),
+    result,
+  ]));
+  return program.probes.map((probe, index) => {
+    const raw = rawByProbe.get(probe.id);
+    const attempt = raw?.objectiveAttempt ?? raw?.attempt;
+    const responseMode = responseModeForLegacyProbe(probe);
+    const expectedRevision = probe.lane === "ios-self-assessed" ? 2 : 1;
+    const itemRevision = boundedInt(attempt?.itemRevision, expectedRevision, 1, 1_000_000);
+    const expectedJudge = responseMode === "local-verified-solve" ? 2 : undefined;
+    const judgeRevision = attempt?.verification?.revision ?? expectedJudge;
+    return normalizeFormEntry({
+      entryId: probe.id,
+      bankEntryId: `legacy:${program.id}:${probe.id}`,
+      bankRevision: 0,
+      sectionId: `legacy-${index + 1}`,
+      itemId: probe.itemId,
+      itemRevision,
+      judgeRevision,
+      lane: probe.lane,
+      skillId: cleanId(probe.focus.toLowerCase().replace(/[^a-z0-9]+/g, "-"), `legacy-${index + 1}`),
+      skillLabelSnapshot: probe.focus,
+      titleSnapshot: probe.title,
+      focusSnapshot: probe.focus,
+      responseMode,
+      estimatedMinutes: probe.estimatedMinutes,
+      currentEvidenceEligible: itemRevision === expectedRevision &&
+        Number(judgeRevision ?? 0) === Number(expectedJudge ?? 0),
+    }, { legacy: true });
+  });
+}
+
 function entityId(prefix, requested) {
   const supplied = cleanId(requested);
   if (supplied) return supplied;
@@ -198,7 +348,7 @@ function normalizeVerification(value) {
 
 function normalizeRefresher(value, probe, now) {
   if (!isRecord(value)) return undefined;
-  const kinds = probe.lane === "ios-self-assessed"
+  const kinds = probe.responseMode === "concept-recall" || probe.lane === "ios-self-assessed" || probe.lane === "ios"
     ? ["concept-review", "known-answer"]
     : ["typing", "known-answer"];
   const kind = kinds.includes(value.kind) ? value.kind : kinds[0];
@@ -217,12 +367,32 @@ function normalizeObjectiveAttempt(value, probe, now) {
   const practiceKinds = ["typing", "solving", "concept"];
   const practiceKind = practiceKinds.includes(value.practiceKind)
     ? value.practiceKind
-    : probe.lane === "ios-self-assessed"
+    : probe.responseMode === "concept-recall" || probe.lane === "ios-self-assessed" || probe.lane === "ios"
       ? "concept"
       : "solving";
   const qualifications = ["syntax", "guided", "independent", "solved", "assisted", "incomplete"];
   const outcome = value.outcome === "completed" ? "completed" : "abandoned";
   const conceptGrades = ["again", "hard", "good", "easy"];
+  const verification = normalizeVerification(value.verification);
+  const responseMode = isAssessmentResponseMode(value.responseMode) ? value.responseMode : probe.responseMode;
+  const stage = Number.isFinite(Number(value.stage)) ? boundedInt(value.stage, 0, 0, 5) : undefined;
+  const conceptCheckIndex = Number.isFinite(Number(value.conceptCheckIndex))
+    ? boundedInt(value.conceptCheckIndex, 0, 0, 1_000)
+    : undefined;
+  const accepted = responseMode === "local-verified-solve"
+    ? outcome === "completed" &&
+      practiceKind === "solving" &&
+      value.qualification === "solved" &&
+      boundedInt(value.peeks, 0, 0, 10_000) === 0 &&
+      verification?.total > 0 &&
+      verification.passed === verification.total &&
+      Number(verification.revision) === Number(probe.judgeRevision)
+    : responseMode === "swift-reconstruction"
+      ? outcome === "completed" && practiceKind === "typing" && stage === probe.stage
+      : responseMode === "concept-recall"
+        ? outcome === "completed" && practiceKind === "concept" && stage === probe.stage &&
+          conceptCheckIndex === probe.conceptCheckIndex
+        : undefined;
   return {
     attemptId: attemptId || undefined,
     itemId: probe.itemId,
@@ -237,9 +407,13 @@ function normalizeObjectiveAttempt(value, probe, now) {
     peeks: boundedInt(value.peeks, 0, 0, 10_000),
     durationMs: boundedInt(value.durationMs, 0, 0, 86_400_000),
     completedAt: iso(value.completedAt ?? value.recordedAt, now),
-    verification: normalizeVerification(value.verification),
+    verification,
     conceptGrade: conceptGrades.includes(value.conceptGrade) ? value.conceptGrade : undefined,
     sessionId: cleanId(value.sessionId) || undefined,
+    ...(responseMode ? { responseMode } : {}),
+    ...(stage !== undefined ? { stage } : {}),
+    ...(conceptCheckIndex !== undefined ? { conceptCheckIndex } : {}),
+    ...(typeof accepted === "boolean" ? { accepted } : {}),
   };
 }
 
@@ -279,6 +453,20 @@ function probeFor(value, fallbackProgramId) {
     null;
 }
 
+function attemptMatchesFrozenContract(value, probe, { legacy = false } = {}) {
+  if (!isRecord(value)) return false;
+  if (legacy) return !value.itemId || cleanId(value.itemId) === probe.itemId;
+  if (cleanId(value.itemId) !== probe.itemId) return false;
+  if (Number(value.itemRevision) !== Number(probe.itemRevision)) return false;
+  if (value.responseMode !== probe.responseMode) return false;
+  if (Number(value.stage) !== Number(probe.stage)) return false;
+  if (probe.conceptCheckIndex !== undefined &&
+      Number(value.conceptCheckIndex) !== Number(probe.conceptCheckIndex)) return false;
+  if (probe.judgeRevision !== undefined &&
+      Number(value.verification?.revision) !== Number(probe.judgeRevision)) return false;
+  return true;
+}
+
 export function assessmentProgram(programId) {
   return PROGRAM_BY_ID.get(cleanId(programId)) ?? null;
 }
@@ -289,9 +477,13 @@ export function normalizeAssessmentProbeResult(value, probeInput, options = {}) 
     ? probeInput
     : probeFor(probeInput ?? value, options.programId);
   if (!probe) return null;
+  const legacy = options.legacy ?? !probe.bankEntryId;
   const raw = isRecord(value) ? value : {};
   const refresher = normalizeRefresher(raw.refresher, probe, now);
-  const objectiveAttempt = normalizeObjectiveAttempt(raw.objectiveAttempt ?? raw.attempt, probe, now);
+  const rawAttempt = raw.objectiveAttempt ?? raw.attempt;
+  const objectiveAttempt = rawAttempt && attemptMatchesFrozenContract(rawAttempt, probe, { legacy })
+    ? normalizeObjectiveAttempt(rawAttempt, probe, now)
+    : undefined;
   const debrief = objectiveAttempt ? normalizeDebrief(raw.debrief, now) : undefined;
   const status = debrief
     ? "debriefed"
@@ -304,6 +496,10 @@ export function normalizeAssessmentProbeResult(value, probeInput, options = {}) 
     probeId: probe.id,
     itemId: probe.itemId,
     lane: probe.lane,
+    itemRevision: probe.itemRevision ?? objectiveAttempt?.itemRevision ?? 1,
+    judgeRevision: probe.judgeRevision,
+    responseMode: probe.responseMode ?? responseModeForLegacyProbe(probe),
+    currentEvidenceEligible: probe.currentEvidenceEligible !== false,
     status,
     refresher,
     objectiveAttempt,
@@ -317,14 +513,34 @@ export function normalizeAssessmentRun(value, options = {}) {
   const id = cleanId(value.id);
   if (!program || !id) return null;
   const now = iso(options.now, ISO_EPOCH);
+  const isBankForm = program.id === "cross-lane-reentry";
+  let form;
+  if (isBankForm) {
+    const rawForm = Array.isArray(value.form) ? value.form : [];
+    form = rawForm.map((entry) => normalizeFormEntry(entry)).filter(Boolean);
+    if (form.length !== CROSS_LANE_REENTRY_BLUEPRINT.formSize ||
+        new Set(form.map(({ entryId }) => entryId)).size !== form.length ||
+        new Set(form.map(({ sectionId }) => sectionId)).size !== CROSS_LANE_REENTRY_BLUEPRINT.formSize) return null;
+  } else {
+    const migrated = Array.isArray(value.form)
+      ? value.form.map((entry) => normalizeFormEntry(entry, { legacy: true })).filter(Boolean)
+      : [];
+    form = migrated.length === program.probes.length ? migrated : legacyFixedForm(program, value);
+  }
   const rawResults = new Map();
   for (const raw of Array.isArray(value.results) ? value.results : []) {
-    const probe = probeFor(raw, program.id);
-    if (!probe || !program.probes.some(({ id: probeId }) => probeId === probe.id)) continue;
-    rawResults.set(probe.id, raw);
+    const probeId = cleanId(raw?.probeId ?? raw?.entryId ?? raw?.itemId);
+    const probe = form.find((entry) => entry.entryId === probeId || entry.itemId === cleanId(raw?.itemId));
+    if (!probe) continue;
+    rawResults.set(probe.entryId, raw);
   }
-  const results = program.probes.map((probe) =>
-    normalizeAssessmentProbeResult(rawResults.get(probe.id), probe, { now, programId: program.id }),
+  const results = form.map((entry) =>
+    normalizeAssessmentProbeResult(rawResults.get(entry.entryId), {
+      ...entry,
+      id: entry.entryId,
+      title: entry.titleSnapshot,
+      focus: entry.focusSnapshot,
+    }, { now, programId: program.id, legacy: !isBankForm }),
   );
   const statuses = ["active", "paused", "completed", "archived"];
   const requestedStatus = statuses.includes(value.status) ? value.status : "paused";
@@ -337,6 +553,12 @@ export function normalizeAssessmentRun(value, options = {}) {
   return {
     id,
     programId: program.id,
+    blueprintId: cleanId(value.blueprintId, isBankForm ? CROSS_LANE_REENTRY_BLUEPRINT.id : `legacy:${program.id}`),
+    blueprintRevision: boundedInt(value.blueprintRevision, isBankForm ? CROSS_LANE_REENTRY_BLUEPRINT.revision : 1, 0, 1_000_000),
+    selectionSeed: cleanText(value.selectionSeed, 160, id),
+    formKind: isBankForm ? "bank" : "legacy-fixed",
+    formRevision: boundedInt(value.formRevision, isBankForm ? ASSESSMENT_BANK_REVISION : 1, 0, 1_000_000),
+    form,
     status: requestedStatus,
     outcome: value.outcome === "completed" || value.outcome === "ended" ? value.outcome : undefined,
     startedAt,
@@ -351,7 +573,7 @@ export function normalizeAssessmentRun(value, options = {}) {
 export function createAssessmentWorkspace(now = ISO_EPOCH) {
   const updatedAt = iso(now, ISO_EPOCH);
   return {
-    version: 1,
+    version: 2,
     revision: 0,
     updatedAt,
     activeRunId: null,
@@ -381,7 +603,7 @@ export function normalizeAssessmentWorkspace(value, options = {}) {
     status: run.id === active?.id ? "active" : run.status === "active" ? "paused" : run.status,
   }));
   return {
-    version: 1,
+    version: 2,
     revision: boundedInt(value.revision, 0, 0, 2_147_483_647),
     updatedAt: iso(value.updatedAt, now),
     activeRunId: active?.id ?? null,
@@ -392,8 +614,25 @@ export function normalizeAssessmentWorkspace(value, options = {}) {
 export function currentAssessmentProbe(run) {
   const normalized = normalizeAssessmentRun(run);
   if (!normalized) return null;
-  const program = assessmentProgram(normalized.programId);
-  return program?.probes[normalized.currentProbeIndex] ?? null;
+  const entry = normalized.form[normalized.currentProbeIndex];
+  if (!entry) return null;
+  return Object.freeze({
+    id: entry.entryId,
+    itemId: entry.itemId,
+    lane: entry.lane,
+    title: entry.titleSnapshot,
+    focus: entry.focusSnapshot,
+    estimatedMinutes: entry.estimatedMinutes,
+    itemRevision: entry.itemRevision,
+    judgeRevision: entry.judgeRevision,
+    responseMode: entry.responseMode,
+    stage: entry.stage,
+    conceptCheckIndex: entry.conceptCheckIndex,
+    currentEvidenceEligible: entry.currentEvidenceEligible,
+    sectionId: entry.sectionId,
+    skillId: entry.skillId,
+    skillLabel: entry.skillLabelSnapshot,
+  });
 }
 
 export function startAssessment(workspace, programId, options = {}) {
@@ -407,15 +646,34 @@ export function startAssessment(workspace, programId, options = {}) {
     for (const run of draft.runs) {
       if (run.status === "active") run.status = "paused";
     }
+    const selectionSeed = cleanText(options.selectionSeed, 160, id);
+    const form = program.id === "cross-lane-reentry"
+      ? selectAssessmentForm({
+          seed: selectionSeed,
+          history: [draft, options.history],
+          evidence: [priorAssessmentEvidence(draft), options.evidence],
+        }).map(bankFormEntry)
+      : legacyFixedForm(program);
     draft.runs.push({
       id,
       programId: program.id,
+      blueprintId: program.id === "cross-lane-reentry" ? CROSS_LANE_REENTRY_BLUEPRINT.id : `legacy:${program.id}`,
+      blueprintRevision: program.id === "cross-lane-reentry" ? CROSS_LANE_REENTRY_BLUEPRINT.revision : 1,
+      selectionSeed,
+      formKind: program.id === "cross-lane-reentry" ? "bank" : "legacy-fixed",
+      formRevision: program.id === "cross-lane-reentry" ? ASSESSMENT_BANK_REVISION : 1,
+      form,
       status: "active",
       startedAt: now,
       updatedAt: now,
       currentProbeIndex: 0,
-      results: program.probes.map((probe) =>
-        normalizeAssessmentProbeResult(undefined, probe, { now, programId: program.id }),
+      results: form.map((entry) =>
+        normalizeAssessmentProbeResult(undefined, {
+          ...entry,
+          id: entry.entryId,
+          title: entry.titleSnapshot,
+          focus: entry.focusSnapshot,
+        }, { now, programId: program.id, legacy: program.id !== "cross-lane-reentry" }),
       ),
     });
     draft.activeRunId = id;
@@ -456,15 +714,24 @@ function mutateActiveResult(workspace, runId, probeId, options, mutate) {
   }, now);
 }
 
+function frozenProbeForRun(run, probeId) {
+  const entry = run.form?.find(({ entryId }) => entryId === probeId);
+  return entry ? {
+    ...entry,
+    id: entry.entryId,
+    title: entry.titleSnapshot,
+    focus: entry.focusSnapshot,
+  } : null;
+}
+
 export function recordAssessmentRefresher(workspace, runId, probeId, input = {}, options = {}) {
   return mutateActiveResult(workspace, runId, probeId, options, (result, run, now) => {
     if (result.objectiveAttempt || result.debrief) return false;
-    const program = assessmentProgram(run.programId);
-    const probe = program?.probes.find(({ id }) => id === result.probeId);
+    const probe = frozenProbeForRun(run, result.probeId);
     if (!probe) return false;
     result.refresher = normalizeRefresher({ ...input, usedAt: input.usedAt ?? now }, probe, now);
     result.status = "refreshed";
-    run.currentProbeIndex = program.probes.findIndex(({ id }) => id === probe.id);
+    run.currentProbeIndex = run.form.findIndex(({ entryId }) => entryId === probe.id);
     return true;
   });
 }
@@ -472,17 +739,16 @@ export function recordAssessmentRefresher(workspace, runId, probeId, input = {},
 export function recordAssessmentObjectiveAttempt(workspace, runId, probeId, attempt, options = {}) {
   return mutateActiveResult(workspace, runId, probeId, options, (result, run, now) => {
     if (!isRecord(attempt) || result.objectiveAttempt || result.debrief) return false;
-    if (attempt.itemId && cleanId(attempt.itemId) !== result.itemId) return false;
-    const program = assessmentProgram(run.programId);
-    const probe = program?.probes.find(({ id }) => id === result.probeId);
+    const probe = frozenProbeForRun(run, result.probeId);
     if (!probe) return false;
+    if (!attemptMatchesFrozenContract(attempt, probe, { legacy: run.formKind === "legacy-fixed" })) return false;
     result.objectiveAttempt = normalizeObjectiveAttempt(
       { ...attempt, completedAt: attempt.completedAt ?? now },
       probe,
       now,
     );
     result.status = "attempted";
-    run.currentProbeIndex = program.probes.findIndex(({ id }) => id === probe.id);
+    run.currentProbeIndex = run.form.findIndex(({ entryId }) => entryId === probe.id);
     return true;
   });
 }
@@ -538,6 +804,21 @@ function evidenceLevel(result) {
   const attempt = result.objectiveAttempt;
   if (!attempt) return "not-observed";
   if (result.lane === "ios-self-assessed") return "self-assessed";
+  if (["python", "swift", "ios"].includes(result.lane)) {
+    if (result.currentEvidenceEligible === false) return "incomplete";
+    if (result.responseMode === "concept-recall") {
+      if (!attempt.accepted) return "incomplete";
+      return result.refresher || attempt.peeks > 0 ? "assisted" : "self-assessed";
+    }
+    if (result.responseMode === "swift-reconstruction") {
+      if (!attempt.accepted) return "incomplete";
+      return result.refresher || attempt.peeks > 0 ? "assisted" : "reconstruction";
+    }
+    if (result.responseMode === "local-verified-solve") {
+      if (result.refresher) return "assisted";
+      return attempt.accepted ? "independent" : attempt.outcome === "completed" ? "assisted" : "incomplete";
+    }
+  }
   if (attempt.outcome !== "completed") return "incomplete";
   if (result.refresher) return "assisted";
   const verificationPassed = attempt.verification &&
@@ -557,13 +838,18 @@ function laneSummary(results, lane) {
   const observed = members.filter((result) => result.objectiveAttempt);
   const totals = observed.map((result) => rubricTotal(result.debrief)).filter((score) => score !== null);
   return {
-    evidenceKind: lane === "ios-self-assessed" ? "self-assessed" : "observed",
+    evidenceKind: lane === "ios-self-assessed" || lane === "ios"
+      ? "self-assessed"
+      : lane === "swift"
+        ? "reconstruction"
+        : "observed",
     totalProbes: members.length,
     attempted: observed.length,
     debriefed: members.filter((result) => result.debrief).length,
     independent: members.filter((result) => evidenceLevel(result) === "independent").length,
     assisted: members.filter((result) => evidenceLevel(result) === "assisted").length,
     selfAssessed: members.filter((result) => evidenceLevel(result) === "self-assessed").length,
+    reconstruction: members.filter((result) => evidenceLevel(result) === "reconstruction").length,
     incomplete: members.filter((result) => ["not-observed", "incomplete"].includes(evidenceLevel(result))).length,
     rubricAverage: totals.length
       ? Number((totals.reduce((sum, score) => sum + score, 0) / totals.length).toFixed(1))
@@ -591,7 +877,7 @@ function recommendationCandidates(run, program, results, blockers) {
   const candidates = [];
   const unfinished = results.find((result) => result.status !== "debriefed");
   if (unfinished) {
-    const probe = program.probes.find(({ id }) => id === unfinished.probeId);
+    const probe = frozenProbeForRun(run, unfinished.probeId);
     candidates.push({
       id: `resume:${unfinished.probeId}`,
       itemId: unfinished.itemId,
@@ -608,7 +894,7 @@ function recommendationCandidates(run, program, results, blockers) {
       left.probeId.localeCompare(right.probeId),
     );
   for (const result of weak) {
-    const probe = program.probes.find(({ id }) => id === result.probeId);
+    const probe = frozenProbeForRun(run, result.probeId);
     const level = evidenceLevel(result);
     candidates.push({
       id: `repeat:${result.probeId}`,
@@ -654,7 +940,7 @@ function recommendationCandidates(run, program, results, blockers) {
         reason: "Transfer the selection cue to a nearby problem without seeing the pattern label.",
       },
     );
-  } else {
+  } else if (program.track === "ios") {
     candidates.push(
       {
         id: "ios:teach-back",
@@ -675,6 +961,27 @@ function recommendationCandidates(run, program, results, blockers) {
         reason: "A fresh scenario provides better evidence than recognizing the saved example.",
       },
     );
+  } else {
+    candidates.push(
+      {
+        id: "cross-lane:python-retrieval",
+        lane: "python",
+        title: "Repeat the weakest Python checkpoint cold",
+        reason: "Use a different same-family item after a delay; this local result is practice evidence, not a proctored score.",
+      },
+      {
+        id: "cross-lane:swift-reconstruction",
+        lane: "swift",
+        title: "Reconstruct the Swift checkpoint from a blank editor",
+        reason: "Stage-five reconstruction shows typing and recall, not an independently judged algorithmic solve.",
+      },
+      {
+        id: "cross-lane:ios-scenario",
+        lane: "ios",
+        title: "Apply the iOS boundary to a fresh scenario",
+        reason: "Concept recall is self-assessed; a novel scenario is the next useful check.",
+      },
+    );
   }
   const seen = new Set();
   return candidates.filter((candidate) => {
@@ -693,13 +1000,20 @@ function resolveRun(value, runId) {
   return normalizeAssessmentRun(value);
 }
 
+function trustLabel(result) {
+  if (result.currentEvidenceEligible === false) return "Historical form · not current-revision evidence";
+  if (result.responseMode === "local-verified-solve") return "Local objective checks · not proctored or certified";
+  if (result.responseMode === "swift-reconstruction") return "Stage-five reconstruction evidence · not an objective solve";
+  return "Self-assessed concept recall · not independently validated";
+}
+
 export function deriveAssessmentReport(value, runId) {
   const run = resolveRun(value, runId);
   if (!run) return null;
   const program = assessmentProgram(run.programId);
   if (!program) return null;
   const probes = run.results.map((result) => {
-    const probe = program.probes.find(({ id }) => id === result.probeId);
+    const probe = frozenProbeForRun(run, result.probeId);
     return {
       probeId: result.probeId,
       itemId: result.itemId,
@@ -714,6 +1028,11 @@ export function deriveAssessmentReport(value, runId) {
       blockers: result.debrief?.blockers ?? [],
       note: result.debrief?.note ?? "",
       objectiveAttempt: result.objectiveAttempt,
+      responseMode: result.responseMode,
+      itemRevision: result.itemRevision,
+      judgeRevision: result.judgeRevision,
+      currentEvidenceEligible: result.currentEvidenceEligible,
+      trustLabel: trustLabel(result),
     };
   });
   const blockers = orderedBlockers(run.results);
@@ -737,7 +1056,26 @@ export function deriveAssessmentReport(value, runId) {
       pythonFluency: laneSummary(run.results, "python-fluency"),
       algorithmic: laneSummary(run.results, "algorithmic"),
       ios: laneSummary(run.results, "ios-self-assessed"),
+      python: laneSummary(run.results, "python"),
+      swift: laneSummary(run.results, "swift"),
+      crossLaneIos: laneSummary(run.results, "ios"),
     },
+    sections: run.form.map((entry, index) => {
+      const result = run.results[index];
+      return {
+        sectionId: entry.sectionId,
+        skillId: entry.skillId,
+        skillLabel: entry.skillLabelSnapshot,
+        lane: entry.lane,
+        responseMode: entry.responseMode,
+        itemId: entry.itemId,
+        title: entry.titleSnapshot,
+        status: result.status,
+        evidenceLevel: evidenceLevel(result),
+        trustLabel: trustLabel(result),
+        currentEvidenceEligible: result.currentEvidenceEligible,
+      };
+    }),
     probes,
     blockers,
     recommendations: recommendationCandidates(run, program, run.results, blockers),
@@ -777,12 +1115,34 @@ export function buildAssessmentStudyPlanSeed(value, options = {}) {
           patterns: [],
         },
       ]
-    : [
+    : program.track === "ios" ? [
         {
           id: "ios-reconstruction",
           title: "Swift & iOS reconstruction",
           outcome: "Explain and apply the concepts to fresh scenarios without notes.",
           itemIds,
+          patterns: [],
+        },
+      ] : [
+        {
+          id: "python-reentry",
+          title: "Python cold retrieval",
+          outcome: "Produce and locally verify Python without answer exposure.",
+          itemIds: ranked.filter(({ lane }) => lane === "python").map(({ itemId }) => itemId),
+          patterns: ["Python Fluency", "Core Patterns"],
+        },
+        {
+          id: "swift-reconstruction",
+          title: "Swift reconstruction",
+          outcome: "Reconstruct stage-five Swift solutions from a blank editor.",
+          itemIds: ranked.filter(({ lane }) => lane === "swift").map(({ itemId }) => itemId),
+          patterns: [],
+        },
+        {
+          id: "ios-boundaries",
+          title: "iOS boundary scenarios",
+          outcome: "Apply Swift and iOS concepts to fresh design variants.",
+          itemIds: ranked.filter(({ lane }) => lane === "ios").map(({ itemId }) => itemId),
           patterns: [],
         },
       ];
@@ -794,7 +1154,9 @@ export function buildAssessmentStudyPlanSeed(value, options = {}) {
       description,
       outcome: program.track === "python"
         ? "Stronger independent Python fluency and algorithmic evidence"
-        : "Clearer self-assessed Swift and iOS explanations",
+        : program.track === "ios"
+          ? "Clearer self-assessed Swift and iOS explanations"
+          : "Stronger local Python evidence with clearer Swift and iOS reconstruction",
       source: "custom",
       itemIds,
       modules,
@@ -802,7 +1164,7 @@ export function buildAssessmentStudyPlanSeed(value, options = {}) {
     plan: {
       title,
       description,
-      paceMinutes: program.track === "python" ? 30 : 15,
+      paceMinutes: program.track === "ios" ? 15 : 30,
       blocksPerWeek: 3,
       status: "active",
     },
