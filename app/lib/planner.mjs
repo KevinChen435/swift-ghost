@@ -1,12 +1,11 @@
-import { applyDebriefToReviewState } from "./learning-state.mjs";
 import { supportsConceptPractice } from "./concept-practice.mjs";
+import { deriveReviewProgression } from "./review-progression.mjs";
 import {
   deriveTypingProgression,
   rebuildTypingProgression,
 } from "./typing-progression.mjs";
 
 const DAY_MS = 86_400_000;
-const REVIEW_DAYS = [1, 3, 7, 14, 30];
 const PLANNER_LANES = ["review", "interview", "python", "ios"];
 
 function clamp(value, fallback, min, max) {
@@ -135,44 +134,17 @@ function learningState(
       typingProgression: progression,
     };
   }
-  let level = 0;
-  let dueAt = null;
-  let lapses = 0;
-  let successes = 0;
-  for (const attempt of relevant) {
-    if (successful(attempt, activityKind)) {
-      successes += 1;
-      const interval = REVIEW_DAYS[Math.min(level, REVIEW_DAYS.length - 1)];
-      level = Math.min(REVIEW_DAYS.length, level + 1);
-      dueAt = new Date(Date.parse(attempt.completedAt) + interval * DAY_MS);
-    } else {
-      lapses += 1;
-      level = Math.max(0, level - 1);
-      dueAt = new Date(Date.parse(attempt.completedAt) + DAY_MS);
-    }
-  }
-  const lastDebrief = relevantEvents.at(-1) ?? null;
-  const lastAttemptAt = relevant.at(-1)
-    ? Date.parse(relevant.at(-1).completedAt)
-    : 0;
-  ({ level, dueAt, lapses } = applyDebriefToReviewState(
-    { level, dueAt, lapses, lastAttemptAt },
-    lastDebrief,
-  ));
-  const due = Boolean(dueAt && dueAt.getTime() <= now.getTime());
-  const overdueDays = due
-    ? Math.max(0, Math.floor((now.getTime() - dueAt.getTime()) / DAY_MS))
-    : 0;
+  const progression = deriveReviewProgression(relevant, {
+    itemId: item.itemId,
+    itemRevision: item.contentRevision ?? 1,
+    activityKind,
+    events: relevantEvents,
+    now,
+  });
   return {
     relevant,
-    level,
-    dueAt,
-    due,
-    overdueDays,
-    lapses,
-    successes,
-    last: relevant.at(-1) ?? null,
-    lastDebrief,
+    ...progression,
+    dueAt: progression.dueAt ? new Date(progression.dueAt) : null,
   };
 }
 

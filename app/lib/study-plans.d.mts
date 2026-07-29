@@ -4,6 +4,7 @@ import type { LearningEvent } from "./learning-state.mjs";
 import type { InterviewStudioHistoryRecord, InterviewStudioFormat, InterviewStudioMode } from "./interview-studio.mjs";
 import type { DailyPlan } from "./planner.mjs";
 import type { SessionQueueEntry } from "./sessions.mjs";
+import type { ReviewProgressionResult } from "./review-progression.mjs";
 import type { TypingProgressionWorkspace } from "./typing-progression.mjs";
 
 export type StudyPlanPace = 15 | 30 | 45;
@@ -25,6 +26,18 @@ export type StudyPlan = {
 export type StudyTombstone = { entity: "collection" | "plan"; id: string; deletedAt: string };
 export type StudyWorkspace = { version: 1; revision: number; updatedAt: string; activePlanId: string | null; collections: StudyCollection[]; plans: StudyPlan[]; tombstones: StudyTombstone[] };
 export type StudyEvidence = { items: PracticeItem[]; attempts?: AttemptRecord[]; learningEvents?: LearningEvent[]; typingProgress?: TypingProgressionWorkspace; interviewStudioHistory?: InterviewStudioHistoryRecord[]; sessionHistory?: SessionHistoryRecord[]; now?: string | Date | number };
+export type StudyItemEvidence = {
+  itemId: ItemId;
+  unavailable?: boolean;
+  independent: boolean;
+  assisted: boolean;
+  attempted?: boolean;
+  outdated: boolean;
+  due: boolean;
+  retained: boolean;
+  last?: AttemptRecord | null;
+  reviewProgression?: ReviewProgressionResult | null;
+};
 export type StudyPlanTemplate = { id: string; title: string; description: string; outcome: string; recommended?: boolean; estimatedBlocks: number; defaultPace: StudyPlanPace; lanes: string[]; modules: ReadonlyArray<Record<string, unknown>>; selector?: Record<string, unknown>; capstone?: StudyCapstone };
 
 export const STUDY_PLAN_LIMITS: Readonly<{ maxCollections: number; maxPlans: number; maxItemsPerCollection: number; maxTombstones: number; maxName: number; maxDescription: number; maxSessionLinks: number }>;
@@ -43,6 +56,6 @@ export function activateStudyPlan(workspace: StudyWorkspace, planId: string, opt
 export function pauseStudyPlan(workspace: StudyWorkspace, planId: string, options?: { now?: string | Date | number }): StudyWorkspace;
 export function deleteStudyPlan(workspace: StudyWorkspace, planId: string, options?: { now?: string | Date | number }): StudyWorkspace;
 export function instantiateStudyPlanTemplate(workspace: StudyWorkspace, templateId: string, items: PracticeItem[], options?: { planId?: string; collectionId?: string; paceMinutes?: StudyPlanPace; blocksPerWeek?: number; now?: string | Date | number }): StudyWorkspace;
-export function deriveStudyCollectionProgress(collection: StudyCollection, evidence: StudyEvidence): { totalItems: number; completedItems: number; evidence: { independent: number; assisted: number; due: number; retained: number; outdated: number }; statuses: Array<Record<string, unknown>> };
+export function deriveStudyCollectionProgress(collection: StudyCollection, evidence: StudyEvidence): { totalItems: number; completedItems: number; evidence: { independent: number; assisted: number; due: number; retained: number; outdated: number }; statuses: StudyItemEvidence[] };
 export function deriveStudyPlanProgress(plan: StudyPlan, workspace: StudyWorkspace, evidence: StudyEvidence): { completedItems: number; totalItems: number; evidence: { independent: number; assisted: number; due: number; retained: number; outdated: number }; currentModule: StudyModule; modules: Array<StudyModule & { total: number; completed: number; evidenceMet: boolean }>; whyNext: string; capstoneReady: boolean; curriculumComplete: boolean };
 export function buildNextFocusBlock(plan: StudyPlan, workspace: StudyWorkspace, evidence: StudyEvidence, options?: { now?: string | Date | number; budgetMinutes?: number; maxItems?: number }): { queue: SessionQueueEntry[]; entries: SessionQueueEntry[]; dailyPlan: DailyPlan; estimatedMinutes: number; deferredDueCount: number; rationale: string };

@@ -2,9 +2,10 @@ import type { AttemptRecord } from "./product";
 import type { ItemId, PracticeItem } from "./items";
 import type { SessionQueueEntry } from "./sessions.mjs";
 import type { LearningEvent } from "./learning-state.mjs";
+import type { ReviewActivityKind } from "./review-progression.mjs";
 import type { TypingProgressionWorkspace } from "./typing-progression.mjs";
 
-export type PlannerActivityKind = "syntax" | "solve" | "concept";
+export type PlannerActivityKind = "syntax" | ReviewActivityKind;
 export type PlannerLane = "review" | "interview" | "python" | "ios";
 export type PlannerLaneMinutes = Partial<Record<PlannerLane, number>>;
 export type PlannerLaneHistoryEntry =

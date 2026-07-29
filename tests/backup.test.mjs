@@ -41,6 +41,9 @@ const state = {
     drafts: [{ attemptId: "concept-transfer-attempt" }],
     activeAttemptId: "concept-transfer-attempt",
   },
+  attemptClosures: {
+    closures: [{ id: "closure:submission:failed" }],
+  },
 };
 
 test("round trips a versioned backup envelope", () => {
@@ -76,6 +79,7 @@ test("reports a human-checkable inventory", () => {
     conceptTransferAttempts: 1,
     conceptTransferDrafts: 1,
     activeConceptTransferAttempts: 1,
+    attemptClosures: 1,
   });
   assert.equal(hasMeaningfulBackupState(state), true);
   assert.equal(hasMeaningfulBackupState({ version: 31 }), false);
@@ -169,10 +173,43 @@ test("reports a human-checkable inventory", () => {
     }).activeConceptTransferAttempts,
     0,
   );
+  assert.equal(
+    hasMeaningfulBackupState({
+      version: 33,
+      attemptClosures: { closures: [{ id: "closure-only" }] },
+    }),
+    true,
+  );
+  assert.equal(
+    backupInventory({ attemptClosures: { closures: "invalid" } })
+      .attemptClosures,
+    0,
+  );
 });
 
 test("accepts plausible legacy raw states and rejects version-only impostors", () => {
   assert.equal(readBackupPayload(state, [30, 31]).envelope, false);
+  assert.deepEqual(
+    readBackupPayload(
+      {
+        version: 33,
+        settings: {},
+        attempts: [],
+        attemptClosures: { closures: [{ id: "closure-only" }] },
+      },
+      [33],
+    ),
+    {
+      envelope: false,
+      exportedAt: undefined,
+      payload: {
+        version: 33,
+        settings: {},
+        attempts: [],
+        attemptClosures: { closures: [{ id: "closure-only" }] },
+      },
+    },
+  );
   assert.equal(readBackupPayload({ version: 29 }, [30, 31]), undefined);
   assert.equal(readBackupPayload({ ...state, version: 1 }, [30, 31]), undefined);
   assert.equal(

@@ -35,11 +35,16 @@ import { supportsConceptPractice } from "./concept-practice.mjs";
 import { resolveSessionCurrentIndex } from "./sessions.mjs";
 import { normalizeSessionHistoryEntries } from "./session-recap.mjs";
 import {
-  applyDebriefToReviewState,
   normalizeLearningEvents,
   type LearningEvent,
   type RetrievalGrade,
 } from "./learning-state.mjs";
+import {
+  createAttemptClosureWorkspace,
+  reconcileAttemptClosureWorkspace,
+  type AttemptClosureWorkspace,
+} from "./attempt-closures.mjs";
+import { deriveReviewProgression } from "./review-progression.mjs";
 import {
   deriveCustomTestcaseSchema,
   migrateLegacyCustomTestcases,
@@ -343,8 +348,9 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 32;
+  version: 33;
   attempts: AttemptRecord[];
+  attemptClosures: AttemptClosureWorkspace;
   typingProgress: TypingProgressionWorkspace;
   submissionLog: SubmissionLog;
   submissionAnnotations: SubmissionAnnotations;
@@ -373,7 +379,8 @@ export type AppState = {
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v32";
+export const STORAGE_KEY = "swift-ghost-state-v33";
+export const THIRTY_SECOND_STORAGE_KEY = "swift-ghost-state-v32";
 export const THIRTY_FIRST_STORAGE_KEY = "swift-ghost-state-v31";
 export const THIRTIETH_STORAGE_KEY = "swift-ghost-state-v30";
 export const TWENTY_NINTH_STORAGE_KEY = "swift-ghost-state-v29";
@@ -405,10 +412,11 @@ export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
-  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
 ];
 export const STATE_STORAGE_KEYS = [
   STORAGE_KEY,
+  THIRTY_SECOND_STORAGE_KEY,
   THIRTY_FIRST_STORAGE_KEY,
   THIRTIETH_STORAGE_KEY,
   TWENTY_NINTH_STORAGE_KEY,
@@ -455,8 +463,11 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 32,
+  version: 33,
   attempts: [],
+  attemptClosures: createAttemptClosureWorkspace(
+    "1970-01-01T00:00:00.000Z",
+  ),
   typingProgress: createTypingProgression(),
   submissionLog: createSubmissionLog(),
   submissionAnnotations: {},
@@ -1685,6 +1696,15 @@ export function normalizeState(value: unknown): AppState {
     Number(value.version) >= 23 ? value.submissionAnnotations : undefined,
     new Set(submissionLog.receipts.map((receipt) => receipt.id)),
   );
+  const attemptClosures = reconcileAttemptClosureWorkspace(
+    Number(value.version) >= 33 ? value.attemptClosures : undefined,
+    {
+      items: [...BUILTIN_ITEMS, ...customItems],
+      attempts,
+      submissionLog,
+      now: submissionNow,
+    },
+  );
   const sessionHistory = normalizeSessionHistory(
     value.sessionHistory,
     validIds,
@@ -1743,8 +1763,9 @@ export function normalizeState(value: unknown): AppState {
     }
   }
   return {
-    version: 32,
+    version: 33,
     attempts,
+    attemptClosures,
     typingProgress,
     submissionLog,
     submissionAnnotations,
@@ -2149,55 +2170,20 @@ export function itemStats(state: AppState, itemId: ItemId) {
   };
 }
 
-const REVIEW_DAYS = [1, 3, 7, 14, 30];
 export function reviewStatus(state: AppState, itemId: ItemId) {
   const revision = itemRevision(state, itemId);
   const item =
     state.customItems.find((candidate) => candidate.itemId === itemId) ??
     BUILTIN_ITEMS.find((candidate) => candidate.itemId === itemId);
   const conceptItem = supportsConceptPractice(item);
-  const attempts = state.attempts
-    .filter(
-      (attempt) =>
-        attempt.itemId === itemId &&
-        attempt.itemRevision === revision &&
-        attempt.practiceKind === (conceptItem ? "concept" : "solving"),
-    )
-    .slice()
-    .sort((a, b) => Date.parse(a.completedAt) - Date.parse(b.completedAt));
-  let level = 0;
-  let dueAt: Date | null = null;
-  for (const attempt of attempts) {
-    if (successfulLearningAttempt(attempt)) {
-      const days = REVIEW_DAYS[Math.min(level, REVIEW_DAYS.length - 1)];
-      level = Math.min(REVIEW_DAYS.length, level + 1);
-      dueAt = new Date(Date.parse(attempt.completedAt) + days * 86400000);
-    } else if (
-      attempt.outcome === "abandoned" ||
-      attempt.qualification === "assisted"
-    ) {
-      level = Math.max(0, level - 1);
-      dueAt = new Date(Date.parse(attempt.completedAt) + 86400000);
-    }
-  }
-  const lastAttemptAt = attempts.length
-    ? Date.parse(attempts.at(-1)?.completedAt ?? "")
-    : 0;
-  const lastDebrief = state.learningEvents
-    .filter(
-      (event) =>
-        event.itemId === itemId &&
-        event.itemRevision === revision &&
-        event.activityKind === (conceptItem ? "concept" : "solve") &&
-        !Number.isNaN(Date.parse(event.createdAt)),
-    )
-    .slice()
-    .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
-    .at(-1);
-  ({ level, dueAt } = applyDebriefToReviewState(
-    { level, dueAt, lastAttemptAt },
-    lastDebrief,
-  ));
+  const progression = deriveReviewProgression(state.attempts, {
+    itemId,
+    itemRevision: revision,
+    activityKind: conceptItem ? "concept" : "solve",
+    events: state.learningEvents,
+  });
+  let level = progression.level;
+  let dueAt = progression.dueAt ? new Date(progression.dueAt) : null;
   if (!conceptItem) {
     const typing = typingReviewStatus(
       state.typingProgress,

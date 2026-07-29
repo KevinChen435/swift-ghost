@@ -22,6 +22,7 @@ export type BackupInventory = {
   conceptTransferAttempts: number;
   conceptTransferDrafts: number;
   activeConceptTransferAttempts: number;
+  attemptClosures: number;
 };
 
 export function backupInventory(state: unknown): BackupInventory;

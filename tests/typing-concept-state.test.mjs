@@ -90,7 +90,7 @@ test("v31 migration rebuilds ordered typing ownership and initializes Cold Recon
     sessionHistory: [],
   });
 
-  assert.equal(normalized.version, 32);
+  assert.equal(normalized.version, 33);
   const record = normalized.typingProgress.records.find(
     (entry) => entry.itemId === item.itemId,
   );
@@ -139,7 +139,7 @@ test("v32 normalization preserves a bounded autosaved Cold Reconstruction draft"
     sessionHistory: [],
   });
 
-  assert.equal(normalized.version, 32);
+  assert.equal(normalized.version, 33);
   assert.equal(normalized.conceptTransfer.activeAttemptId, "active-concept-transfer");
   assert.equal(normalized.conceptTransfer.attempts.length, 1);
   assert.equal(normalized.conceptTransfer.drafts.length, 1);

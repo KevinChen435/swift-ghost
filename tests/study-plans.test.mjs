@@ -10,6 +10,7 @@ import {
   createStudyPlan,
   createStudyWorkspace,
   deleteStudyCollection,
+  deriveStudyCollectionProgress,
   deriveStudyPlanProgress,
   instantiateStudyPlanTemplate,
   linkStudyPlanSession,
@@ -206,6 +207,84 @@ test("verified Python and committed Good iOS concept attempts count in separate 
   });
   assert.equal(progress.evidence.independent, 2);
   assert.equal(progress.evidence.assisted, 0);
+});
+
+test("typing ownership on a solve item cannot satisfy independent solve evidence", () => {
+  const workspace = fixedPlan();
+  const sequence = [
+    typingAttempt(1, "2026-07-27T09:00:00.000Z", { itemId: "python:1", itemRevision: 2 }),
+    typingAttempt(3, "2026-07-27T10:00:00.000Z", { itemId: "python:1", itemRevision: 2 }),
+    typingAttempt(5, "2026-07-27T11:00:00.000Z", { itemId: "python:1", itemRevision: 2 }),
+  ];
+  const progress = deriveStudyPlanProgress(workspace.plans[0], workspace, {
+    items,
+    attempts: sequence,
+    typingProgress: typingProgression(sequence),
+    interviewStudioHistory: [],
+    sessionHistory: [],
+    now: at,
+  });
+  assert.equal(progress.evidence.independent, 0);
+  assert.equal(progress.evidence.assisted, 1);
+  assert.equal(progress.curriculumComplete, false);
+});
+
+test("study evidence uses the canonical due gate instead of counting massed retries", () => {
+  const workspace = fixedPlan();
+  const collection = workspace.plans[0].collectionSnapshot;
+  const progress = deriveStudyCollectionProgress(collection, {
+    items,
+    attempts: [
+      attempt({ id: "acquire", completedAt: "2026-07-27T12:00:00.000Z" }),
+      attempt({ id: "massed", completedAt: "2026-07-27T13:00:00.000Z" }),
+    ],
+    learningEvents: [],
+    now: "2026-07-27T14:00:00.000Z",
+  });
+  const solve = progress.statuses.find((status) => status.itemId === "python:1");
+  assert.equal(solve.due, false);
+  assert.equal(solve.retained, true);
+  assert.equal(solve.reviewProgression.level, 1);
+  assert.equal(
+    solve.reviewProgression.dueAt,
+    "2026-07-28T12:00:00.000Z",
+  );
+  assert.deepEqual(solve.reviewProgression.evidenceAttemptIds, ["acquire"]);
+});
+
+test("study progress and focus blocks agree when a debrief lapses review", () => {
+  const workspace = fixedPlan();
+  const attempts = [attempt({ id: "clean", completedAt: "2026-07-20T12:00:00.000Z" })];
+  const learningEvents = [
+    {
+      id: "again-clean",
+      attemptId: "clean",
+      itemId: "python:1",
+      itemRevision: 2,
+      practiceKind: "solving",
+      activityKind: "solve",
+      grade: "again",
+      friction: "recognition",
+      confidence: 2,
+      createdAt: "2026-07-27T12:00:00.000Z",
+    },
+  ];
+  const evidence = {
+    items,
+    attempts,
+    learningEvents,
+    interviewStudioHistory: [],
+    sessionHistory: [],
+    now: at,
+  };
+  const progress = deriveStudyPlanProgress(workspace.plans[0], workspace, evidence);
+  assert.equal(progress.evidence.due, 1);
+  const block = buildNextFocusBlock(workspace.plans[0], workspace, evidence, {
+    now: at,
+    budgetMinutes: 15,
+  });
+  assert.equal(block.entries[0].itemId, "python:1");
+  assert.equal(block.entries[0].lane, "review");
 });
 
 test("stale revisions are preserved as outdated but do not satisfy current evidence", () => {

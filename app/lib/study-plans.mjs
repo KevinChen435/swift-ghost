@@ -1,11 +1,11 @@
 import { buildDailyPlan } from "./planner.mjs";
+import { supportsConceptPractice } from "./concept-practice.mjs";
+import { deriveReviewProgression } from "./review-progression.mjs";
 import {
   deriveTypingProgression,
   rebuildTypingProgression,
 } from "./typing-progression.mjs";
 
-const DAY_MS = 86_400_000;
-const REVIEW_DAYS = [1, 3, 7, 14, 30];
 const ISO_EPOCH = "1970-01-01T00:00:00.000Z";
 const COLLECTION_ADDITIONS_MODULE = Object.freeze({
   id: "collection-additions",
@@ -532,13 +532,6 @@ export function linkStudyPlanSession(workspace, planId, sessionId, kind = "focus
   return changed(normalized, { plans }, iso(options.now, new Date().toISOString()));
 }
 
-function successfulAttempt(attempt, item) {
-  if (!attempt || attempt.outcome !== "completed" || attempt.itemRevision !== item.contentRevision || Number(attempt.peeks ?? 0) > 0) return false;
-  if (attempt.practiceKind === "solving") return Boolean(attempt.verification?.total > 0 && attempt.verification.passed === attempt.verification.total);
-  if (attempt.practiceKind === "concept") return attempt.conceptGrade === "good" || attempt.conceptGrade === "easy";
-  return false;
-}
-
 function currentTypingProgress(evidence, items, now) {
   if (evidence.typingProgress) return evidence.typingProgress;
   const currentRevisions = new Map(
@@ -551,10 +544,9 @@ function currentTypingProgress(evidence, items, now) {
   });
 }
 
-function itemEvidence(item, attempts, now, typingProgress) {
+function itemEvidence(item, attempts, events, now, typingProgress) {
   const all = attempts.filter((attempt) => attempt.itemId === item.itemId).sort((a, b) => Date.parse(a.completedAt ?? "") - Date.parse(b.completedAt ?? ""));
   const current = all.filter((attempt) => attempt.itemRevision === item.contentRevision);
-  const successes = current.filter((attempt) => successfulAttempt(attempt, item));
   const typing = deriveTypingProgression(
     typingProgress,
     item.itemId,
@@ -562,11 +554,24 @@ function itemEvidence(item, attempts, now, typingProgress) {
     iso(now),
   );
   const last = current.at(-1);
-  const lastSuccess = successes.at(-1);
-  const interval = REVIEW_DAYS[Math.min(Math.max(0, successes.length - 1), REVIEW_DAYS.length - 1)];
-  const dueAt = lastSuccess ? Date.parse(lastSuccess.completedAt) + interval * DAY_MS : null;
-  const due = typing.due || (Number.isFinite(dueAt) && dueAt <= now);
-  const independent = successes.length > 0 || typing.owned;
+  const activityKind = supportsConceptPractice(item)
+    ? "concept"
+    : item.language === "python" && item.verification
+      ? "solve"
+      : null;
+  const review = activityKind
+    ? deriveReviewProgression(current, {
+        itemId: item.itemId,
+        itemRevision: item.contentRevision ?? 1,
+        activityKind,
+        events,
+        now,
+      })
+    : null;
+  const due = activityKind ? Boolean(review?.due) : typing.due;
+  const independent = activityKind
+    ? Boolean(review?.successes)
+    : typing.owned;
   const attempted = current.length > 0 || typing.attemptCount > 0;
   return {
     independent,
@@ -576,6 +581,7 @@ function itemEvidence(item, attempts, now, typingProgress) {
     due,
     retained: independent && !due,
     last,
+    reviewProgression: review,
   };
 }
 
@@ -586,7 +592,7 @@ export function deriveStudyCollectionProgress(collection, evidence = {}) {
   const statuses = collection.itemIds.map((id) => {
     const item = itemsById.get(id);
     if (!item) return { itemId: id, unavailable: true, independent: false, assisted: false, due: false, retained: false, outdated: true };
-    return { itemId: id, ...itemEvidence(item, evidence.attempts ?? [], now, typingProgress) };
+    return { itemId: id, ...itemEvidence(item, evidence.attempts ?? [], evidence.learningEvents ?? [], now, typingProgress) };
   });
   return {
     totalItems: statuses.length,
@@ -690,7 +696,13 @@ export function buildNextFocusBlock(plan, workspace, evidence = {}, options = {}
     (item) =>
       allowed.has(item.itemId) &&
       (currentModuleIds.has(item.itemId) ||
-        itemEvidence(item, evidence.attempts ?? [], now, typingProgress).due),
+        itemEvidence(
+          item,
+          evidence.attempts ?? [],
+          evidence.learningEvents ?? [],
+          now,
+          typingProgress,
+        ).due),
   );
   const recentLaneMinutes = (evidence.sessionHistory ?? [])
     .filter((session) => plan.sessionIds?.includes(session.id) && session.laneMinutes)

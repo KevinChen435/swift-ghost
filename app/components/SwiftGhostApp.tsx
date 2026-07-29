@@ -53,6 +53,7 @@ import { CatalogLibrary } from "./CatalogLibrary";
 import { SessionRecap } from "./SessionRecap";
 import { CustomChallengeDialog } from "./CustomChallengeDialog";
 import { SubmissionWorkLog } from "./SubmissionWorkLog";
+import { AttemptClosureCenter } from "./AttemptClosureCenter";
 import { SolutionReviewWorkspace } from "./SolutionReviewWorkspace";
 import { WeaknessLab } from "./WeaknessLab";
 import { PatternAcademy } from "./PatternAcademy";
@@ -187,6 +188,13 @@ import {
   updateSubmissionAnnotation,
   type SubmissionAnnotation,
 } from "../lib/submission-annotations.mjs";
+import {
+  completeAttemptClosure as completeAttemptClosureRecord,
+  deriveAttemptClosureModel,
+  reconcileAttemptClosureWorkspace,
+  updateAttemptClosureDraft,
+  type AttemptClosureRecord,
+} from "../lib/attempt-closures.mjs";
 import {
   createSolutionReview,
   scheduleReasonForReview,
@@ -861,6 +869,7 @@ export default function SwiftGhostApp() {
   const [recordsSection, setRecordsSection] =
     useState<RecordsSection>("overview");
   const [reviewAttemptId, setReviewAttemptId] = useState<string>();
+  const [closureRouteId, setClosureRouteId] = useState<string>();
   const [transferRecordVariantId, setTransferRecordVariantId] =
     useState<string>();
   const [transferRecordAttemptId, setTransferRecordAttemptId] =
@@ -1005,6 +1014,7 @@ export default function SwiftGhostApp() {
       );
       setRecordsSection(route.recordsSection ?? "overview");
       setReviewAttemptId(route.reviewAttemptId);
+      setClosureRouteId(route.closureId);
       setTransferRecordVariantId(route.transferVariantId);
       setTransferRecordAttemptId(route.transferAttemptId);
       setSubmissionLogQuery(
@@ -1096,6 +1106,19 @@ export default function SwiftGhostApp() {
             view: "records",
             recordsSection: "reviews",
             reviewAttemptId: route.reviewAttemptId,
+          },
+          window.location.href,
+        );
+        const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        if (canonicalHref !== currentHref)
+          window.history.replaceState({}, "", canonicalHref);
+      }
+      if (route.view === "records" && route.recordsSection === "closures") {
+        const canonicalHref = serializeRoute(
+          {
+            view: "records",
+            recordsSection: "closures",
+            closureId: route.closureId,
           },
           window.location.href,
         );
@@ -1217,6 +1240,7 @@ export default function SwiftGhostApp() {
       );
       setRecordsSection(route.recordsSection ?? "overview");
       setReviewAttemptId(route.reviewAttemptId);
+      setClosureRouteId(route.closureId);
       setTransferRecordVariantId(route.transferVariantId);
       setTransferRecordAttemptId(route.transferAttemptId);
       setSubmissionLogQuery(
@@ -1443,6 +1467,7 @@ export default function SwiftGhostApp() {
         setPatternLessonStep("recognize");
         setSelectedSessionId(undefined);
         setReviewAttemptId(undefined);
+        setClosureRouteId(undefined);
         setTransferRecordVariantId(undefined);
         setTransferRecordAttemptId(undefined);
         window.history.replaceState(
@@ -1498,6 +1523,7 @@ export default function SwiftGhostApp() {
             ? route.reviewAttemptId
             : undefined,
         );
+        setClosureRouteId(route.closureId);
       }
       setReady(true);
     });
@@ -2145,6 +2171,24 @@ export default function SwiftGhostApp() {
       >,
     [now, state.conceptTransfer],
   );
+  const attemptClosureModel = useMemo(
+    () =>
+      deriveAttemptClosureModel(state.attemptClosures, {
+        items: allItems,
+        attempts: state.attempts,
+        submissionLog: state.submissionLog,
+        selectedId: closureRouteId,
+        now: new Date(now).toISOString(),
+      }),
+    [
+      allItems,
+      closureRouteId,
+      now,
+      state.attemptClosures,
+      state.attempts,
+      state.submissionLog,
+    ],
+  );
   const weaknessModel = useMemo(() => {
     const itemSignals = Object.fromEntries(
       curriculumItems.map((candidate) => {
@@ -2167,6 +2211,7 @@ export default function SwiftGhostApp() {
       submissionReceipts: state.submissionLog.receipts,
       learningEvents: state.learningEvents,
       solutionReviews: state.solutionReviews,
+      attemptClosures: state.attemptClosures.closures,
       assessmentReports: weaknessAssessmentReports,
       sessionHistory: state.sessionHistory,
       transferRecords: weaknessTransferRecords,
@@ -2223,6 +2268,24 @@ export default function SwiftGhostApp() {
       stateRef.current = next;
       return next;
     });
+  }
+
+  function withReconciledAttemptClosures(
+    current: AppState,
+    at = new Date().toISOString(),
+  ): AppState {
+    return {
+      ...current,
+      attemptClosures: reconcileAttemptClosureWorkspace(
+        current.attemptClosures,
+        {
+          items: [...BUILTIN_ITEMS, ...current.customItems],
+          attempts: current.attempts,
+          submissionLog: current.submissionLog,
+          now: at,
+        },
+      ),
+    };
   }
 
   function invalidateCloudWork() {
@@ -2974,6 +3037,10 @@ export default function SwiftGhostApp() {
       openTransferRecords(value.sourceId);
       return;
     }
+    if (value.kind === "attempt-closure" && value.sourceId) {
+      openAttemptClosure(value.sourceId);
+      return;
+    }
     if (value.kind === "pattern-decision") {
       const lesson = PATTERN_LESSONS.find(
         (candidate) => candidate.pattern === value.topicKey,
@@ -3068,6 +3135,7 @@ export default function SwiftGhostApp() {
     setView("records");
     setRecordsSection(nextSection);
     setReviewAttemptId(undefined);
+    setClosureRouteId(undefined);
     setTransferRecordVariantId(undefined);
     setTransferRecordAttemptId(undefined);
     setSubmissionLogQuery(normalized);
@@ -3080,6 +3148,8 @@ export default function SwiftGhostApp() {
           }
         : nextSection === "reviews"
           ? { view: "records", recordsSection: "reviews" }
+          : nextSection === "closures"
+            ? { view: "records", recordsSection: "closures" }
           : nextSection === "trends"
             ? { view: "records", recordsSection: "trends" }
             : nextSection === "transfer"
@@ -3100,6 +3170,7 @@ export default function SwiftGhostApp() {
     setView("records");
     setRecordsSection("transfer");
     setReviewAttemptId(undefined);
+    setClosureRouteId(undefined);
     setTransferRecordVariantId(variantId);
     setTransferRecordAttemptId(variantId ? attemptId : undefined);
     setResult(null);
@@ -3108,6 +3179,22 @@ export default function SwiftGhostApp() {
       recordsSection: "transfer",
       transferVariantId: variantId,
       transferAttemptId: variantId ? attemptId : undefined,
+    });
+  }
+
+  function openAttemptClosure(closureId?: string) {
+    if (blockVirtualRoundNavigation()) return;
+    setView("records");
+    setRecordsSection("closures");
+    setReviewAttemptId(undefined);
+    setClosureRouteId(closureId);
+    setTransferRecordVariantId(undefined);
+    setTransferRecordAttemptId(undefined);
+    setResult(null);
+    writeRoute({
+      view: "records",
+      recordsSection: "closures",
+      closureId,
     });
   }
 
@@ -3435,6 +3522,114 @@ export default function SwiftGhostApp() {
     setToast("Private submission reflection saved locally");
   }
 
+  function saveAttemptClosureDraft(
+    closureId: string,
+    patch: Partial<
+      Pick<
+        AttemptClosureRecord,
+        | "mistakeTags"
+        | "firstWrongDecision"
+        | "verificationNotes"
+        | "teachBack"
+        | "grade"
+      >
+    >,
+    expectedUpdatedAt: string,
+  ) {
+    try {
+      const savedAt = new Date().toISOString();
+      commitStateImmediately(
+        (current) => ({
+          ...current,
+          attemptClosures: updateAttemptClosureDraft(
+            current.attemptClosures,
+            closureId,
+            patch,
+            {
+              now: savedAt,
+              expectedRevision: current.attemptClosures.revision,
+              expectedUpdatedAt,
+            },
+          ),
+        }),
+        { requirePersistence: true },
+      );
+      setToast("Attempt closure draft saved locally");
+      return true;
+    } catch (error) {
+      setToast(
+        error instanceof Error
+          ? error.message
+          : "Attempt closure could not be saved",
+      );
+      return false;
+    }
+  }
+
+  function finishAttemptClosure(
+    closureId: string,
+    expectedUpdatedAt: string,
+  ) {
+    try {
+      const completedAt = new Date().toISOString();
+      commitStateImmediately(
+        (current) => ({
+          ...current,
+          attemptClosures: completeAttemptClosureRecord(
+            current.attemptClosures,
+            closureId,
+            {
+              now: completedAt,
+              expectedRevision: current.attemptClosures.revision,
+              expectedUpdatedAt,
+            },
+          ),
+        }),
+        { requirePersistence: true },
+      );
+      setToast("Closure saved · clean retry scheduled for tomorrow");
+      return true;
+    } catch (error) {
+      setToast(
+        error instanceof Error
+          ? error.message
+          : "Attempt closure could not be completed",
+      );
+      return false;
+    }
+  }
+
+  function retryAttemptClosure(closureId: string) {
+    const current = stateRef.current;
+    const model = deriveAttemptClosureModel(current.attemptClosures, {
+      items: [...BUILTIN_ITEMS, ...current.customItems],
+      attempts: current.attempts,
+      submissionLog: current.submissionLog,
+      selectedId: closureId,
+      now: new Date().toISOString(),
+    });
+    const closure = model.selected;
+    const itemToRetry = closure
+      ? allItems.find(
+          (candidate) => candidate.itemId === closure.anchor.itemId,
+        )
+      : undefined;
+    if (!closure || !itemToRetry?.verification || itemToRetry.language !== "python") {
+      setToast("This closure no longer has a runnable current Python problem");
+      return;
+    }
+    if (closure.status !== "due") {
+      setToast("This clean retry is not due yet");
+      return;
+    }
+    if (current.virtualRoundWorkspace.active) {
+      setToast("Finish or archive the active virtual round before retrying");
+      return;
+    }
+    openItem(itemToRetry, 5, undefined, undefined, "solving");
+    setToast("Clean retry opened · pass without hints to resolve the closure");
+  }
+
   function openSubmissionClean(itemToOpen: PracticeItem) {
     if (stateRef.current.virtualRoundWorkspace.active) {
       setToast("Finish or archive the active virtual round before starting a clean retry");
@@ -3638,7 +3833,7 @@ export default function SwiftGhostApp() {
         ),
       };
     }
-    return {
+    return withReconciledAttemptClosures({
       ...synchronized,
       activeSession,
       attempts: [...synchronized.attempts, attempt].slice(-1000),
@@ -3648,7 +3843,7 @@ export default function SwiftGhostApp() {
         { now: attempt.completedAt },
       ),
       draft: null,
-    };
+    }, attempt.completedAt);
   }
 
   function openItem(
@@ -4071,11 +4266,13 @@ export default function SwiftGhostApp() {
 
   function recordSubmission(submission: SubmissionRecord) {
     try {
+      const settledAt = new Date().toISOString();
       commitStateImmediately((current) =>
-        withPrunedSubmissionAnnotations(
+        withReconciledAttemptClosures(
+          withPrunedSubmissionAnnotations(
           current,
           settleSubmissionReceipt(current.submissionLog, submission.id, {
-            settledAt: new Date().toISOString(),
+            settledAt,
             status: submission.status,
             durationMs: submission.durationMs,
             passed: submission.passed,
@@ -4084,6 +4281,8 @@ export default function SwiftGhostApp() {
               ? { interruptionReason: "local-judge-error" }
               : {}),
           }),
+          ),
+          settledAt,
         ),
       );
     } catch (error) {
@@ -5095,13 +5294,14 @@ export default function SwiftGhostApp() {
   function settleActiveVirtualRoundSubmission(submission: SubmissionRecord) {
     const roundId = submission.virtualRoundId;
     if (!roundId) return;
+    const settledAt = new Date().toISOString();
     const next = commitStateImmediately((current) => {
       const virtualRoundWorkspace = settleVirtualRoundSubmission(
         current.virtualRoundWorkspace,
         roundId,
         submission.id,
         {
-          judgedAt: new Date().toISOString(),
+          judgedAt: settledAt,
           status: submission.status,
           durationMs: submission.durationMs,
           passed: submission.passed,
@@ -5112,7 +5312,7 @@ export default function SwiftGhostApp() {
         current.submissionLog,
         submission.id,
         {
-          settledAt: new Date().toISOString(),
+          settledAt,
           status: submission.status,
           durationMs: submission.durationMs,
           passed: submission.passed,
@@ -5122,14 +5322,14 @@ export default function SwiftGhostApp() {
             : {}),
         },
       );
-      return {
+      return withReconciledAttemptClosures({
         ...withPrunedSubmissionAnnotations(current, submissionLog),
         virtualRoundWorkspace,
         draft:
           !virtualRoundWorkspace.active && current.draft?.virtualRoundId === roundId
             ? null
             : current.draft,
-      };
+      }, settledAt);
     });
     if (!next.virtualRoundWorkspace.active) {
       openVirtualRoundReport(roundId);
@@ -6696,7 +6896,7 @@ export default function SwiftGhostApp() {
         : "";
       if (
         !window.confirm(
-          `Replace ${profileLabel} with this backup${exportedLabel}?\n\nIt contains ${inventory.attempts} attempts, ${inventory.submissions} submissions, ${inventory.sessions} sessions, ${inventory.customItems} custom items, ${inventory.typingProgressRecords} typing progress records, ${inventory.plans} study plans, ${inventory.testDesignAttempts} Test Design attempts, ${inventory.testDesignDrafts} Test Design drafts, ${inventory.activeTestDesignSprints} active Test Design lab, ${inventory.conceptTransferAttempts} Cold Reconstruction attempts, ${inventory.conceptTransferDrafts} Cold Reconstruction drafts, and ${inventory.activeConceptTransferAttempts} active Cold Reconstruction attempt. Community sharing stays off. Hosted Study Plans are preserved and merged after import.`,
+          `Replace ${profileLabel} with this backup${exportedLabel}?\n\nIt contains ${inventory.attempts} attempts, ${inventory.submissions} submissions, ${inventory.attemptClosures} attempt closures, ${inventory.sessions} sessions, ${inventory.customItems} custom items, ${inventory.typingProgressRecords} typing progress records, ${inventory.plans} study plans, ${inventory.testDesignAttempts} Test Design attempts, ${inventory.testDesignDrafts} Test Design drafts, ${inventory.activeTestDesignSprints} active Test Design lab, ${inventory.conceptTransferAttempts} Cold Reconstruction attempts, ${inventory.conceptTransferDrafts} Cold Reconstruction drafts, and ${inventory.activeConceptTransferAttempts} active Cold Reconstruction attempt. Community sharing stays off. Hosted Study Plans are preserved and merged after import.`,
         )
       ) {
         event.target.value = "";
@@ -6794,7 +6994,7 @@ export default function SwiftGhostApp() {
     const inventory = backupInventory(guestState);
     if (
       !window.confirm(
-        `Copy guest progress into ${cloud.session?.user?.displayName ?? "this account"}?\n\nThis replaces browser-only account data with ${inventory.attempts} attempts, ${inventory.sessions} sessions, ${inventory.customItems} custom items, ${inventory.typingProgressRecords} typing progress records, ${inventory.testDesignAttempts} Test Design attempts, ${inventory.testDesignDrafts} Test Design drafts, ${inventory.activeTestDesignSprints} active Test Design lab, ${inventory.conceptTransferAttempts} Cold Reconstruction attempts, ${inventory.conceptTransferDrafts} Cold Reconstruction drafts, and ${inventory.activeConceptTransferAttempts} active Cold Reconstruction attempt. Account Study Plans are merged, community sharing stays off, and the guest copy remains available.`,
+        `Copy guest progress into ${cloud.session?.user?.displayName ?? "this account"}?\n\nThis replaces browser-only account data with ${inventory.attempts} attempts, ${inventory.attemptClosures} attempt closures, ${inventory.sessions} sessions, ${inventory.customItems} custom items, ${inventory.typingProgressRecords} typing progress records, ${inventory.testDesignAttempts} Test Design attempts, ${inventory.testDesignDrafts} Test Design drafts, ${inventory.activeTestDesignSprints} active Test Design lab, ${inventory.conceptTransferAttempts} Cold Reconstruction attempts, ${inventory.conceptTransferDrafts} Cold Reconstruction drafts, and ${inventory.activeConceptTransferAttempts} active Cold Reconstruction attempt. Account Study Plans are merged, community sharing stays off, and the guest copy remains available.`,
       )
     )
       return;
@@ -7100,6 +7300,7 @@ export default function SwiftGhostApp() {
           items={curriculumItems}
           cloudStatus={cloud.status}
           cloudDaily={cloud.dailyChallenge}
+          attemptClosureModel={attemptClosureModel}
           weaknessCase={weaknessModel.nextCase}
           weaknessActiveCount={weaknessModel.summary.active}
           onOpen={openItem}
@@ -7109,6 +7310,7 @@ export default function SwiftGhostApp() {
           onCreate={() => setCustomEditor("new")}
           onSessions={() => navigateView("sessions")}
           onPlans={() => navigateView("plans")}
+          onAttemptClosure={openAttemptClosure}
           onWeakness={() =>
             updateWeaknessRoute({
               filter: "priority",
@@ -7532,6 +7734,8 @@ export default function SwiftGhostApp() {
           items={allItems}
           section={recordsSection}
           reviewAttemptId={reviewAttemptId}
+          closureRouteId={closureRouteId}
+          attemptClosureModel={attemptClosureModel}
           transferRecordVariantId={transferRecordVariantId}
           transferRecordAttemptId={transferRecordAttemptId}
           submissionQuery={submissionLogQuery}
@@ -7552,6 +7756,10 @@ export default function SwiftGhostApp() {
           onSectionChange={(nextSection) =>
             updateRecordsRoute(nextSection, submissionLogQuery, "push")
           }
+          onSelectAttemptClosure={openAttemptClosure}
+          onSaveAttemptClosure={saveAttemptClosureDraft}
+          onCompleteAttemptClosure={finishAttemptClosure}
+          onRetryAttemptClosure={retryAttemptClosure}
           onSelectTransferRecord={openTransferRecords}
           onOpenTransferVariant={startTransferVariant}
           onSubmissionQueryChange={(nextQuery, history) =>
@@ -7658,6 +7866,7 @@ function TodayView({
   items,
   cloudStatus,
   cloudDaily,
+  attemptClosureModel,
   weaknessCase,
   weaknessActiveCount,
   onOpen,
@@ -7667,6 +7876,7 @@ function TodayView({
   onCreate,
   onSessions,
   onPlans,
+  onAttemptClosure,
   onWeakness,
   onAssess,
   onPatternReview,
@@ -7680,6 +7890,7 @@ function TodayView({
   items: PracticeItem[];
   cloudStatus: CloudRuntime["status"];
   cloudDaily: CloudDailyChallenge | null;
+  attemptClosureModel: ReturnType<typeof deriveAttemptClosureModel>;
   weaknessCase: WeaknessCase | null;
   weaknessActiveCount: number;
   onOpen: (
@@ -7695,6 +7906,7 @@ function TodayView({
   onCreate: () => void;
   onSessions: () => void;
   onPlans: () => void;
+  onAttemptClosure: (closureId?: string) => void;
   onWeakness: () => void;
   onAssess: () => void;
   onPatternReview: () => void;
@@ -7825,6 +8037,42 @@ function TodayView({
           <button className="primary-button" onClick={onPlans}>
             Continue plan <span>→</span>
           </button>
+        </section>
+      )}
+      {attemptClosureModel.summary.active > 0 && attemptClosureModel.next && (
+        <section
+          className="today-weakness today-attempt-closure"
+          aria-label="Unclosed coding attempts"
+        >
+          <div>
+            <span className="eyebrow">Attempt closure · evidence before retry</span>
+            <h2>{attemptClosureModel.next.titleSnapshot}</h2>
+            <p>
+              {attemptClosureModel.summary.due > 0
+                ? `${attemptClosureModel.summary.due} clean ${attemptClosureModel.summary.due === 1 ? "retry is" : "retries are"} due.`
+                : attemptClosureModel.next.state === "draft"
+                  ? `${attemptClosureModel.summary.drafts} failed or abandoned ${attemptClosureModel.summary.drafts === 1 ? "attempt needs" : "attempts need"} a short debrief. Capture the first wrong decision, verification plan, and teach-back before another clean solve.`
+                  : "The closure is saved. Its clean retry stays gated until the next-day retrieval window."}
+            </p>
+          </div>
+          <span className={`weakness-status is-${attemptClosureModel.next.status}`}>
+            {attemptClosureModel.next.status === "due"
+              ? "Retry due"
+              : attemptClosureModel.next.state === "draft"
+                ? "Closure open"
+                : "Retry scheduled"}
+          </span>
+          <button
+            className="primary-button"
+            onClick={() => onAttemptClosure(attemptClosureModel.next?.id)}
+          >
+            {attemptClosureModel.next.state === "draft"
+              ? "Close this attempt →"
+              : "View retry schedule →"}
+          </button>
+          <small>
+            Reflection schedules remediation; it never counts as a solved problem or mastery.
+          </small>
         </section>
       )}
       {weaknessCase && (
@@ -10811,6 +11059,7 @@ const RECORDS_SECTION_LABELS: Record<RecordsSection, string> = {
   trends: "Trends",
   transfer: "Transfer",
   submissions: "Submissions",
+  closures: "Closures",
   reviews: "Reviews",
 };
 
@@ -10844,6 +11093,8 @@ function RecordsView({
   items,
   section,
   reviewAttemptId,
+  closureRouteId,
+  attemptClosureModel,
   transferRecordVariantId,
   transferRecordAttemptId,
   submissionQuery,
@@ -10857,6 +11108,10 @@ function RecordsView({
   onToggleUploads,
   onCloudRefresh,
   onSectionChange,
+  onSelectAttemptClosure,
+  onSaveAttemptClosure,
+  onCompleteAttemptClosure,
+  onRetryAttemptClosure,
   onSelectTransferRecord,
   onOpenTransferVariant,
   onSubmissionQueryChange,
@@ -10873,6 +11128,8 @@ function RecordsView({
   items: PracticeItem[];
   section: RecordsSection;
   reviewAttemptId?: string;
+  closureRouteId?: string;
+  attemptClosureModel: ReturnType<typeof deriveAttemptClosureModel>;
   transferRecordVariantId?: string;
   transferRecordAttemptId?: string;
   submissionQuery: SubmissionWorkLogQuery;
@@ -10892,6 +11149,26 @@ function RecordsView({
   onToggleUploads: (enabled: boolean) => void;
   onCloudRefresh: () => void;
   onSectionChange: (section: RecordsSection) => void;
+  onSelectAttemptClosure: (closureId?: string) => void;
+  onSaveAttemptClosure: (
+    closureId: string,
+    patch: Partial<
+      Pick<
+        AttemptClosureRecord,
+        | "mistakeTags"
+        | "firstWrongDecision"
+        | "verificationNotes"
+        | "teachBack"
+        | "grade"
+      >
+    >,
+    expectedUpdatedAt: string,
+  ) => boolean;
+  onCompleteAttemptClosure: (
+    closureId: string,
+    expectedUpdatedAt: string,
+  ) => boolean;
+  onRetryAttemptClosure: (closureId: string) => void;
   onSelectTransferRecord: (variantId?: string, attemptId?: string) => void;
   onOpenTransferVariant: (variantId: string) => void;
   onSubmissionQueryChange: (
@@ -10969,6 +11246,38 @@ function RecordsView({
           }
           onOpenReview={onOpenSolutionReview}
           onOpenLab={() => onAssess("transfer-lab")}
+        />
+      </main>
+    );
+  }
+
+  if (section === "closures") {
+    return (
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="page-container attempt-closure-page"
+      >
+        <PageHeading
+          eyebrow="Private remediation ledger"
+          title="Close the loop before the next clean solve."
+          copy="Wrong answers and abandoned solves keep their exact local evidence anchor. Name the first wrong decision, plan verification, teach it back, and return tomorrow without turning reflection into a mastery claim."
+        />
+        <RecordsSectionSwitch section="closures" onChange={onSectionChange} />
+        {closureRouteId && !attemptClosureModel.selected ? (
+          <p className="solution-review-route-warning" role="status">
+            That closure is unavailable, stale, or no longer linked to surviving local evidence.
+          </p>
+        ) : null}
+        <AttemptClosureCenter
+          workspace={state.attemptClosures}
+          model={attemptClosureModel}
+          items={items}
+          selectedId={closureRouteId}
+          onSelect={onSelectAttemptClosure}
+          onSave={onSaveAttemptClosure}
+          onComplete={onCompleteAttemptClosure}
+          onRetry={onRetryAttemptClosure}
         />
       </main>
     );
@@ -11105,6 +11414,14 @@ function RecordsView({
                 : [],
             ),
           )}
+          closureIdsBySubmission={Object.fromEntries(
+            attemptClosureModel.records.flatMap((closure) =>
+              closure.anchorSubmissionId
+                ? [[closure.anchorSubmissionId, closure.id] as const]
+                : [],
+            ),
+          )}
+          onOpenAttemptClosure={onSelectAttemptClosure}
           onOpenSolutionReview={onOpenSolutionReview}
         />
       </main>
@@ -11898,10 +12215,11 @@ function SettingsView({
             attempt summaries when you explicitly turn sharing on.
           </p>
           <p>
-            Exports use a portable v32 backup envelope and imports accept
-            supported v2-v32 backups, including typing progress and Cold
-            Reconstruction work. Account-bound sharing consent and upload receipts
-            are never carried into another profile.
+            Exports use a portable v33 backup envelope and imports accept
+            supported v2-v33 backups, including typing progress, Cold
+            Reconstruction work, and attempt-closure drafts. Account-bound
+            sharing consent and upload receipts are never carried into another
+            profile.
           </p>
         </div>
         <div className="data-actions">

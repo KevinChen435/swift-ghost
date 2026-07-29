@@ -457,11 +457,12 @@ test("current state persists session snapshots while retaining the complete fall
   const product = await readFile(new URL("../app/lib/product.ts", import.meta.url), "utf8");
   const app = await readFile(new URL("../app/components/SwiftGhostApp.tsx", import.meta.url), "utf8");
   const recapUi = await readFile(new URL("../app/components/SessionRecap.tsx", import.meta.url), "utf8");
-  assert.match(product, /version: 32;/);
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v32"/);
+  assert.match(product, /version: 33;/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v33"/);
+  assert.match(product, /THIRTY_SECOND_STORAGE_KEY = "swift-ghost-state-v32"/);
   assert.match(product, /THIRTY_FIRST_STORAGE_KEY = "swift-ghost-state-v31"/);
   assert.match(product, /THIRTIETH_STORAGE_KEY = "swift-ghost-state-v30"/);
-  assert.match(product, /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+THIRTY_FIRST_STORAGE_KEY,\s+THIRTIETH_STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY/);
+  assert.match(product, /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+THIRTY_SECOND_STORAGE_KEY,\s+THIRTY_FIRST_STORAGE_KEY,\s+THIRTIETH_STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY/);
   assert.match(product, /TWENTY_SIXTH_STORAGE_KEY = "swift-ghost-state-v26"/);
   assert.match(product, /entries\?: SessionQueueEntry\[\]/);
   assert.match(product, /kind === "practice" && stateVersion >= 27[\s\S]*normalizeSessionHistoryEntries\(raw\.entries\)/);
