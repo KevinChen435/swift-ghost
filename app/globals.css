@@ -8848,6 +8848,560 @@ kbd {
   border-color: color-mix(in srgb, var(--accent) 58%, var(--border));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 20%, transparent), var(--shadow-soft);
 }
+
+/* v44 durable implementation-fluency clinic */
+.fluency-clinic {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.fluency-clinic-hero,
+.fluency-workspace,
+.fluency-empty,
+.fluency-route-warning {
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+.fluency-clinic-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(260px, 0.65fr);
+  gap: 24px;
+  padding: clamp(22px, 4vw, 34px);
+  background:
+    radial-gradient(circle at 90% 8%, rgba(94, 234, 212, 0.14), transparent 36%),
+    linear-gradient(140deg, var(--panel), var(--bg-raised));
+}
+
+.fluency-clinic-hero h2 {
+  max-width: 760px;
+  margin: 8px 0 12px;
+  color: var(--text);
+  font-size: clamp(26px, 4vw, 42px);
+  letter-spacing: -0.04em;
+}
+
+.fluency-clinic-hero p,
+.fluency-action-card p,
+.fluency-editor-card > p,
+.fluency-empty p,
+.fluency-route-warning span {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.fluency-trust-card {
+  display: flex;
+  align-self: stretch;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border-soft));
+  border-radius: 14px;
+  background: rgba(94, 234, 212, 0.06);
+}
+
+.fluency-trust-card strong {
+  color: var(--accent);
+  font: 700 11px/1.4 var(--font-code);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fluency-trust-card span {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.fluency-trust-card span::before {
+  margin-right: 8px;
+  color: var(--success);
+  content: "✓";
+}
+
+.fluency-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.fluency-summary > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding: 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: var(--panel-soft);
+}
+
+.fluency-summary strong {
+  color: var(--text);
+  font: 700 24px/1 var(--font-code);
+}
+
+.fluency-summary small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.fluency-summary .tone-due {
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border));
+}
+
+.fluency-workspace {
+  display: grid;
+  min-height: 660px;
+  grid-template-columns: minmax(270px, 0.7fr) minmax(0, 1.65fr);
+  overflow: hidden;
+}
+
+.fluency-queue {
+  min-width: 0;
+  padding: 16px;
+  border-right: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--bg-raised) 72%, var(--panel));
+}
+
+.fluency-queue-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 4px 14px;
+}
+
+.fluency-queue-head > div,
+.fluency-case-title {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.fluency-queue-head small,
+.fluency-case-title small,
+.fluency-detail-head .eyebrow,
+.fluency-editor-head small {
+  color: var(--accent);
+  font: 500 10px/1.4 var(--font-code);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.fluency-queue-head > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.fluency-queue > button {
+  display: grid;
+  width: 100%;
+  min-height: 104px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
+  margin-bottom: 8px;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 13px;
+  color: var(--text);
+  text-align: left;
+  background: var(--panel);
+}
+
+.fluency-queue > button:hover,
+.fluency-queue > button.active {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: var(--accent-soft);
+}
+
+.fluency-queue > button > small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.fluency-case-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fluency-status {
+  align-self: flex-start;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font: 500 9px/1.3 var(--font-code);
+  white-space: nowrap;
+}
+
+.fluency-status.status-recheck-due,
+.fluency-status.status-reconstruction-ready {
+  border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
+  color: var(--warning);
+}
+
+.fluency-status.status-stabilized,
+.fluency-status.status-transfer-observed {
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border));
+  color: var(--success);
+}
+
+.fluency-detail {
+  min-width: 0;
+  padding: clamp(20px, 4vw, 34px);
+}
+
+.fluency-mobile-back {
+  display: none;
+  margin-bottom: 14px;
+  border: 0;
+  color: var(--accent);
+  background: transparent;
+}
+
+.fluency-detail-head,
+.fluency-editor-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.fluency-detail-head h3 {
+  margin: 5px 0 3px;
+  color: var(--text);
+  font-size: clamp(22px, 3vw, 32px);
+  letter-spacing: -0.03em;
+}
+
+.fluency-detail-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.fluency-evidence-path {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 22px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fluency-evidence-path li {
+  display: flex;
+  min-width: 0;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--panel-soft);
+}
+
+.fluency-evidence-path li > span {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--muted);
+  font: 500 10px var(--font-code);
+}
+
+.fluency-evidence-path li.done > span {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.fluency-evidence-path li > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fluency-evidence-path strong {
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.fluency-evidence-path small {
+  color: var(--faint);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.fluency-context {
+  overflow: hidden;
+  margin: 18px 0;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: #07111e;
+}
+
+.fluency-context > div {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  min-height: 35px;
+  align-items: center;
+}
+
+.fluency-context > div.target {
+  background: rgba(251, 191, 36, 0.09);
+}
+
+.fluency-context span {
+  color: var(--faint);
+  font: 11px var(--font-code);
+  text-align: center;
+}
+
+.fluency-context code {
+  overflow-x: auto;
+  padding: 8px 12px;
+  color: var(--text);
+  font: 12px/1.5 var(--font-code);
+  white-space: pre;
+}
+
+.fluency-editor-card,
+.fluency-action-card,
+.fluency-comparison,
+.fluency-audit-trail {
+  margin-top: 16px;
+  padding: 18px;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: var(--panel-soft);
+}
+
+.fluency-editor-head h4 {
+  margin: 3px 0 0;
+  color: var(--text);
+  font-size: 18px;
+}
+
+.fluency-editor-head > span {
+  color: var(--muted);
+  font: 500 11px var(--font-code);
+}
+
+.fluency-editor-card > p {
+  margin: 10px 0 14px;
+}
+
+.fluency-editor {
+  min-height: 84px;
+}
+
+.fluency-editor pre,
+.fluency-editor textarea {
+  min-height: 84px;
+}
+
+.fluency-action-card {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 9px;
+  background: linear-gradient(135deg, var(--panel-soft), rgba(94, 234, 212, 0.05));
+}
+
+.fluency-action-card strong {
+  color: var(--text);
+  font-size: 17px;
+}
+
+.fluency-action-card.quiet {
+  background: var(--panel-soft);
+}
+
+.fluency-action-card.success {
+  border-color: color-mix(in srgb, var(--success) 40%, var(--border));
+  background: rgba(74, 222, 128, 0.06);
+}
+
+.fluency-comparison {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.fluency-comparison > span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fluency-comparison small,
+.fluency-audit-trail dt {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.fluency-comparison strong {
+  color: var(--text);
+  font: 700 18px var(--font-code);
+}
+
+.fluency-audit-trail summary {
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.fluency-audit-trail dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 16px 0 0;
+}
+
+.fluency-audit-trail dl > div {
+  min-width: 0;
+}
+
+.fluency-audit-trail dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 11px;
+}
+
+.fluency-empty,
+.fluency-route-warning {
+  padding: 30px;
+}
+
+.fluency-empty strong,
+.fluency-route-warning strong {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--text);
+  font-size: 17px;
+}
+
+.fluency-route-warning button {
+  margin-top: 16px;
+}
+
+.coach-clinic-priority {
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border));
+  border-radius: 12px;
+  background: rgba(251, 191, 36, 0.06);
+}
+
+.coach-clinic-priority span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.coach-clinic-priority small {
+  color: var(--warning);
+  font: 500 9px var(--font-code);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.coach-clinic-priority strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.coach-clinic-priority p {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+@media (max-width: 1050px) {
+  .fluency-evidence-path {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 800px) {
+  .fluency-clinic-hero,
+  .fluency-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .fluency-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fluency-queue {
+    border-right: 0;
+  }
+
+  .fluency-workspace.has-selection .fluency-queue {
+    display: none;
+  }
+
+  .fluency-mobile-back {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+  }
+}
+
+@media (max-width: 520px) {
+  .fluency-evidence-path,
+  .fluency-comparison,
+  .fluency-audit-trail dl {
+    grid-template-columns: 1fr;
+  }
+
+  .fluency-detail-head {
+    flex-direction: column;
+  }
+
+  .fluency-detail {
+    padding: 18px 14px calc(24px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (forced-colors: active) {
+  .fluency-clinic-hero,
+  .fluency-workspace,
+  .fluency-empty,
+  .fluency-route-warning,
+  .fluency-summary > span,
+  .fluency-queue > button,
+  .fluency-evidence-path li,
+  .fluency-context,
+  .fluency-editor-card,
+  .fluency-action-card,
+  .fluency-comparison,
+  .fluency-audit-trail,
+  .coach-clinic-priority {
+    border: 1px solid CanvasText;
+    background: Canvas;
+    box-shadow: none;
+  }
+
+  .fluency-queue > button.active {
+    outline: 3px solid Highlight;
+  }
+}
 .assessment-program-grid > .assessment-cross-lane-card {
   grid-column: 1 / -1;
   background:

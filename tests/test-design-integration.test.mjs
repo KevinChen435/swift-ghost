@@ -7,13 +7,13 @@ import { buildWeaknessLab } from "../app/lib/weakness-lab.mjs";
 
 test("v32 adds reconstruction state while preserving the exact v31 and v30 fallbacks", async () => {
   const product = await readFile(new URL("../app/lib/product.ts", import.meta.url), "utf8");
-  assert.match(product, /version: 34;/);
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v34"/);
+  assert.match(product, /version: 35;/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v35"/);
   assert.match(product, /THIRTY_SECOND_STORAGE_KEY = "swift-ghost-state-v32"/);
   assert.match(product, /THIRTY_FIRST_STORAGE_KEY = "swift-ghost-state-v31"/);
   assert.match(product, /THIRTIETH_STORAGE_KEY = "swift-ghost-state-v30"/);
   assert.match(product, /TWENTY_NINTH_STORAGE_KEY = "swift-ghost-state-v29"/);
-  assert.match(product, /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+THIRTY_THIRD_STORAGE_KEY,\s+THIRTY_SECOND_STORAGE_KEY,\s+THIRTY_FIRST_STORAGE_KEY,\s+THIRTIETH_STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY,\s+TWENTY_EIGHTH_STORAGE_KEY/);
+  assert.match(product, /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+THIRTY_FOURTH_STORAGE_KEY,\s+THIRTY_THIRD_STORAGE_KEY,\s+THIRTY_SECOND_STORAGE_KEY,\s+THIRTY_FIRST_STORAGE_KEY,\s+THIRTIETH_STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY,\s+TWENTY_EIGHTH_STORAGE_KEY/);
   assert.match(product, /testDesign: TestDesignWorkspace/);
   assert.match(product, /testDesign: createTestDesignWorkspace\(\)/);
   assert.match(product, /Number\(value\.version\) >= 30 \? value\.testDesign : undefined/);
@@ -164,6 +164,6 @@ test("backup inventory and confirmation copy include typing, labs, and attempt c
   assert.match(app, /inventory\.conceptTransferDrafts/);
   assert.match(app, /inventory\.activeConceptTransferAttempts/);
   assert.match(app, /inventory\.attemptClosures/);
-  assert.match(app, /portable v34 backup envelope/);
-  assert.match(app, /supported v2-v34 backups/);
+  assert.match(app, /portable v35 backup envelope/);
+  assert.match(app, /supported v2-v35 backups/);
 });

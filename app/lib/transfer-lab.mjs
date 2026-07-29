@@ -102,6 +102,26 @@ function normalizeExposure(value, keyedVariantId) {
   const normalizedFirstHint = earlier(firstHintedAt, lastHintedAt);
   const normalizedLastHint = later(firstHintedAt, lastHintedAt);
   const referenceRevealedAt = nullableIso(value.referenceRevealedAt ?? value.answerUnlockedAt);
+  let targetedSelectionAt = nullableIso(value.targetedSelectionAt);
+  let lastTargetedSelectionAt = nullableIso(
+    value.lastTargetedSelectionAt ?? value.targetedSelectionAt,
+  );
+  if (!targetedSelectionAt && lastTargetedSelectionAt) {
+    targetedSelectionAt = lastTargetedSelectionAt;
+  }
+  if (targetedSelectionAt && !lastTargetedSelectionAt) {
+    lastTargetedSelectionAt = targetedSelectionAt;
+  }
+  if (
+    targetedSelectionAt &&
+    lastTargetedSelectionAt &&
+    Date.parse(targetedSelectionAt) > Date.parse(lastTargetedSelectionAt)
+  ) {
+    [targetedSelectionAt, lastTargetedSelectionAt] = [
+      lastTargetedSelectionAt,
+      targetedSelectionAt,
+    ];
+  }
   const maxHintLevel = boundedInt(
     value.maxHintLevel ?? value.hintLevel,
     0,
@@ -118,10 +138,20 @@ function normalizeExposure(value, keyedVariantId) {
     firstHintedAt: normalizedFirstHint,
     lastHintedAt: normalizedLastHint,
     referenceRevealedAt,
+    ...(targetedSelectionAt ? { targetedSelectionAt } : {}),
+    ...(lastTargetedSelectionAt ? { lastTargetedSelectionAt } : {}),
   };
 }
 
 function mergeExposure(left, right) {
+  const targetedSelectionAt = earlier(
+    left.targetedSelectionAt,
+    right.targetedSelectionAt,
+  );
+  const lastTargetedSelectionAt = later(
+    left.lastTargetedSelectionAt ?? left.targetedSelectionAt,
+    right.lastTargetedSelectionAt ?? right.targetedSelectionAt,
+  );
   return {
     variantId: left.variantId,
     variantRevision: left.variantRevision,
@@ -132,6 +162,8 @@ function mergeExposure(left, right) {
     firstHintedAt: earlier(left.firstHintedAt, right.firstHintedAt),
     lastHintedAt: later(left.lastHintedAt, right.lastHintedAt),
     referenceRevealedAt: earlier(left.referenceRevealedAt, right.referenceRevealedAt),
+    ...(targetedSelectionAt ? { targetedSelectionAt } : {}),
+    ...(lastTargetedSelectionAt ? { lastTargetedSelectionAt } : {}),
   };
 }
 
@@ -140,6 +172,7 @@ function exposureActivityMs(exposure) {
     timeMs(exposure.lastOpenedAt) ?? 0,
     timeMs(exposure.lastHintedAt) ?? 0,
     timeMs(exposure.referenceRevealedAt) ?? 0,
+    timeMs(exposure.lastTargetedSelectionAt ?? exposure.targetedSelectionAt) ?? 0,
   );
 }
 
@@ -271,6 +304,15 @@ export function recordTransferOpened(workspace, variantId, options = {}) {
   }));
 }
 
+export function recordTransferTargeted(workspace, variantId, options = {}) {
+  const targetedAt = mutationNow(options, ISO_EPOCH);
+  return mutateExposure(workspace, variantId, options, (entry) => ({
+    ...entry,
+    targetedSelectionAt: earlier(entry.targetedSelectionAt, targetedAt),
+    lastTargetedSelectionAt: later(entry.lastTargetedSelectionAt, targetedAt),
+  }));
+}
+
 export function recordTransferHint(workspace, variantId, hintLevel, options = {}) {
   const level = boundedInt(hintLevel, 0, 0, 3);
   const hintedAt = mutationNow(options, ISO_EPOCH);
@@ -376,8 +418,10 @@ function contaminatedBefore(exposure, solveAt) {
   if (solveTime === null) return true;
   const firstHintTime = timeMs(exposure.firstHintedAt);
   const referenceTime = timeMs(exposure.referenceRevealedAt);
+  const targetedTime = timeMs(exposure.targetedSelectionAt);
   if (exposure.maxHintLevel > 0 && firstHintTime === null) return true;
   return (
+    (targetedTime !== null && targetedTime <= solveTime) ||
     (firstHintTime !== null && firstHintTime <= solveTime) ||
     (referenceTime !== null && referenceTime <= solveTime)
   );
@@ -572,8 +616,29 @@ export function deriveTransferProgress(input = {}) {
     const hasOpenEvidence = Boolean(exposure);
     const isOpened = hasOpenEvidence || hasAnyEvidence;
     const isAttempted = currentAttempts.length > 0 || currentSubmissions.length > 0;
+    const targetedTime = timeMs(
+      exposure?.lastTargetedSelectionAt ?? exposure?.targetedSelectionAt,
+    );
+    const targetedTransferObservedAt =
+      targetedTime === null
+        ? null
+        : latestIso(
+            [
+              ...currentAttempts.map((entry) => attemptAt(entry)),
+              ...currentSubmissions.map((entry) => submissionAt(entry)),
+            ].filter((timestamp) => {
+              const activityTime = timeMs(timestamp);
+              return (
+                activityTime !== null &&
+                activityTime >= targetedTime &&
+                activityTime <= nowTime
+              );
+            }),
+          );
+    const targetedTransferObserved = Boolean(targetedTransferObservedAt);
     const isAssisted = Boolean(
       exposure?.maxHintLevel > 0 ||
+        exposure?.targetedSelectionAt ||
         exposure?.referenceRevealedAt ||
         currentAttempts.some(assistedEvidence) ||
         currentSubmissions.some(assistedEvidence),
@@ -616,6 +681,8 @@ export function deriveTransferProgress(input = {}) {
       isUnseen,
       isOpened,
       isAttempted,
+      targetedTransferObserved,
+      targetedTransferObservedAt,
       isAssisted,
       isProven,
       isDue,

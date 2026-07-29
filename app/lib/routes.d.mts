@@ -14,7 +14,8 @@ export type ConceptTransferSource =
   | "academy"
   | "today"
   | "assessment"
-  | "weakness";
+  | "weakness"
+  | "clinic";
 export type RecordsSection =
   | "overview"
   | "activity"
@@ -22,6 +23,7 @@ export type RecordsSection =
   | "transfer"
   | "submissions"
   | "closures"
+  | "fluency"
   | "reviews";
 export type ContestSection =
   | "overview"
@@ -46,6 +48,7 @@ export type AppRoute = {
   submissions?: SubmissionWorkLogQuery;
   reviewAttemptId?: string;
   closureId?: string;
+  fluencyClinicCaseId?: string;
   transferVariantId?: string;
   transferAttemptId?: string;
   sessionId?: string;

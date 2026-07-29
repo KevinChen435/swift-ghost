@@ -20,6 +20,7 @@ export type ConceptTransferAttempt = {
   maxHintLevel: number;
   hintRevealedAt: string[];
   assisted: boolean;
+  clinicTargeted?: true;
   prediction?: string;
   reconstruction?: string;
   tradeoff?: string;
@@ -50,6 +51,7 @@ export type ConceptTransferDraft = {
   maxHintLevel: number;
   hintRevealedAt: string[];
   assisted: boolean;
+  clinicTargeted?: true;
   updatedAt: string;
 };
 
@@ -189,6 +191,8 @@ export function startConceptTransferAttempt(
     now?: string | Date | number;
     lane?: ConceptTransferLane;
     activeFamily?: string;
+    assisted?: boolean;
+    clinicTargeted?: boolean;
   },
 ): ConceptTransferWorkspace;
 export function updateConceptTransferDraft(

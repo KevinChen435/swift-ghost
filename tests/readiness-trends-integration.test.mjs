@@ -15,7 +15,7 @@ test("Records exposes a first-class longitudinal readiness route", async () => {
     ),
   ]);
 
-  assert.match(routes, /"overview",\s*"activity",\s*"trends",\s*"transfer",\s*"submissions",\s*"closures",\s*"reviews"/s);
+  assert.match(routes, /"overview",\s*"activity",\s*"trends",\s*"transfer",\s*"submissions",\s*"closures",\s*"fluency",\s*"reviews"/s);
   assert.match(app, /section === "trends"/);
   assert.match(app, /<ReadinessTrends/);
   assert.match(app, /recordsSection: "trends"/);

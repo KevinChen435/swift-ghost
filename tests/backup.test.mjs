@@ -44,6 +44,9 @@ const state = {
   attemptClosures: {
     closures: [{ id: "closure:submission:failed" }],
   },
+  fluencyClinic: {
+    cases: [{ id: "python:101:r1:line4" }],
+  },
   runManifests: {
     manifests: [{ id: "challenge-set-1" }],
   },
@@ -83,6 +86,7 @@ test("reports a human-checkable inventory", () => {
     conceptTransferDrafts: 1,
     activeConceptTransferAttempts: 1,
     attemptClosures: 1,
+    fluencyClinicCases: 1,
     challengeSets: 1,
   });
   assert.equal(hasMeaningfulBackupState(state), true);

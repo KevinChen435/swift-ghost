@@ -38,6 +38,7 @@ export const CONCEPT_TRANSFER_SOURCES = [
   "today",
   "assessment",
   "weakness",
+  "clinic",
 ];
 export const COMMUNITY_TABS = ["recent", "records", "daily", "profile"];
 export const RECORDS_SECTIONS = [
@@ -47,6 +48,7 @@ export const RECORDS_SECTIONS = [
   "transfer",
   "submissions",
   "closures",
+  "fluency",
   "reviews",
 ];
 export const CONTEST_SECTIONS = [
@@ -97,6 +99,15 @@ function cleanPatternId(value) {
 function cleanReviewAttemptId(value) {
   const normalized = typeof value === "string" ? value.trim() : "";
   return /^[a-zA-Z0-9](?:[a-zA-Z0-9._:-]{0,158}[a-zA-Z0-9])?$/.test(
+    normalized,
+  )
+    ? normalized
+    : undefined;
+}
+
+function cleanFluencyClinicCaseId(value) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return /^[a-zA-Z0-9](?:[a-zA-Z0-9._:-]{0,198}[a-zA-Z0-9])?$/.test(
     normalized,
   )
     ? normalized
@@ -241,6 +252,10 @@ export function parseRoute(input) {
     recordsSection === "closures"
       ? cleanReviewAttemptId(params.get("closure"))
       : undefined;
+  const fluencyClinicCaseId =
+    recordsSection === "fluency"
+      ? cleanFluencyClinicCaseId(params.get("clinic"))
+      : undefined;
   const transferVariantId =
     recordsSection === "transfer"
       ? cleanTransferRecordId(params.get("variant"))
@@ -359,6 +374,7 @@ export function parseRoute(input) {
             : {}),
           ...(reviewAttemptId ? { reviewAttemptId } : {}),
           ...(closureId ? { closureId } : {}),
+          ...(fluencyClinicCaseId ? { fluencyClinicCaseId } : {}),
           ...(transferVariantId ? { transferVariantId } : {}),
           ...(transferAttemptId ? { transferAttemptId } : {}),
         }
@@ -510,6 +526,12 @@ export function serializeRoute(
     url.searchParams.set("section", "closures");
     const closureId = cleanReviewAttemptId(route?.closureId);
     if (closureId) url.searchParams.set("closure", closureId);
+  }
+  if (view === "records" && route?.recordsSection === "fluency") {
+    url.searchParams.set("section", "fluency");
+    const fluencyClinicCaseId = cleanFluencyClinicCaseId(route?.fluencyClinicCaseId);
+    if (fluencyClinicCaseId)
+      url.searchParams.set("clinic", fluencyClinicCaseId);
   }
   if (view === "records" && route?.recordsSection === "activity") {
     url.searchParams.set("section", "activity");

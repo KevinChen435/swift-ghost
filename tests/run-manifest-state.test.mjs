@@ -77,10 +77,10 @@ function manifest(status = "completed") {
     : { ...base, finishedAt: "2026-07-29T12:20:00.000Z" };
 }
 
-test("v33 migration creates an empty v34 Challenge Set workspace", async () => {
+test("v33 migration reaches v35 with an empty Challenge Set workspace", async () => {
   const { normalizeState } = await productRuntime();
   const normalized = normalizeState(rawState(33));
-  assert.equal(normalized.version, 34);
+  assert.equal(normalized.version, 35);
   assert.deepEqual(normalized.runManifests, { version: 1, manifests: [] });
 });
 

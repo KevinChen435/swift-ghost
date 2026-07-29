@@ -168,7 +168,10 @@ function normalizeAttempt(raw, registry) {
     })
     .sort()
     .slice(0, maxHintLevel);
-  const assisted = Boolean(raw.assisted || maxHintLevel > 0 || hintRevealedAt.length);
+  const clinicTargeted = raw.clinicTargeted === true;
+  const assisted = Boolean(
+    raw.assisted || clinicTargeted || maxHintLevel > 0 || hintRevealedAt.length
+  );
   const allowedCriteria = current
     ? new Set(variant.review?.criteria ?? [])
     : undefined;
@@ -221,6 +224,7 @@ function normalizeAttempt(raw, registry) {
     maxHintLevel,
     hintRevealedAt,
     assisted,
+    ...(clinicTargeted ? { clinicTargeted: true } : {}),
     ...(committedAt
       ? {
           ...attemptDraftFields(raw),
@@ -329,6 +333,7 @@ function normalizeDraft(raw, attempts, registry, now) {
     maxHintLevel,
     hintRevealedAt,
     assisted: Boolean(raw.assisted || attempt.assisted || maxHintLevel > 0),
+    ...(attempt.clinicTargeted === true ? { clinicTargeted: true } : {}),
     updatedAt: cleanIso(raw.updatedAt, now),
   };
 }
@@ -405,6 +410,7 @@ export function normalizeConceptTransferWorkspace(value, options = {}) {
       maxHintLevel: activeAttempt.maxHintLevel,
       hintRevealedAt: [...activeAttempt.hintRevealedAt],
       assisted: Boolean(activeAttempt.assisted || activeAttempt.maxHintLevel > 0),
+      ...(activeAttempt.clinicTargeted === true ? { clinicTargeted: true } : {}),
       updatedAt: activeAttempt.updatedAt,
     });
   }
@@ -626,6 +632,8 @@ export function startConceptTransferAttempt(workspace, variants, options = {}) {
     variants,
     now,
   });
+  const clinicTargeted = options.clinicTargeted === true;
+  const targetedAssistance = options.assisted === true || clinicTargeted;
   const attempt = {
     id,
     variantId: variant.id,
@@ -636,7 +644,8 @@ export function startConceptTransferAttempt(workspace, variants, options = {}) {
     wasDue: !state.isNew && state.due,
     maxHintLevel: 0,
     hintRevealedAt: [],
-    assisted: false,
+    assisted: targetedAssistance,
+    ...(clinicTargeted ? { clinicTargeted: true } : {}),
     updatedAt: now,
   };
   const draft = {
@@ -648,7 +657,8 @@ export function startConceptTransferAttempt(workspace, variants, options = {}) {
     tradeoff: "",
     maxHintLevel: 0,
     hintRevealedAt: [],
-    assisted: false,
+    assisted: targetedAssistance,
+    ...(clinicTargeted ? { clinicTargeted: true } : {}),
     updatedAt: now,
   };
   return nextWorkspace(normalized, now, {
