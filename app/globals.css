@@ -15277,6 +15277,7 @@ details.virtual-round-disclosure p {
 .decision-prompt-card h2 { max-width: 900px; margin: 18px 0; font-size: clamp(1.65rem, 3.7vw, 3.25rem); line-height: 1.18; letter-spacing: -0.04em; }
 .decision-prompt-card p { max-width: 820px; margin: 0; color: var(--muted); line-height: 1.6; }
 .decision-prompt-card strong { color: var(--text); }
+.decision-prompt-card .decision-confirmation-note { margin-top: 14px; padding: 12px 14px; border-left: 3px solid #f97316; background: color-mix(in srgb, #f97316 8%, transparent); color: var(--text); }
 .decision-commit-panel { padding: clamp(24px, 5vw, 48px); border-top: 1px solid var(--border-soft); }
 .decision-commit-panel fieldset { display: grid; gap: 18px; margin: 22px 0; padding: 0; border: 0; }
 .decision-commit-panel fieldset:disabled { opacity: 0.76; }
@@ -15303,7 +15304,7 @@ details.virtual-round-disclosure p {
 .decision-comparison > header p { margin: 0; color: var(--muted); }
 .decision-match { color: color-mix(in srgb, #10b981 76%, var(--text)); }
 .decision-miss { color: color-mix(in srgb, #f97316 78%, var(--text)); }
-.decision-comparison-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; padding: clamp(22px, 5vw, 44px); }
+.decision-comparison-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; padding: clamp(22px, 5vw, 44px); }
 .decision-comparison-grid article { padding: 18px; border: 1px solid var(--border-soft); border-radius: 14px; background: var(--bg); }
 .decision-comparison-grid span { color: var(--accent); font-size: 0.69rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; }
 .decision-comparison-grid p { margin: 10px 0 0; color: var(--muted); line-height: 1.58; }
@@ -15325,6 +15326,20 @@ details.virtual-round-disclosure p {
 .decision-review-results h2 { margin: 9px 0 7px; font-size: 1.12rem; }
 .decision-review-results p { color: var(--muted); font-size: 0.76rem; line-height: 1.45; }
 .decision-review-results article > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.decision-evidence-map { display: grid; gap: 16px; padding: clamp(20px, 4vw, 30px); border: 1px solid var(--border-soft); border-radius: 18px; background: color-mix(in srgb, var(--accent) 4%, var(--bg)); }
+.decision-evidence-map-heading { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(260px, 1.2fr); gap: 24px; align-items: end; }
+.decision-evidence-map-heading h2 { margin: 5px 0 0; font-size: clamp(1.35rem, 3vw, 2rem); }
+.decision-evidence-map-heading > p { margin: 0; color: var(--muted); line-height: 1.55; }
+.decision-evidence-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; }
+.decision-evidence-grid article { min-width: 0; padding: 13px 14px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--bg); }
+.decision-evidence-grid article > div { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+.decision-evidence-grid h3 { min-width: 0; margin: 2px 0; font-size: 0.88rem; line-height: 1.25; }
+.decision-evidence-grid p { margin: 8px 0 0; color: var(--muted); font-size: 0.7rem; line-height: 1.4; }
+.decision-evidence-status { flex: 0 0 auto; padding: 4px 7px; border-radius: 999px; font-size: 0.58rem; font-weight: 850; letter-spacing: 0.05em; text-transform: uppercase; }
+.decision-evidence-status.is-unobserved { background: color-mix(in srgb, var(--muted) 11%, transparent); color: var(--muted); }
+.decision-evidence-status.is-needs-contrast { background: color-mix(in srgb, #f97316 13%, transparent); color: color-mix(in srgb, #f97316 76%, var(--text)); }
+.decision-evidence-status.is-emerging { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.decision-evidence-status.is-retained { background: color-mix(in srgb, #10b981 13%, transparent); color: color-mix(in srgb, #10b981 75%, var(--text)); }
 .decision-review-summary-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 
 @media (max-width: 1080px) {
@@ -15337,6 +15352,7 @@ details.virtual-round-disclosure p {
   .academy-decision-card { grid-template-columns: 1fr; }
   .decision-comparison-grid,
   .decision-review-results { grid-template-columns: 1fr; }
+  .decision-evidence-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 860px) {
@@ -15387,6 +15403,8 @@ details.virtual-round-disclosure p {
   .decision-review-summary-actions button { width: 100%; justify-content: center; }
   .decision-pattern-options,
   .decision-grade-grid { grid-template-columns: 1fr; }
+  .decision-evidence-map-heading,
+  .decision-evidence-grid { grid-template-columns: 1fr; }
   .decision-grade-grid button { text-align: center; }
 }
 
@@ -15403,6 +15421,8 @@ details.virtual-round-disclosure p {
   .decision-review-shell,
   .decision-review-empty,
   .decision-review-summary,
+  .decision-evidence-map,
+  .decision-evidence-grid article,
   .decision-pattern-options span,
   .decision-comparison-grid article,
   .decision-grade-grid button {

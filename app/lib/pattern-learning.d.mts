@@ -19,7 +19,7 @@ export type PatternReview = {
 };
 
 export type PatternLearningWorkspace = {
-  version: 2;
+  version: 3;
   revision: number;
   updatedAt: string;
   reviews: PatternReview[];
@@ -39,6 +39,9 @@ export type PatternDecisionAttempt = {
   cue: string;
   invariant: string;
   whyNot: string;
+  /** Missing only on safely migrated v2 attempts committed before complexity capture. */
+  complexity?: string;
+  confirmationForAttemptId?: string;
   assisted: boolean;
   wasDue: boolean;
   match: boolean;
@@ -55,7 +58,11 @@ export type PatternDecisionAttempt = {
 export type PatternDecisionSprint = {
   id: string;
   source: PatternDecisionSource;
-  entries: { probeId: string; probeRevision: number }[];
+  entries: {
+    probeId: string;
+    probeRevision: number;
+    confirmationForAttemptId?: string;
+  }[];
   cursor: number;
   status: "active" | "completed";
   startedAt: string;
@@ -72,9 +79,16 @@ export type PatternDecisionState = {
   isNew: boolean;
   retained: boolean;
   retainedProbeCount: number;
+  status: PatternDecisionEvidenceStatus;
   completedAttempts: number;
   lastAttemptAt?: string;
 };
+
+export type PatternDecisionEvidenceStatus =
+  | "unobserved"
+  | "needs-contrast"
+  | "emerging"
+  | "retained";
 
 export type PatternEvidence = {
   committedChecks: number;
@@ -86,14 +100,17 @@ export type PatternEvidence = {
   transfer: boolean;
 };
 
-export const PATTERN_LEARNING_VERSION: 2;
+export const PATTERN_LEARNING_VERSION: 3;
 export const PATTERN_RESPONSE_LIMIT: number;
 export const PATTERN_REVIEW_LIMIT: number;
 export const PATTERN_GRADES: RetrievalGrade[];
 export const PATTERN_DECISION_LIMIT: number;
 export const PATTERN_DECISION_SPRINT_LIMIT: number;
+export const PATTERN_DECISION_BASE_SPRINT_SIZE: 4;
+export const PATTERN_DECISION_COMPLEXITY_LIMIT: number;
 export const PATTERN_DECISION_INTERVAL_DAYS: number[];
 export const PATTERN_DECISION_SOURCES: PatternDecisionSource[];
+export const PATTERN_DECISION_EVIDENCE_STATUSES: PatternDecisionEvidenceStatus[];
 export function createPatternLearningWorkspace(now?: string): PatternLearningWorkspace;
 export function normalizePatternLearningWorkspace(
   value: unknown,
@@ -157,6 +174,13 @@ export function derivePatternDecisionOverview(
   retainedCount: number;
   totalPatterns: number;
   states: PatternDecisionState[];
+  rows: {
+    lessonId: string;
+    status: PatternDecisionEvidenceStatus;
+    retainedProbeCount: number;
+    completedAttempts: number;
+    due: boolean;
+  }[];
 };
 export function selectPatternDecisionProbes(
   lessons: readonly PatternLesson[],
@@ -184,18 +208,19 @@ export function commitPatternDecision(
     cue: string;
     invariant: string;
     whyNot: string;
+    complexity: string;
     assisted?: boolean;
   },
   options: {
     id: string;
     now?: string;
-    probes?: readonly PatternDecisionProbe[];
+    probes: readonly PatternDecisionProbe[];
   },
 ): PatternLearningWorkspace;
 export function revealPatternDecision(
   workspace: PatternLearningWorkspace,
   attemptId: string,
-  options?: { now?: string },
+  options: { now?: string; probes: readonly PatternDecisionProbe[] },
 ): PatternLearningWorkspace;
 export function gradePatternDecision(
   workspace: PatternLearningWorkspace,

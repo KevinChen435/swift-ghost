@@ -1,9 +1,11 @@
-export const PATTERN_LEARNING_VERSION = 2;
+export const PATTERN_LEARNING_VERSION = 3;
 export const PATTERN_RESPONSE_LIMIT = 1_000;
 export const PATTERN_REVIEW_LIMIT = 36;
 export const PATTERN_GRADES = ["again", "hard", "good", "easy"];
 export const PATTERN_DECISION_LIMIT = 180;
 export const PATTERN_DECISION_SPRINT_LIMIT = 6;
+export const PATTERN_DECISION_BASE_SPRINT_SIZE = 4;
+export const PATTERN_DECISION_COMPLEXITY_LIMIT = 500;
 export const PATTERN_DECISION_INTERVAL_DAYS = [1, 3, 7, 14, 30];
 export const PATTERN_DECISION_SOURCES = [
   "academy",
@@ -11,6 +13,12 @@ export const PATTERN_DECISION_SOURCES = [
   "plan",
   "assessment",
   "weakness",
+];
+export const PATTERN_DECISION_EVIDENCE_STATUSES = [
+  "unobserved",
+  "needs-contrast",
+  "emerging",
+  "retained",
 ];
 
 const EPOCH = "1970-01-01T00:00:00.000Z";
@@ -86,7 +94,7 @@ export function createPatternLearningWorkspace(now = EPOCH) {
 export function normalizePatternLearningWorkspace(value, options = {}) {
   const lessons = lessonRegistry(options.lessons);
   const probes = probeRegistry(options.probes);
-  if (!isRecord(value) || ![1, PATTERN_LEARNING_VERSION].includes(value.version))
+  if (!isRecord(value) || ![1, 2, PATTERN_LEARNING_VERSION].includes(value.version))
     return createPatternLearningWorkspace(options.now);
   const deduped = new Map();
   for (const raw of Array.isArray(value.reviews) ? value.reviews : []) {
@@ -131,7 +139,7 @@ export function normalizePatternLearningWorkspace(value, options = {}) {
     )
     .slice(-PATTERN_REVIEW_LIMIT);
   const decisionById = new Map();
-  if (value.version === PATTERN_LEARNING_VERSION) {
+  if (value.version >= 2) {
     for (const raw of Array.isArray(value.decisionAttempts)
       ? value.decisionAttempts
       : []) {
@@ -158,6 +166,11 @@ export function normalizePatternLearningWorkspace(value, options = {}) {
       const cue = cleanText(raw.cue, 600);
       const invariant = cleanText(raw.invariant, 800);
       const whyNot = cleanText(raw.whyNot, 800);
+      const complexity = cleanText(
+        raw.complexity,
+        PATTERN_DECISION_COMPLEXITY_LIMIT,
+      );
+      const confirmationForAttemptId = cleanId(raw.confirmationForAttemptId);
       if (!cue || !invariant || !whyNot) continue;
       const committedAt = cleanIso(raw.committedAt);
       const revealedAt = raw.revealedAt
@@ -181,6 +194,8 @@ export function normalizePatternLearningWorkspace(value, options = {}) {
         cue,
         invariant,
         whyNot,
+        ...(complexity ? { complexity } : {}),
+        ...(confirmationForAttemptId ? { confirmationForAttemptId } : {}),
         assisted: Boolean(raw.assisted),
         wasDue: Boolean(raw.wasDue),
         match: selectedLessonId === raw.lessonId,
@@ -214,30 +229,59 @@ export function normalizePatternLearningWorkspace(value, options = {}) {
     )
     .slice(-PATTERN_DECISION_LIMIT);
   let activeSprint;
-  if (value.version === PATTERN_LEARNING_VERSION && isRecord(value.activeSprint)) {
+  if (value.version >= 2 && isRecord(value.activeSprint)) {
     const raw = value.activeSprint;
     const id = cleanId(raw.id);
     const source = PATTERN_DECISION_SOURCES.includes(raw.source)
       ? raw.source
       : "academy";
     const seen = new Set();
+    const confirmationSources = new Set();
     const rawEntries = Array.isArray(raw.entries) ? raw.entries : [];
-    const entries = rawEntries.flatMap(
-      (entry) => {
-        if (!isRecord(entry) || seen.has(entry.probeId)) return [];
-        const probeEntry = probes.get(entry.probeId);
+    const entries = [];
+    for (const [entryIndex, entry] of rawEntries.entries()) {
+      if (!isRecord(entry) || seen.has(entry.probeId)) continue;
+      const probeEntry = probes.get(entry.probeId);
+      if (
+        !probeEntry ||
+        probeEntry.revision !== Number(entry.probeRevision) ||
+        !lessons.has(probeEntry.probe.lessonId)
+      )
+        continue;
+      const hasConfirmation = Object.hasOwn(entry, "confirmationForAttemptId");
+      const confirmationForAttemptId = hasConfirmation
+        ? cleanId(entry.confirmationForAttemptId)
+        : "";
+      if (hasConfirmation) {
+        const sourceAttempt = decisionById.get(confirmationForAttemptId);
+        const sourceEntryIndex = rawEntries.findIndex(
+          (candidate) =>
+            isRecord(candidate) && candidate.probeId === sourceAttempt?.probeId,
+        );
+        const sourceEntry = rawEntries[sourceEntryIndex];
         if (
-          !probeEntry ||
-          probeEntry.revision !== Number(entry.probeRevision) ||
-          !lessons.has(probeEntry.probe.lessonId)
+          !confirmationForAttemptId ||
+          confirmationSources.has(confirmationForAttemptId) ||
+          !sourceAttempt?.completedAt ||
+          sourceAttempt.sprintId !== id ||
+          sourceAttempt.match ||
+          sourceAttempt.lessonId !== probeEntry.lessonId ||
+          sourceAttempt.probeId === probeEntry.probe.id ||
+          sourceEntryIndex < 0 ||
+          sourceEntryIndex >= entryIndex ||
+          !isRecord(sourceEntry) ||
+          Object.hasOwn(sourceEntry, "confirmationForAttemptId")
         )
-          return [];
-        seen.add(entry.probeId);
-        return [
-          { probeId: probeEntry.probe.id, probeRevision: probeEntry.revision },
-        ];
-      },
-    ).slice(0, PATTERN_DECISION_SPRINT_LIMIT);
+          continue;
+        confirmationSources.add(confirmationForAttemptId);
+      }
+      seen.add(entry.probeId);
+      entries.push({
+        probeId: probeEntry.probe.id,
+        probeRevision: probeEntry.revision,
+        ...(confirmationForAttemptId ? { confirmationForAttemptId } : {}),
+      });
+    }
     const completeEntrySet =
       rawEntries.length > 0 &&
       rawEntries.length <= PATTERN_DECISION_SPRINT_LIMIT &&
@@ -271,7 +315,7 @@ export function normalizePatternLearningWorkspace(value, options = {}) {
 
 function mutateReview(workspace, lesson, checkId, now, update) {
   const normalized =
-    isRecord(workspace) && [1, PATTERN_LEARNING_VERSION].includes(workspace.version)
+    isRecord(workspace) && [1, 2, PATTERN_LEARNING_VERSION].includes(workspace.version)
       ? {
           version: PATTERN_LEARNING_VERSION,
           revision: Math.max(
@@ -283,11 +327,11 @@ function mutateReview(workspace, lesson, checkId, now, update) {
             .filter(isRecord)
             .slice(-PATTERN_REVIEW_LIMIT),
           decisionAttempts:
-            workspace.version === PATTERN_LEARNING_VERSION &&
+            workspace.version >= 2 &&
             Array.isArray(workspace.decisionAttempts)
               ? workspace.decisionAttempts.filter(isRecord).slice(-PATTERN_DECISION_LIMIT)
               : [],
-          ...(workspace.version === PATTERN_LEARNING_VERSION &&
+          ...(workspace.version >= 2 &&
           isRecord(workspace.activeSprint)
             ? { activeSprint: workspace.activeSprint }
             : {}),
@@ -347,7 +391,7 @@ export function gradePatternCheck(workspace, lesson, checkId, grade, options = {
 }
 
 function mutablePatternWorkspace(workspace, now = EPOCH) {
-  if (!isRecord(workspace) || ![1, PATTERN_LEARNING_VERSION].includes(workspace.version))
+  if (!isRecord(workspace) || ![1, 2, PATTERN_LEARNING_VERSION].includes(workspace.version))
     return createPatternLearningWorkspace(now);
   return {
     version: PATTERN_LEARNING_VERSION,
@@ -357,11 +401,11 @@ function mutablePatternWorkspace(workspace, now = EPOCH) {
       .filter(isRecord)
       .slice(-PATTERN_REVIEW_LIMIT),
     decisionAttempts:
-      workspace.version === PATTERN_LEARNING_VERSION &&
+      workspace.version >= 2 &&
       Array.isArray(workspace.decisionAttempts)
         ? workspace.decisionAttempts.filter(isRecord).slice(-PATTERN_DECISION_LIMIT)
         : [],
-    ...(workspace.version === PATTERN_LEARNING_VERSION &&
+    ...(workspace.version >= 2 &&
     isRecord(workspace.activeSprint)
       ? { activeSprint: workspace.activeSprint }
       : {}),
@@ -407,17 +451,46 @@ export function derivePatternDecisionState(
   const latest = completed.at(-1);
   const dueAt = latest?.dueAt ? cleanIso(latest.dueAt) : undefined;
   const due = !latest || Date.parse(dueAt) <= now;
-  const retainedProbeIds = new Set(
-    completed
-      .filter(
-        (attempt) =>
-          attempt.wasDue &&
-          attempt.match &&
-          !attempt.assisted &&
-          (attempt.grade === "good" || attempt.grade === "easy"),
-      )
-      .map((attempt) => attempt.probeId),
-  );
+  const retainedProbeIds = new Set();
+  let priorDelayedEvidence;
+  for (const attempt of completed) {
+    const strong = attempt.grade === "good" || attempt.grade === "easy";
+    if (!attempt.match || attempt.assisted || !strong) {
+      retainedProbeIds.clear();
+      priorDelayedEvidence = undefined;
+      continue;
+    }
+    if (attempt.confirmationForAttemptId) continue;
+    if (!attempt.wasDue) continue;
+    const completedAt = Date.parse(attempt.completedAt);
+    const nextDueAt = Date.parse(attempt.dueAt);
+    if (
+      !Number.isFinite(completedAt) ||
+      !Number.isFinite(nextDueAt) ||
+      nextDueAt <= completedAt
+    )
+      continue;
+    if (
+      priorDelayedEvidence &&
+      completedAt < Date.parse(priorDelayedEvidence.dueAt)
+    )
+      continue;
+    retainedProbeIds.add(attempt.probeId);
+    priorDelayedEvidence = attempt;
+  }
+  const retained = retainedProbeIds.size >= 2;
+  const latestStrong =
+    latest?.match &&
+    !latest.assisted &&
+    (latest.grade === "good" || latest.grade === "easy");
+  const status =
+    completed.length === 0
+      ? "unobserved"
+      : retained
+        ? "retained"
+        : latestStrong
+          ? "emerging"
+          : "needs-contrast";
   return {
     lessonId: lesson.id,
     level: latest?.levelAfter ?? 0,
@@ -425,8 +498,9 @@ export function derivePatternDecisionState(
     dueAt,
     due,
     isNew: completed.length === 0,
-    retained: retainedProbeIds.size >= 2,
+    retained,
     retainedProbeCount: retainedProbeIds.size,
+    status,
     completedAttempts: completed.length,
     lastAttemptAt: latest?.completedAt,
   };
@@ -451,6 +525,13 @@ export function derivePatternDecisionOverview(
     retainedCount: states.filter((state) => state.retained).length,
     totalPatterns: states.length,
     states,
+    rows: states.map((state) => ({
+      lessonId: state.lessonId,
+      status: state.status,
+      retainedProbeCount: state.retainedProbeCount,
+      completedAttempts: state.completedAttempts,
+      due: state.due,
+    })),
   };
 }
 
@@ -460,7 +541,12 @@ export function selectPatternDecisionProbes(
   workspace,
   options = {},
 ) {
-  const count = boundedInteger(options.count, 3, 1, PATTERN_DECISION_SPRINT_LIMIT);
+  const count = boundedInteger(
+    options.count,
+    PATTERN_DECISION_BASE_SPRINT_SIZE,
+    1,
+    PATTERN_DECISION_SPRINT_LIMIT,
+  );
   const attempts = Array.isArray(workspace?.decisionAttempts)
     ? workspace.decisionAttempts
     : [];
@@ -468,17 +554,42 @@ export function selectPatternDecisionProbes(
     .filter((lesson) =>
       (Array.isArray(probes) ? probes : []).some((probe) => probe.lessonId === lesson.id),
     )
-    .map((lesson) => ({
-      lesson,
-      state: derivePatternDecisionState(lesson, workspace, probes, options),
-    }))
+    .map((lesson) => {
+      const lessonProbes = (Array.isArray(probes) ? probes : []).filter(
+        (probe) => probe.lessonId === lesson.id,
+      );
+      return {
+        lesson,
+        state: derivePatternDecisionState(lesson, workspace, probes, options),
+        clusterId: [...new Set(lessonProbes.map((probe) => probe.clusterId))]
+          .sort()[0],
+      };
+    })
     .sort(
       (a, b) =>
         Number(b.state.due) - Number(a.state.due) ||
+        a.state.completedAttempts - b.state.completedAttempts ||
         (a.state.dueAt ?? EPOCH).localeCompare(b.state.dueAt ?? EPOCH) ||
         a.lesson.order - b.lesson.order,
     );
-  return rankedLessons.slice(0, count).flatMap(({ lesson }) => {
+  const selectedLessons = [];
+  const remainingLessons = [...rankedLessons];
+  const selectedClusters = new Set();
+  while (selectedLessons.length < count && remainingLessons.length) {
+    const top = remainingLessons[0];
+    const samePriority = (candidate) =>
+      candidate.state.due === top.state.due &&
+      candidate.state.completedAttempts === top.state.completedAttempts;
+    const balancedIndex = remainingLessons.findIndex(
+      (candidate) =>
+        samePriority(candidate) && !selectedClusters.has(candidate.clusterId),
+    );
+    const index = balancedIndex >= 0 ? balancedIndex : 0;
+    const [selected] = remainingLessons.splice(index, 1);
+    selectedLessons.push(selected);
+    selectedClusters.add(selected.clusterId);
+  }
+  return selectedLessons.flatMap(({ lesson }) => {
     const candidates = (Array.isArray(probes) ? probes : []).filter(
       (probe) => probe.lessonId === lesson.id,
     );
@@ -564,16 +675,27 @@ export function commitPatternDecision(
   const cue = cleanText(input?.cue, 600);
   const invariant = cleanText(input?.invariant, 800);
   const whyNot = cleanText(input?.whyNot, 800);
+  const complexity = cleanText(
+    input?.complexity,
+    PATTERN_DECISION_COMPLEXITY_LIMIT,
+  );
+  const registeredProbe = (Array.isArray(options.probes) ? options.probes : []).find(
+    (candidate) =>
+      candidate.id === probe?.id && candidate.revision === probe?.revision,
+  );
   if (
     !id ||
     !current ||
     current.probeId !== probe?.id ||
     current.probeRevision !== probe?.revision ||
+    !registeredProbe ||
+    registeredProbe.lessonId !== lesson?.id ||
     probe.lessonId !== lesson?.id ||
     !probe.candidateLessonIds.includes(selectedLessonId) ||
     !cue ||
     !invariant ||
     !whyNot ||
+    !complexity ||
     normalized.decisionAttempts.some(
       (attempt) =>
         attempt.sprintId === normalized.activeSprint.id &&
@@ -597,6 +719,10 @@ export function commitPatternDecision(
     cue,
     invariant,
     whyNot,
+    complexity,
+    ...(current.confirmationForAttemptId
+      ? { confirmationForAttemptId: current.confirmationForAttemptId }
+      : {}),
     assisted: Boolean(input?.assisted),
     wasDue,
     match: selectedLessonId === lesson.id,
@@ -620,13 +746,21 @@ export function revealPatternDecision(workspace, attemptId, options = {}) {
     (attempt) => attempt.id === attemptId,
   );
   const existing = normalized.decisionAttempts[index];
+  const currentProbe = (Array.isArray(options.probes) ? options.probes : []).find(
+    (probe) =>
+      probe.id === current?.probeId &&
+      probe.revision === current?.probeRevision,
+  );
   if (
     !existing ||
     existing.revealedAt ||
     existing.completedAt ||
     !current ||
+    !currentProbe ||
     existing.sprintId !== normalized.activeSprint.id ||
-    existing.probeId !== current.probeId
+    existing.probeId !== current.probeId ||
+    existing.probeRevision !== current.probeRevision ||
+    currentProbe.lessonId !== existing.lessonId
   )
     return workspace;
   const now = cleanIso(options.now);
@@ -648,12 +782,20 @@ export function gradePatternDecision(workspace, attemptId, grade, options = {}) 
     (attempt) => attempt.id === attemptId,
   );
   const existing = normalized.decisionAttempts[index];
+  const currentProbe = (Array.isArray(options.probes) ? options.probes : []).find(
+    (probe) =>
+      probe.id === current?.probeId &&
+      probe.revision === current?.probeRevision,
+  );
   if (
     !existing?.revealedAt ||
     existing.completedAt ||
     !current ||
     existing.sprintId !== normalized.activeSprint.id ||
-    existing.probeId !== current.probeId
+    existing.probeId !== current.probeId ||
+    existing.probeRevision !== current.probeRevision ||
+    !currentProbe ||
+    currentProbe.lessonId !== existing.lessonId
   )
     return workspace;
   const now = cleanIso(options.now);
@@ -703,8 +845,34 @@ export function gradePatternDecision(workspace, attemptId, grade, options = {}) 
     lapseCount,
     updatedAt: now,
   };
+  let entries = normalized.activeSprint.entries;
+  if (
+    !existing.match &&
+    !current.confirmationForAttemptId &&
+    entries.length < PATTERN_DECISION_SPRINT_LIMIT
+  ) {
+    const usedProbeIds = new Set(entries.map((entry) => entry.probeId));
+    const sibling = (Array.isArray(options.probes) ? options.probes : [])
+      .filter(
+        (probe) =>
+          probe.lessonId === existing.lessonId &&
+          probe.id !== existing.probeId &&
+          !usedProbeIds.has(probe.id),
+      )
+      .sort((a, b) => a.id.localeCompare(b.id))[0];
+    if (sibling) {
+      entries = [
+        ...entries,
+        {
+          probeId: sibling.id,
+          probeRevision: sibling.revision,
+          confirmationForAttemptId: existing.id,
+        },
+      ];
+    }
+  }
   const nextCursor = normalized.activeSprint.cursor + 1;
-  const completed = nextCursor >= normalized.activeSprint.entries.length;
+  const completed = nextCursor >= entries.length;
   return {
     ...normalized,
     revision: normalized.revision + 1,
@@ -712,6 +880,7 @@ export function gradePatternDecision(workspace, attemptId, grade, options = {}) 
     decisionAttempts,
     activeSprint: {
       ...normalized.activeSprint,
+      entries,
       cursor: completed ? normalized.activeSprint.entries.length : nextCursor,
       status: completed ? "completed" : "active",
       ...(completed ? { completedAt: now } : {}),

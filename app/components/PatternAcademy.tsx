@@ -287,17 +287,17 @@ export function PatternAcademy({
         </section>
         <section className="academy-decision-card" aria-labelledby="academy-decision-title">
           <div>
-            <p className="eyebrow">Mixed retrieval · 5 minutes</p>
-            <h2 id="academy-decision-title">Can you recognize the pattern without its label?</h2>
+            <p className="eyebrow">24-prompt bank · all 12 families · 12-18 minutes</p>
+            <h2 id="academy-decision-title">Can you recognize the pattern before coding?</h2>
             <p>
-              Classify hidden mini-prompts from Arrays & Hashing, Two Pointers,
-              and Sliding Window. Commit the cue, invariant, and rejected
-              alternative before revealing the authored comparison.
+              Classify four hidden prompts selected across the full core pattern
+              map. Commit the cue, invariant, rejected alternative, and expected
+              complexity before revealing the authored comparison.
             </p>
             <button className="primary-button" onClick={onOpenDecisionReview}>
               {decisionOverview.readyCount
                 ? `Review ${decisionOverview.readyCount} ready pattern${decisionOverview.readyCount === 1 ? "" : "s"}`
-                : "Practice a mixed sprint early"}
+                : "Start a core pattern skill check"}
             </button>
           </div>
           <dl>

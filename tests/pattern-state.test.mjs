@@ -71,6 +71,7 @@ test("a current Pattern Academy workspace round-trips through product normalizat
       cue: "Repeated exact-value lookup points to a hash table.",
       invariant: "The table represents exactly the processed prefix.",
       whyNot: "No ordered pair movement or bounded contiguous window is required.",
+      complexity: "O(n) expected time and O(n) auxiliary lookup space.",
     },
     {
       id: "migration-decision-attempt",
@@ -81,7 +82,10 @@ test("a current Pattern Academy workspace round-trips through product normalizat
   const revealed = revealPatternDecision(
     committed,
     "migration-decision-attempt",
-    { now: "2026-07-29T12:04:00.000Z" },
+    {
+      now: "2026-07-29T12:04:00.000Z",
+      probes: PATTERN_DECISION_PROBES,
+    },
   );
   const workspace = gradePatternDecision(
     revealed,

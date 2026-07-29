@@ -19,6 +19,7 @@ type DecisionInput = {
   cue: string;
   invariant: string;
   whyNot: string;
+  complexity: string;
   assisted: boolean;
 };
 
@@ -69,6 +70,15 @@ function sourceLabel(source: PatternDecisionSource) {
   }[source];
 }
 
+function evidenceLabel(status: "unobserved" | "needs-contrast" | "emerging" | "retained") {
+  return {
+    unobserved: "Unobserved",
+    "needs-contrast": "Needs contrast",
+    emerging: "Emerging",
+    retained: "Retained",
+  }[status];
+}
+
 export function PatternDecisionReview({
   lessons,
   probes,
@@ -111,6 +121,7 @@ export function PatternDecisionReview({
     cue: "",
     invariant: "",
     whyNot: "",
+    complexity: "",
     hintShown: false,
   }));
   const activeDraft = draft.key === draftKey
@@ -121,6 +132,7 @@ export function PatternDecisionReview({
         cue: "",
         invariant: "",
         whyNot: "",
+        complexity: "",
         hintShown: false,
       };
   const overview = derivePatternDecisionOverview(lessons, probes, workspace, {
@@ -135,19 +147,21 @@ export function PatternDecisionReview({
     return (
       <main id="main-content" className="page-container decision-review-page">
         <section className="decision-review-empty">
-          <p className="eyebrow">Pattern Decision Review</p>
-          <h1>Choose the pattern before the problem tells you.</h1>
+          <p className="eyebrow">Core Pattern Skill Check</p>
+          <h1>Choose the pattern before the problem gives it away.</h1>
           <p>
-            A short mixed sprint hides the pattern label. Commit your cue,
-            invariant, and rejected alternative before seeing the authored
-            comparison.
+            A 12-18 minute skill check draws four unlabeled prompts from a
+            revisioned 24-prompt bank spanning all twelve core pattern
+            families. Commit your cue, invariant, rejected alternative, and
+            expected complexity before seeing the authored comparison.
           </p>
           <div className="decision-review-boundary">
-            This records prompt classification only. It is not a solve,
-            transfer result, or interview-readiness claim.
+            This records pattern selection objectively and explanation quality
+            by self-assessment. It is not a solve, transfer result, score, or
+            interview-readiness claim.
           </div>
           <button className="primary-button" onClick={() => onStartSprint("academy")}>
-            Start 3-prompt review
+            Start 4-prompt skill check
           </button>
           <button className="text-button" onClick={onExit}>Back to Pattern Academy</button>
         </section>
@@ -164,14 +178,14 @@ export function PatternDecisionReview({
     return (
       <main id="main-content" className="page-container decision-review-page">
         <section className="decision-review-summary">
-          <p className="eyebrow">Sprint complete · {sourceLabel(sprint.source)}</p>
+          <p className="eyebrow">Skill check complete · {sourceLabel(sprint.source)}</p>
           <h1>{matches}/{completed.length} pattern choices matched.</h1>
           <p>
             {unassisted} matched without a cue hint. Self-grades affect review
             timing, but only the authored pattern choice is checked objectively.
           </p>
           <dl className="decision-review-summary-stats">
-            <div><dt>Ready now</dt><dd>{overview.readyCount}</dd></div>
+            <div><dt>Due now</dt><dd>{overview.readyCount}</dd></div>
             <div><dt>Retained</dt><dd>{overview.retainedCount}/{overview.totalPatterns}</dd></div>
             <div><dt>History</dt><dd>{workspace.decisionAttempts.filter((attempt) => attempt.completedAt).length}</dd></div>
           </dl>
@@ -211,9 +225,41 @@ export function PatternDecisionReview({
               );
             })}
           </div>
+          <section className="decision-evidence-map" aria-labelledby="decision-evidence-map-title">
+            <div className="decision-evidence-map-heading">
+              <div>
+                <p className="eyebrow">Twelve-family evidence map</p>
+                <h2 id="decision-evidence-map-title">What has actually been observed?</h2>
+              </div>
+              <p>
+                Retention requires two distinct, delayed, current-revision,
+                unassisted matches. Same-day checks and confirmation prompts do
+                not manufacture retention.
+              </p>
+            </div>
+            <div className="decision-evidence-grid" role="list">
+              {overview.states.map((state) => {
+                const stateLesson = lessons.find((candidate) => candidate.id === state.lessonId);
+                return (
+                  <article key={state.lessonId} role="listitem">
+                    <div>
+                      <h3>{stateLesson?.title ?? "Retired pattern"}</h3>
+                      <span className={`decision-evidence-status is-${state.status}`}>
+                        {evidenceLabel(state.status)}
+                      </span>
+                    </div>
+                    <p>
+                      {state.completedAttempts} completed check{state.completedAttempts === 1 ? "" : "s"}
+                      {state.dueAt ? ` · next ${formatDue(state.dueAt)}` : " · no review scheduled"}
+                    </p>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
           <div className="decision-review-summary-actions">
             <button className="primary-button" onClick={() => onStartSprint("academy")}>
-              Start another mixed sprint
+              Start another skill check
             </button>
             <button className="secondary-button" onClick={onExit}>Back to Pattern Academy</button>
           </div>
@@ -246,8 +292,9 @@ export function PatternDecisionReview({
   const cue = saved?.cue ?? activeDraft.cue;
   const invariant = saved?.invariant ?? activeDraft.invariant;
   const whyNot = saved?.whyNot ?? activeDraft.whyNot;
+  const complexity = saved?.complexity ?? activeDraft.complexity;
   const canCommit = Boolean(
-    selectedLessonId && cue.trim() && invariant.trim() && whyNot.trim(),
+    selectedLessonId && cue.trim() && invariant.trim() && whyNot.trim() && complexity.trim(),
   );
   const comparisonLesson = lessons.find(
     (candidate) => candidate.id === probe.confusableLessonId,
@@ -258,7 +305,7 @@ export function PatternDecisionReview({
       <section className="decision-review-shell">
         <header className="decision-review-header">
           <div>
-            <p className="eyebrow">Mixed decision sprint · {sourceLabel(sprint.source)}</p>
+            <p className="eyebrow">Core Pattern Skill Check · {sourceLabel(sprint.source)}</p>
             <h1>Prompt {sprint.cursor + 1} of {sprint.entries.length}</h1>
           </div>
           <button className="text-button" onClick={onExit}>Exit to Academy</button>
@@ -275,9 +322,21 @@ export function PatternDecisionReview({
         </div>
 
         <article className="decision-prompt-card">
-          <span>Pattern hidden · authored prompt revision {probe.revision}</span>
+          <span>
+            {activeEntry?.confirmationForAttemptId
+              ? "One bounded confirmation · pattern still hidden"
+              : "Pattern hidden"}
+            {" · "}authored prompt revision {probe.revision}
+          </span>
           <h2>{probe.prompt}</h2>
           <p><strong>Constraint:</strong> {probe.constraint}</p>
+          {activeEntry?.confirmationForAttemptId ? (
+            <p className="decision-confirmation-note">
+              This sibling prompt checks whether the contrast now transfers.
+              It cannot recursively add another confirmation or count as
+              retained evidence.
+            </p>
+          ) : null}
         </article>
 
         <section className="decision-commit-panel" aria-labelledby="decision-commit-title">
@@ -346,6 +405,15 @@ export function PatternDecisionReview({
                 placeholder="Name one tempting alternative and the constraint it fails to use."
               />
             </label>
+            <label>
+              Expected time and space complexity
+              <textarea
+                value={complexity}
+                maxLength={500}
+                onChange={(event) => setDraft({ ...activeDraft, complexity: event.target.value })}
+                placeholder="State the expected bounds and what drives each one, for example O(n) time and O(k) space."
+              />
+            </label>
           </fieldset>
           {!saved ? (
             <button
@@ -357,6 +425,7 @@ export function PatternDecisionReview({
                   cue,
                   invariant,
                   whyNot,
+                  complexity,
                   assisted: activeDraft.hintShown,
                 })
               }
@@ -395,6 +464,7 @@ export function PatternDecisionReview({
                 <span>Why {comparisonLesson?.title ?? "the confusable"} loses</span>
                 <p>{probe.whyConfusableLoses}</p>
               </article>
+              <article><span>Expected complexity</span><p>{probe.expectedComplexity}</p></article>
             </div>
             <div className="decision-self-grade">
               <p>
