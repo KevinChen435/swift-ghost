@@ -71,11 +71,15 @@ test("solve workbench ships accessible split and mobile panel controls", async (
   assert.ok(tabletPlacementReset > mockDesktopPlacement);
 
   const debriefBaseGrid = css.indexOf(".mock-debrief-dialog__rubric {");
-  const finalMobileBreakpoint = css.lastIndexOf("@media (max-width: 760px)");
   const debriefMobileReset = css.indexOf(
     ".mock-debrief-dialog__rubric,",
-    finalMobileBreakpoint,
+    debriefBaseGrid + 1,
+  );
+  const debriefMobileBreakpoint = css.lastIndexOf(
+    "@media (max-width: 760px)",
+    debriefMobileReset,
   );
   assert.ok(debriefBaseGrid >= 0);
+  assert.ok(debriefMobileBreakpoint > debriefBaseGrid);
   assert.ok(debriefMobileReset > debriefBaseGrid);
 });

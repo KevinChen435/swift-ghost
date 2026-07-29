@@ -235,6 +235,62 @@ test("an Again debrief returns the matching competence sooner", () => {
   assert.match(plan.entries[0].rationale, /due|Again|recognition/i);
 });
 
+test("massed clean solves preserve the acquisition gate until tomorrow", () => {
+  const attempts = [
+    attempt({ id: "acquire", completedAt: "2026-07-27T12:00:00.000Z" }),
+    attempt({ id: "massed", completedAt: "2026-07-27T13:00:00.000Z" }),
+  ];
+  const early = buildDailyPlan(
+    { items: [items[1]], attempts },
+    { now: "2026-07-27T14:00:00.000Z", budgetMinutes: 15 },
+  );
+  assert.equal(early.entries[0].lane, "interview");
+  assert.doesNotMatch(early.entries[0].rationale, /evidence is due/i);
+
+  const due = buildDailyPlan(
+    { items: [items[1]], attempts },
+    { now: "2026-07-28T12:00:00.000Z", budgetMinutes: 15 },
+  );
+  assert.equal(due.entries[0].lane, "review");
+  assert.match(due.entries[0].rationale, /evidence is due/i);
+});
+
+test("an assisted solve lapses canonical review cadence to tomorrow", () => {
+  const plan = buildDailyPlan(
+    {
+      items: [items[1]],
+      attempts: [
+        attempt({ id: "acquire", completedAt: "2026-07-20T12:00:00.000Z" }),
+        attempt({
+          id: "assisted",
+          completedAt: "2026-07-27T12:00:00.000Z",
+          qualification: "assisted",
+          peeks: 1,
+        }),
+      ],
+    },
+    { now: "2026-07-27T18:00:00.000Z", budgetMinutes: 15 },
+  );
+  assert.equal(plan.entries[0].lane, "interview");
+
+  const due = buildDailyPlan(
+    {
+      items: [items[1]],
+      attempts: [
+        attempt({ id: "acquire", completedAt: "2026-07-20T12:00:00.000Z" }),
+        attempt({
+          id: "assisted",
+          completedAt: "2026-07-27T12:00:00.000Z",
+          qualification: "assisted",
+          peeks: 1,
+        }),
+      ],
+    },
+    { now: "2026-07-28T12:00:00.000Z", budgetMinutes: 15 },
+  );
+  assert.equal(due.entries[0].lane, "review");
+});
+
 test("iOS coaching emits first-class concept practice", () => {
   const item = items.find((candidate) => candidate.track === "ios");
   assert.ok(item);

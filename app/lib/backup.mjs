@@ -55,6 +55,9 @@ export function backupInventory(state) {
   const conceptTransferDrafts = isRecord(state?.conceptTransfer)
     ? boundedCount(state.conceptTransfer.drafts)
     : 0;
+  const attemptClosures = isRecord(state?.attemptClosures)
+    ? boundedCount(state.attemptClosures.closures)
+    : 0;
   const activeConceptTransferAttempts =
     isRecord(state?.conceptTransfer) &&
     typeof state.conceptTransfer.activeAttemptId === "string" &&
@@ -89,6 +92,7 @@ export function backupInventory(state) {
     conceptTransferAttempts,
     conceptTransferDrafts,
     activeConceptTransferAttempts,
+    attemptClosures,
   };
 }
 
@@ -123,6 +127,7 @@ function plausibleRawState(value, supportedVersions) {
     return false;
   const knownKeys = [
     "attempts",
+    "attemptClosures",
     "settings",
     "lastItemId",
     "customItems",

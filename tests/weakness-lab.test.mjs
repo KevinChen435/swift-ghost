@@ -150,6 +150,36 @@ function receipt(overrides = {}) {
   };
 }
 
+function attemptClosure(overrides = {}) {
+  return {
+    id: "closure:submission:submission-failed",
+    state: "completed",
+    anchor: {
+      kind: "submission",
+      id: "submission-failed",
+      itemId: "python:1",
+      itemRevision: 2,
+      lane: "python",
+      outcome: "wrong-answer",
+      occurredAt: "2026-07-06T12:00:00.000Z",
+      assistance: "used",
+      submissionId: "submission-failed",
+    },
+    titleSnapshot: "Pair Ledger",
+    createdAt: "2026-07-06T12:05:00.000Z",
+    updatedAt: "2026-07-06T12:10:00.000Z",
+    mistakeTags: ["boundary", "verification"],
+    firstWrongDecision: "I skipped the duplicate-value boundary.",
+    verificationNotes: "Trace duplicates before submitting again.",
+    teachBack: "Check the complement before storing the current index.",
+    grade: "hard",
+    completedAt: "2026-07-06T12:10:00.000Z",
+    retryDueAt: "2026-07-07T12:10:00.000Z",
+    retired: false,
+    ...overrides,
+  };
+}
+
 test("adapters unify learning, review, assessment, mock, and transfer evidence", () => {
   const model = buildWeaknessLab({
     items,
@@ -245,6 +275,82 @@ test("duplicate source evidence is idempotent and recurrence remains honest", ()
   assert.equal(model.cases.length, 1);
   assert.equal(model.cases[0].recurrence, 1);
   assert.equal(model.cases[0].evidence.length, 1);
+});
+
+test("completed Attempt Closure tags feed exact remediation evidence", () => {
+  const model = buildWeaknessLab({
+    items,
+    attemptClosures: [attemptClosure()],
+    now: "2026-07-20T12:00:00.000Z",
+  });
+  assert.deepEqual(
+    new Set(model.cases.map((entry) => entry.weakness)),
+    new Set(["boundary", "verification"]),
+  );
+  const boundary = model.cases.find((entry) => entry.weakness === "boundary");
+  assert.equal(boundary.sourceKinds.includes("attempt-closure"), true);
+  assert.equal(boundary.evidence.length, 1);
+  assert.equal(boundary.evidence[0].kind, "attempt-closure");
+  assert.equal(boundary.evidence[0].itemId, "python:1");
+  assert.equal(boundary.evidence[0].itemRevision, 2);
+  assert.equal(boundary.evidence[0].lane, "python");
+  assert.equal(boundary.evidence[0].occurredAt, "2026-07-06T12:00:00.000Z");
+  assert.equal(boundary.evidence[0].sourceId, "closure:submission:submission-failed");
+  assert.match(boundary.evidence[0].summary, /submission submission-failed/);
+  assert.match(boundary.evidence[0].summary, /wrong-answer/);
+  assert.match(boundary.evidence[0].summary, /revision 2/);
+  assert.ok(boundary.evidence[0].label.length <= 160);
+});
+
+test("draft Attempt Closures do not feed Weakness Lab evidence", () => {
+  const model = buildWeaknessLab({
+    items,
+    attemptClosures: [
+      attemptClosure({
+        id: "closure:submission:draft-failed",
+        state: "draft",
+        completedAt: undefined,
+        retryDueAt: undefined,
+      }),
+    ],
+    now: "2026-07-20T12:00:00.000Z",
+  });
+  assert.equal(model.cases.length, 0);
+});
+
+test("Attempt Closure reflections alone never stabilize or resolve a weakness", () => {
+  const model = buildWeaknessLab({
+    items,
+    attemptClosures: [
+      attemptClosure({
+        id: "closure:submission:first-boundary",
+        anchor: {
+          ...attemptClosure().anchor,
+          id: "first-boundary",
+          submissionId: "first-boundary",
+          occurredAt: "2026-07-06T12:00:00.000Z",
+        },
+        mistakeTags: ["boundary"],
+        completedAt: "2026-07-06T12:10:00.000Z",
+      }),
+      attemptClosure({
+        id: "closure:submission:second-boundary",
+        anchor: {
+          ...attemptClosure().anchor,
+          id: "second-boundary",
+          submissionId: "second-boundary",
+          occurredAt: "2026-07-10T12:00:00.000Z",
+        },
+        mistakeTags: ["boundary"],
+        completedAt: "2026-07-10T12:10:00.000Z",
+      }),
+    ],
+    now: "2026-07-20T12:00:00.000Z",
+  });
+  assert.equal(model.cases.length, 1);
+  assert.equal(model.cases[0].sourceKinds.includes("attempt-closure"), true);
+  assert.equal(model.cases[0].status, "due");
+  assert.equal(model.cases[0].successes.length, 0);
 });
 
 test("stale or assisted attempts cannot stabilize a case", () => {

@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   CONCEPT_TRANSFER_LANES,
   CONCEPT_TRANSFER_SOURCES,
+  RECORDS_SECTIONS,
   parseRoute,
   resolveRouteItem,
   routeForItem,
@@ -242,6 +243,29 @@ test("Weakness Lab filters and selected cases are bounded and reload-safe", () =
       "https://example.test/",
     ),
     /inbox=|case=/,
+  );
+});
+
+test("attempt closures have a bounded reload-safe Records route", () => {
+  assert.ok(RECORDS_SECTIONS.includes("closures"));
+  const route = parseRoute(
+    "/?view=records&section=closures&closure=closure%3Asubmission%3Aabc_123",
+  );
+  assert.equal(route.recordsSection, "closures");
+  assert.equal(route.closureId, "closure:submission:abc_123");
+  assert.equal(
+    serializeRoute(route, "https://example.test/swift-ghost/?stale=1"),
+    "/swift-ghost/?view=records&section=closures&closure=closure%3Asubmission%3Aabc_123",
+  );
+
+  const invalid = parseRoute(
+    "/?view=records&section=closures&closure=..%2Fprivate",
+  );
+  assert.equal(invalid.closureId, undefined);
+  assert.equal(serializeRoute(invalid), "/?view=records&section=closures");
+  assert.doesNotMatch(
+    serializeRoute({ view: "library", closureId: "closure:submission:abc" }),
+    /closure=/,
   );
 });
 

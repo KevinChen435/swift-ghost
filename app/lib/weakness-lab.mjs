@@ -144,6 +144,13 @@ function itemIdOf(value) {
   return cleanText(value?.itemId, "", 180);
 }
 
+function closureRecords(input) {
+  if (Array.isArray(input.attemptClosures)) return input.attemptClosures;
+  if (Array.isArray(input.attemptClosures?.closures))
+    return input.attemptClosures.closures;
+  return [];
+}
+
 function pushEvidence(target, raw, itemById) {
   const tag = weakness(raw.weakness);
   const at = validDate(raw.occurredAt);
@@ -251,6 +258,48 @@ function collectEvidence(input, itemById) {
         sourceId: session.id,
         lane: "python",
         topicKey: "Interview execution",
+      }, itemById);
+    }
+  }
+
+  for (const closure of closureRecords(input)) {
+    if (
+      closure?.state !== "completed" ||
+      closure?.retired ||
+      !closure?.anchor ||
+      !validDate(closure.completedAt)
+    )
+      continue;
+    const anchor = closure.anchor;
+    const closureId = cleanText(closure.id, "", 180);
+    const item = itemById.get(cleanText(anchor.itemId, "", 180));
+    const sourceTime = validDate(anchor.occurredAt);
+    if (
+      !closureId ||
+      !item ||
+      !sourceTime ||
+      Number(anchor.itemRevision) !== Number(item.contentRevision) ||
+      laneFor(item, anchor.lane) !== anchor.lane
+    )
+      continue;
+    const source = anchor.kind === "submission" ? "submission" : "attempt";
+    const sourceId = cleanText(anchor.id, "", 180);
+    const sourceIso = new Date(sourceTime).toISOString();
+    for (const tag of Array.isArray(closure.mistakeTags) ? closure.mistakeTags : []) {
+      if (!weakness(tag)) continue;
+      pushEvidence(evidence, {
+        id: `attempt-closure:${closureId}:${tag}`,
+        kind: "attempt-closure",
+        weakness: tag,
+        itemId: anchor.itemId,
+        itemRevision: anchor.itemRevision,
+        occurredAt: sourceIso,
+        weight: closure.grade === "again" ? 3 : closure.grade === "hard" ? 2 : 1,
+        label: `${WEAKNESS_META[tag].label} closure`,
+        summary: `${source} ${sourceId} on ${item.title ?? "a practice item"} was closed after ${anchor.outcome}; anchor ${sourceIso}, lane ${anchor.lane}, revision ${anchor.itemRevision}.`,
+        sourceId: closureId,
+        lane: anchor.lane,
+        topicKey: item.pattern,
       }, itemById);
     }
   }

@@ -1,0 +1,116 @@
+import type { PracticeItem, ItemId } from "./items";
+import type { AttemptRecord } from "./product";
+import type { SubmissionLog, SubmissionReceipt, SubmissionStatus } from "./submission-log.mjs";
+import type { WeaknessTag } from "./weakness-lab.mjs";
+
+export type AttemptClosureGrade = "again" | "hard" | "good" | "easy";
+export type AttemptClosureLane = "python" | "swift" | "ios";
+export type AttemptClosureState = "draft" | "completed";
+export type AttemptClosureStatus = "open" | "due" | "resolved" | "retired";
+export type AttemptClosureAssistance = "used" | "none-recorded" | "unknown";
+export type AttemptClosureFailure = Exclude<SubmissionStatus, "accepted"> | "abandoned";
+export type AttemptClosureAnchor = Readonly<{
+  kind: "submission" | "attempt";
+  id: string;
+  itemId: ItemId;
+  itemRevision: number;
+  lane: AttemptClosureLane;
+  outcome: AttemptClosureFailure;
+  occurredAt: string;
+  assistance: AttemptClosureAssistance;
+  attemptId?: string;
+  submissionId?: string;
+}>;
+export type AttemptClosureRecord = Readonly<{
+  id: string;
+  state: AttemptClosureState;
+  anchor: AttemptClosureAnchor;
+  titleSnapshot: string;
+  createdAt: string;
+  updatedAt: string;
+  mistakeTags: WeaknessTag[];
+  firstWrongDecision: string;
+  verificationNotes: string;
+  teachBack: string;
+  grade?: AttemptClosureGrade;
+  completedAt?: string;
+  retryDueAt?: string;
+  retired?: boolean;
+}>;
+export type AttemptClosureResolution = Readonly<{
+  attemptId: string;
+  submissionId: string;
+  itemId: ItemId;
+  itemRevision: number;
+  startedAt: string;
+  completedAt: string;
+  requestedAt: string;
+  settledAt: string;
+}>;
+export type DerivedAttemptClosure = AttemptClosureRecord & Readonly<{
+  status: AttemptClosureStatus;
+  retryDueAt?: string;
+  currentRevision: boolean;
+  learningClaim: "remediation-only";
+  claimsIndependentSolve: false;
+  claimsMastery: false;
+  anchorAttemptId?: string;
+  anchorSubmissionId?: string;
+  resolution?: AttemptClosureResolution;
+  resolutionAttemptId?: string;
+  resolutionSubmissionId?: string;
+  resolvedAt?: string;
+}>;
+export type AttemptClosureWorkspace = Readonly<{
+  version: 1;
+  revision: number;
+  updatedAt: string;
+  closures: AttemptClosureRecord[];
+}>;
+export type AttemptClosureOptions = {
+  items?: readonly PracticeItem[];
+  attempts?: readonly AttemptRecord[];
+  submissionReceipts?: readonly SubmissionReceipt[];
+  receipts?: readonly SubmissionReceipt[];
+  submissionLog?: SubmissionLog;
+  now?: string | number | Date;
+};
+export type AttemptClosureSummary = {
+  total: number;
+  active: number;
+  open: number;
+  due: number;
+  resolved: number;
+  retired: number;
+  drafts: number;
+  completed: number;
+  laneCounts: Record<AttemptClosureLane, number>;
+  tagCounts: Array<{ tag: WeaknessTag; count: number }>;
+};
+export type AttemptClosureModel = {
+  generatedAt: string;
+  scope: "private-local-remediation-evidence";
+  records: DerivedAttemptClosure[];
+  closures: DerivedAttemptClosure[];
+  selected: DerivedAttemptClosure | null;
+  next: DerivedAttemptClosure | null;
+  today: DerivedAttemptClosure[];
+  weakness: DerivedAttemptClosure[];
+  summary: AttemptClosureSummary;
+};
+
+export const ATTEMPT_CLOSURE_VERSION: 1;
+export const ATTEMPT_CLOSURE_LIMITS: Readonly<{ maxClosures: 300; maxIdChars: 220; maxTextChars: 2_000; maxTags: 6; maxRevision: 1_000_000 }>;
+export const ATTEMPT_CLOSURE_GRADES: readonly AttemptClosureGrade[];
+export const ATTEMPT_CLOSURE_MISTAKE_TAGS: readonly WeaknessTag[];
+export const ATTEMPT_CLOSURE_STATUSES: readonly AttemptClosureStatus[];
+export function createAttemptClosureWorkspace(now?: string | number | Date): AttemptClosureWorkspace;
+export function normalizeAttemptClosureWorkspace(value: unknown, options?: AttemptClosureOptions): AttemptClosureWorkspace;
+export function reconcileAttemptClosureWorkspace(value: unknown, options?: AttemptClosureOptions): AttemptClosureWorkspace;
+export function updateAttemptClosureDraft(workspace: AttemptClosureWorkspace, id: string, patch?: Partial<Pick<AttemptClosureRecord, "mistakeTags" | "firstWrongDecision" | "verificationNotes" | "teachBack" | "grade">>, options?: { now?: string | number | Date; expectedRevision?: number; expectedUpdatedAt?: string | number | Date }): AttemptClosureWorkspace;
+export function attemptClosureCompletionIssues(record: AttemptClosureRecord): string[];
+export function completeAttemptClosure(workspace: AttemptClosureWorkspace, id: string, options?: { now?: string | number | Date; expectedRevision?: number; expectedUpdatedAt?: string | number | Date }): AttemptClosureWorkspace;
+export function summarizeAttemptClosures(records: readonly DerivedAttemptClosure[]): AttemptClosureSummary;
+export function selectAttemptClosures(records: readonly DerivedAttemptClosure[], options?: { status?: AttemptClosureStatus | readonly AttemptClosureStatus[]; lane?: AttemptClosureLane | "all"; itemId?: ItemId; mistakeTags?: readonly WeaknessTag[] }): DerivedAttemptClosure[];
+export function selectAttemptClosureById(records: readonly DerivedAttemptClosure[], id: string): DerivedAttemptClosure | null;
+export function deriveAttemptClosureModel(workspace: AttemptClosureWorkspace, options?: AttemptClosureOptions & { selectedId?: string }): AttemptClosureModel;

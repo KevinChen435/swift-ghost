@@ -45,6 +45,7 @@ export const RECORDS_SECTIONS = [
   "trends",
   "transfer",
   "submissions",
+  "closures",
   "reviews",
 ];
 export const CONTEST_SECTIONS = [
@@ -235,6 +236,10 @@ export function parseRoute(input) {
     recordsSection === "reviews"
       ? cleanReviewAttemptId(params.get("attempt"))
       : undefined;
+  const closureId =
+    recordsSection === "closures"
+      ? cleanReviewAttemptId(params.get("closure"))
+      : undefined;
   const transferVariantId =
     recordsSection === "transfer"
       ? cleanTransferRecordId(params.get("variant"))
@@ -352,6 +357,7 @@ export function parseRoute(input) {
             ? { submissions: submissionQueryFromParams(params) }
             : {}),
           ...(reviewAttemptId ? { reviewAttemptId } : {}),
+          ...(closureId ? { closureId } : {}),
           ...(transferVariantId ? { transferVariantId } : {}),
           ...(transferAttemptId ? { transferAttemptId } : {}),
         }
@@ -498,6 +504,11 @@ export function serializeRoute(
     url.searchParams.set("section", "reviews");
     const reviewAttemptId = cleanReviewAttemptId(route?.reviewAttemptId);
     if (reviewAttemptId) url.searchParams.set("attempt", reviewAttemptId);
+  }
+  if (view === "records" && route?.recordsSection === "closures") {
+    url.searchParams.set("section", "closures");
+    const closureId = cleanReviewAttemptId(route?.closureId);
+    if (closureId) url.searchParams.set("closure", closureId);
   }
   if (view === "records" && route?.recordsSection === "trends") {
     url.searchParams.set("section", "trends");

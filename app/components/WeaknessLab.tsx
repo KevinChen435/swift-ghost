@@ -57,6 +57,7 @@ const SOURCE_LABELS: Record<WeaknessEvidence["kind"], string> = {
   "solution-review": "Solution review",
   assessment: "Baseline assessment",
   "mock-debrief": "Mock debrief",
+  "attempt-closure": "Attempt Closure",
   transfer: "Transfer Lab",
   "pattern-decision": "Pattern decision review",
   "test-design": "Test Design Lab",

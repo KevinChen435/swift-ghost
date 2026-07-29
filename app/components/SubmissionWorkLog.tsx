@@ -76,6 +76,8 @@ export type SubmissionWorkLogProps = {
     source: string,
   ) => void;
   reviewAttemptIdsBySubmission: Readonly<Record<string, string>>;
+  closureIdsBySubmission: Readonly<Record<string, string>>;
+  onOpenAttemptClosure: (closureId: string) => void;
   onOpenSolutionReview: (attemptId: string) => void;
 };
 
@@ -172,6 +174,8 @@ export function SubmissionWorkLog({
   onOpenClean,
   onContinueAssisted,
   reviewAttemptIdsBySubmission,
+  closureIdsBySubmission,
+  onOpenAttemptClosure,
   onOpenSolutionReview,
 }: SubmissionWorkLogProps) {
   const [detailView, setDetailView] = useState<DetailView>("source");
@@ -345,8 +349,8 @@ export function SubmissionWorkLog({
             </div>
             {detailView === "source" ? <div id="submission-source-panel" role="tabpanel" aria-labelledby="submission-source-tab">{selectedSource ? <textarea className="submission-inspector-source" aria-label="Exact submitted source" value={selectedSource} readOnly wrap="off" spellCheck={false} /> : <div className="empty-history"><strong>Source snapshot unavailable.</strong><p>The receipt remains intact, but its source was evicted to stay within this browser’s storage budget.</p></div>}</div> : <div id="submission-changes-panel" role="tabpanel" aria-labelledby="submission-changes-tab"><label className="submission-work-log-compare"><span>Compare selected attempt with</span><select value={compared?.id ?? ""} disabled={!comparisons.length} onChange={(event) => update({ compareId: event.target.value || undefined }, "replace")}><option value="">{comparisons.length ? "Choose an attempt" : "No comparable source"}</option>{comparisons.map((candidate) => <option value={candidate.id} key={candidate.id}>{formatTimestamp(candidate.requestedAt)} · {statusLabel(candidate)}</option>)}</select></label>{selectedSource && comparedSource ? <DiffRows earlier={comparedSource} selected={selectedSource} /> : <p className="submission-work-log-note">Comparison requires another retained source from this same problem.</p>}</div>}
 
-            <div className="submission-work-log-actions"><button className="outline-button" type="button" disabled={!selectedItem} onClick={() => selectedItem && onOpenClean(selectedItem)}>Open clean retry</button>{reviewAttemptIdsBySubmission[selected.id] ? <button className="primary-button" type="button" onClick={() => onOpenSolutionReview(reviewAttemptIdsBySubmission[selected.id])}>Review how this solution works</button> : null}<button className={reviewAttemptIdsBySubmission[selected.id] ? "outline-button" : "primary-button"} type="button" disabled={!selectedItem || !selectedSource || selected.lifecycle !== "settled"} onClick={() => selectedItem && selectedSource && onContinueAssisted(selected, selectedItem, selectedSource)}>Continue from this source</button><button className="outline-button" type="button" disabled={!selectedSource} onClick={copySource}>{copied ? "Copied" : "Copy source"}</button></div>
-            <p className="submission-work-log-note">“Continue from this source” creates an ordinary current-revision solve and marks it assisted. “Open clean retry” starts from the current starter code.</p>
+            <div className="submission-work-log-actions"><button className="outline-button" type="button" disabled={!selectedItem} onClick={() => selectedItem && onOpenClean(selectedItem)}>Open clean retry</button>{closureIdsBySubmission[selected.id] ? <button className="primary-button" type="button" onClick={() => onOpenAttemptClosure(closureIdsBySubmission[selected.id])}>Close this attempt</button> : null}{reviewAttemptIdsBySubmission[selected.id] ? <button className="primary-button" type="button" onClick={() => onOpenSolutionReview(reviewAttemptIdsBySubmission[selected.id])}>Review how this solution works</button> : null}<button className={reviewAttemptIdsBySubmission[selected.id] || closureIdsBySubmission[selected.id] ? "outline-button" : "primary-button"} type="button" disabled={!selectedItem || !selectedSource || selected.lifecycle !== "settled"} onClick={() => selectedItem && selectedSource && onContinueAssisted(selected, selectedItem, selectedSource)}>Continue from this source</button><button className="outline-button" type="button" disabled={!selectedSource} onClick={copySource}>{copied ? "Copied" : "Copy source"}</button></div>
+            <p className="submission-work-log-note">“Close this attempt” records remediation without claiming a solve. “Continue from this source” creates an ordinary current-revision solve and marks it assisted. “Open clean retry” starts from the current starter code.</p>
 
             <form className="submission-work-log-annotation" onSubmit={(event) => { event.preventDefault(); onSaveAnnotation(selected.id, { note, tags }); }}>
               <div><small>Private reflection</small><h4>What should future-you remember?</h4></div>

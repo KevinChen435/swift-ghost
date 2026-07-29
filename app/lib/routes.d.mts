@@ -20,6 +20,7 @@ export type RecordsSection =
   | "trends"
   | "transfer"
   | "submissions"
+  | "closures"
   | "reviews";
 export type ContestSection =
   | "overview"
@@ -43,6 +44,7 @@ export type AppRoute = {
   recordsSection?: RecordsSection;
   submissions?: SubmissionWorkLogQuery;
   reviewAttemptId?: string;
+  closureId?: string;
   transferVariantId?: string;
   transferAttemptId?: string;
   sessionId?: string;

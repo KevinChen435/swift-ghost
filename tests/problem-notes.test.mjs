@@ -13,14 +13,15 @@ const revisions = new Map([["python:1", 3], ["builtin:1", 1], ["custom:archived"
 
 test("current state retains notes while preserving the complete fallback chain", async () => {
   const product = await readFile(new URL("../app/lib/product.ts", import.meta.url), "utf8");
-  assert.match(product, /version: 32;/);
+  assert.match(product, /version: 33;/);
   assert.match(product, /problemNotes: ProblemNotes/);
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v32"/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v33"/);
+  assert.match(product, /THIRTY_SECOND_STORAGE_KEY = "swift-ghost-state-v32"/);
   assert.match(product, /THIRTY_FIRST_STORAGE_KEY = "swift-ghost-state-v31"/);
   assert.match(product, /THIRTIETH_STORAGE_KEY = "swift-ghost-state-v30"/);
   assert.match(product, /TWENTY_SIXTH_STORAGE_KEY = "swift-ghost-state-v26"/);
   assert.match(product, /TWENTY_FIFTH_STORAGE_KEY = "swift-ghost-state-v25"/);
-  assert.match(product, /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+THIRTY_FIRST_STORAGE_KEY,\s+THIRTIETH_STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY,\s+TWENTY_EIGHTH_STORAGE_KEY,\s+TWENTY_SEVENTH_STORAGE_KEY,\s+TWENTY_SIXTH_STORAGE_KEY,\s+TWENTY_FIFTH_STORAGE_KEY/);
+  assert.match(product, /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+THIRTY_SECOND_STORAGE_KEY,\s+THIRTY_FIRST_STORAGE_KEY,\s+THIRTIETH_STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY,\s+TWENTY_EIGHTH_STORAGE_KEY,\s+TWENTY_SEVENTH_STORAGE_KEY,\s+TWENTY_SIXTH_STORAGE_KEY,\s+TWENTY_FIFTH_STORAGE_KEY/);
   assert.match(product, /Number\(value\.version\) >= 26 \? value\.problemNotes : undefined/);
 });
 
@@ -105,8 +106,8 @@ test("normalization enforces an aggregate UTF-8 storage budget", () => {
     manyRevisions.set(itemId, 1);
     raw[itemId] = {
       itemRevision: 1,
-      approach: "🧠".repeat(PROBLEM_NOTE_LIMITS.maxApproachLength / 2),
-      pitfalls: "边".repeat(PROBLEM_NOTE_LIMITS.maxPitfallsLength),
+      approach: "ðŸ§ ".repeat(PROBLEM_NOTE_LIMITS.maxApproachLength / 2),
+      pitfalls: "è¾¹".repeat(PROBLEM_NOTE_LIMITS.maxPitfallsLength),
       complexity: "O(n)",
       updatedAt: new Date(Date.UTC(2026, 0, 1, 0, index)).toISOString(),
     };
