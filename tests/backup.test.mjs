@@ -9,7 +9,7 @@ import {
 } from "../app/lib/backup.mjs";
 
 const state = {
-  version: 30,
+  version: 31,
   attempts: [{ id: "a" }],
   settings: {},
   lastItemId: "two-sum",
@@ -28,15 +28,19 @@ const state = {
     reviews: [{ lessonId: "pattern:arrays-hashing" }],
     decisionAttempts: [{ id: "decision" }],
   },
-  testDesign: { attempts: [{ id: "test-design-attempt" }] },
+  testDesign: {
+    attempts: [{ id: "test-design-attempt" }],
+    drafts: [{ probeId: "test-design:two-sum-distinct-index" }],
+    activeSprint: { id: "test-design-sprint", status: "active" },
+  },
 };
 
 test("round trips a versioned backup envelope", () => {
   const envelope = createBackupEnvelope(state, "2026-07-28T12:00:00.000Z");
   assert.equal(envelope.kind, BACKUP_KIND);
-  assert.equal(envelope.stateVersion, 30);
+  assert.equal(envelope.stateVersion, 31);
   assert.equal(envelope.exportedAt, "2026-07-28T12:00:00.000Z");
-  const restored = readBackupPayload(envelope, [29, 30]);
+  const restored = readBackupPayload(envelope, [30, 31]);
   assert.equal(restored.envelope, true);
   assert.equal(restored.exportedAt, envelope.exportedAt);
   assert.equal(restored.payload, state);
@@ -58,26 +62,52 @@ test("reports a human-checkable inventory", () => {
     patternReviews: 1,
     patternDecisions: 1,
     testDesignAttempts: 1,
+    testDesignDrafts: 1,
+    activeTestDesignSprints: 1,
   });
   assert.equal(hasMeaningfulBackupState(state), true);
-  assert.equal(hasMeaningfulBackupState({ version: 30 }), false);
+  assert.equal(hasMeaningfulBackupState({ version: 31 }), false);
   assert.equal(
     hasMeaningfulBackupState({
-      version: 30,
+      version: 31,
       patternLearning: { reviews: [{ lessonId: "pattern:trees" }] },
     }),
     true,
   );
+  assert.equal(
+    hasMeaningfulBackupState({
+      version: 31,
+      testDesign: { attempts: [], drafts: [{ probeId: "draft-only" }] },
+    }),
+    true,
+  );
+  assert.equal(
+    hasMeaningfulBackupState({
+      version: 31,
+      testDesign: {
+        attempts: [],
+        drafts: [],
+        activeSprint: { id: "active-only", status: "active" },
+      },
+    }),
+    true,
+  );
+  assert.equal(
+    backupInventory({
+      testDesign: { activeSprint: { id: "finished", status: "completed" } },
+    }).activeTestDesignSprints,
+    0,
+  );
 });
 
 test("accepts plausible legacy raw states and rejects version-only impostors", () => {
-  assert.equal(readBackupPayload(state, [29, 30]).envelope, false);
-  assert.equal(readBackupPayload({ version: 28 }, [29, 30]), undefined);
-  assert.equal(readBackupPayload({ ...state, version: 1 }, [29, 30]), undefined);
+  assert.equal(readBackupPayload(state, [30, 31]).envelope, false);
+  assert.equal(readBackupPayload({ version: 29 }, [30, 31]), undefined);
+  assert.equal(readBackupPayload({ ...state, version: 1 }, [30, 31]), undefined);
   assert.equal(
     readBackupPayload(
       { kind: BACKUP_KIND, envelopeVersion: 99, payload: state },
-      [29, 30],
+      [30, 31],
     ),
     undefined,
   );

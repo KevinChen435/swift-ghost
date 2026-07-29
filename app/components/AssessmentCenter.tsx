@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { PracticeItem } from "../lib/items";
+import type { TestDesignLane } from "../data/test-design-probes";
 import { TrustedAssessmentPanel } from "./TrustedAssessmentPanel";
 import {
   ASSESSMENT_BLOCKERS,
@@ -272,7 +273,7 @@ export function AssessmentCenter({
   onOpenPatternReview,
   onOpenTestDesign,
   patternDecisionSummary,
-  testDesignSummary,
+  testDesignSummaries,
 }: {
   workspace: AssessmentWorkspace;
   items: PracticeItem[];
@@ -307,14 +308,14 @@ export function AssessmentCenter({
   onOpenTransferLab: () => void;
   onOpenVirtualRounds: () => void;
   onOpenPatternReview: () => void;
-  onOpenTestDesign: () => void;
+  onOpenTestDesign: (lane: TestDesignLane) => void;
   patternDecisionSummary: {
     newCount: number;
     dueCount: number;
     retainedCount: number;
     totalPatterns: number;
   };
-  testDesignSummary: { newCount: number; dueCount: number; retainedCount: number; totalSkills: number };
+  testDesignSummaries: Record<TestDesignLane, { newCount: number; dueCount: number; retainedCount: number; totalSkills: number }>;
 }) {
   const selectedRun = useMemo(
     () => workspace.runs.find((run) => run.id === selectedAssessment) ?? null,
@@ -384,14 +385,19 @@ export function AssessmentCenter({
         <article className="assessment-test-design-card">
           <div className="assessment-program-topline"><span>Verification reasoning</span><small>Private · 7 minutes</small></div>
           <h2>Test Design Lab</h2>
-          <p>Commit a purpose, assumption, minimal Python-call input, expected result, and defect before seeing original reference cases.</p>
-          <div className="assessment-program-stats">
-            <span><strong>{testDesignSummary.newCount}</strong> new</span>
-            <span><strong>{testDesignSummary.dueCount}</strong> due</span>
-            <span><strong>{testDesignSummary.retainedCount}/{testDesignSummary.totalSkills}</strong> retained</span>
+          <p>Commit a purpose, structured scenario, expected observation, and defect for Python, Swift, or iOS before seeing original reference cases.</p>
+          <div className="assessment-test-design-lanes">
+            {(["python", "swift", "ios"] as TestDesignLane[]).map((lane) => {
+              const summary = testDesignSummaries[lane];
+              return (
+                <button key={lane} className="secondary-button" type="button" onClick={() => onOpenTestDesign(lane)}>
+                  <strong>{lane === "ios" ? "iOS" : lane[0].toUpperCase() + lane.slice(1)}</strong>
+                  <span>{summary.newCount} new · {summary.dueCount} due · {summary.retainedCount}/{summary.totalSkills} retained</span>
+                </button>
+              );
+            })}
           </div>
           <small className="assessment-program-disclaimer">Cases are not executed here. Novel oracles remain unverified rather than being marked wrong.</small>
-          <div className="assessment-card-actions"><button className="primary-button" type="button" onClick={onOpenTestDesign}>Open counterexample lab →</button></div>
         </article>
         <article className="assessment-virtual-round-card">
           <div className="assessment-program-topline">

@@ -37,6 +37,15 @@ export function backupInventory(state) {
   const testDesignAttempts = isRecord(state?.testDesign)
     ? boundedCount(state.testDesign.attempts)
     : 0;
+  const testDesignDrafts = isRecord(state?.testDesign)
+    ? boundedCount(state.testDesign.drafts)
+    : 0;
+  const activeTestDesignSprints =
+    isRecord(state?.testDesign) &&
+    isRecord(state.testDesign.activeSprint) &&
+    state.testDesign.activeSprint.status === "active"
+      ? 1
+      : 0;
   return {
     attempts: boundedCount(state?.attempts),
     submissions: submissionReceipts,
@@ -52,6 +61,8 @@ export function backupInventory(state) {
     patternReviews,
     patternDecisions,
     testDesignAttempts,
+    testDesignDrafts,
+    activeTestDesignSprints,
   };
 }
 

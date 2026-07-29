@@ -5,12 +5,13 @@ import { TEST_DESIGN_PROBES } from "../app/data/test-design-probes.ts";
 import { backupInventory } from "../app/lib/backup.mjs";
 import { buildWeaknessLab } from "../app/lib/weakness-lab.mjs";
 
-test("v30 adds an isolated Test Design workspace while preserving the exact v29 fallback", async () => {
+test("v31 extends Test Design while preserving the exact v30 workspace fallback", async () => {
   const product = await readFile(new URL("../app/lib/product.ts", import.meta.url), "utf8");
-  assert.match(product, /version: 30;/);
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v30"/);
+  assert.match(product, /version: 31;/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v31"/);
+  assert.match(product, /THIRTIETH_STORAGE_KEY = "swift-ghost-state-v30"/);
   assert.match(product, /TWENTY_NINTH_STORAGE_KEY = "swift-ghost-state-v29"/);
-  assert.match(product, /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY,\s+TWENTY_EIGHTH_STORAGE_KEY/);
+  assert.match(product, /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+THIRTIETH_STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY,\s+TWENTY_EIGHTH_STORAGE_KEY/);
   assert.match(product, /testDesign: TestDesignWorkspace/);
   assert.match(product, /testDesign: createTestDesignWorkspace\(\)/);
   assert.match(product, /Number\(value\.version\) >= 30 \? value\.testDesign : undefined/);
@@ -27,32 +28,119 @@ test("UI keeps objective checks separate and exposes all three core entry points
   assert.match(component, /Commit before reveal/);
   assert.match(component, /Novel cases remain\s+unverified/);
   assert.match(component, /not hidden\s+judge cases/);
-  assert.match(component, /has not been executed or\s+copied/);
+  assert.match(component, /has not been executed, copied/);
   assert.match(component, /aria-live="polite"/);
+  assert.match(component, /lockedHeadingRef/);
   assert.match(component, /revealHeadingRef/);
+  assert.match(component, /Design-only evidence\. Python, Swift, and iOS scenarios are not/);
+  assert.match(component, /selectedAttemptId/);
+  assert.match(component, /Retired content · history only/);
   assert.match(app, /patternReviewMode === "tests"[\s\S]*<TestDesignLab/);
-  assert.match(app, /onTestDesign=\{\(\) => openTestDesignLab\("today"\)\}/);
+  assert.match(app, /onTestDesign=\{\(lane\) => openTestDesignLab\("today", lane\)\}/);
+  assert.match(app, /testDesignAttemptId/);
   assert.match(academy, /onOpenTestDesign/);
+  assert.match(academy, /Python, Swift, or iOS contract/);
   assert.match(assessment, /onOpenTestDesign/);
+  assert.match(assessment, /Python, Swift, or iOS before seeing/);
 });
 
-test("only current completed objective failures feed boundary and verification evidence", () => {
-  const probe = TEST_DESIGN_PROBES[0];
-  const item = {itemId:probe.itemId,contentRevision:probe.itemRevision,title:probe.title,pattern:"Arrays & Hashing",track:"interview",language:"python",estimatedMinutes:8,verification:{revision:1,cases:[{}]}};
-  const base = {id:"td-1",sprintId:"s",source:"academy",probeId:probe.id,probeRevision:probe.revision,itemId:probe.itemId,itemRevision:probe.itemRevision,skillId:probe.skillId,purpose:"baseline",assumption:"a",input:probe.referenceCases[0].input,expected:"wrong",defectCaught:"d",assisted:false,wasDue:false,purposeMatch:false,oracleStatus:"contradicted",committedAt:"2026-07-29T12:00:00.000Z",revealedAt:"2026-07-29T12:01:00.000Z",grade:"good",completedAt:"2026-07-29T12:02:00.000Z",dueAt:"2026-07-30T12:02:00.000Z",levelAfter:0,lapseCount:1,updatedAt:"2026-07-29T12:02:00.000Z"};
-  const model = buildWeaknessLab({items:[item],testDesignAttempts:[base],testDesignProbes:TEST_DESIGN_PROBES,now:"2026-07-29T13:00:00.000Z"});
-  const tags = model.cases.filter((entry)=>entry.sourceKinds.includes("test-design")).map((entry)=>entry.weakness);
-  assert.deepEqual(tags.sort(), ["boundary","verification"]);
-  const stale = buildWeaknessLab({items:[item],testDesignAttempts:[{...base,probeRevision:999}],testDesignProbes:TEST_DESIGN_PROBES,now:"2026-07-29T13:00:00.000Z"});
-  assert.equal(stale.cases.some((entry)=>entry.sourceKinds.includes("test-design")),false);
-  const hintOnly = buildWeaknessLab({items:[item],testDesignAttempts:[{...base,purpose:probe.primaryPurpose,purposeMatch:true,oracleStatus:"confirmed",assisted:true}],testDesignProbes:TEST_DESIGN_PROBES,now:"2026-07-29T13:00:00.000Z"});
-  assert.equal(hintOnly.cases.some((entry)=>entry.sourceKinds.includes("test-design")),false);
+test("only current lane-matched Test Design failures feed multi-lane Weakness evidence", () => {
+  const probeFor = (lane) => TEST_DESIGN_PROBES.find((probe) => probe.lane === lane);
+  const attempts = ["python", "swift", "ios"].map((lane, index) => {
+    const probe = probeFor(lane);
+    return {
+      id: `td-${lane}`,
+      sprintId: `s-${lane}`,
+      source: "academy",
+      probeId: probe.id,
+      probeRevision: probe.revision,
+      lane,
+      itemId: probe.itemId,
+      itemRevision: probe.itemRevision,
+      skillId: probe.skillId,
+      purpose: "baseline",
+      assumption: "a",
+      input: probe.referenceCases[0].input,
+      expected: "wrong",
+      defectCaught: "d",
+      assisted: false,
+      wasDue: false,
+      purposeMatch: false,
+      oracleStatus: "contradicted",
+      committedAt: `2026-07-29T12:0${index}:00.000Z`,
+      revealedAt: `2026-07-29T12:1${index}:00.000Z`,
+      grade: "good",
+      completedAt: `2026-07-29T12:2${index}:00.000Z`,
+      dueAt: "2026-07-30T12:20:00.000Z",
+      levelAfter: 0,
+      lapseCount: 1,
+      updatedAt: `2026-07-29T12:2${index}:00.000Z`,
+    };
+  });
+  const items = attempts.map((attempt) => ({
+    itemId: attempt.itemId,
+    contentRevision: attempt.itemRevision,
+    title: attempt.itemId,
+    pattern: `Topic ${attempt.lane}`,
+    track: attempt.lane === "python" ? "interview" : "ios",
+    language: attempt.lane === "python" ? "python" : "swift",
+    ...(attempt.lane === "swift" ? { conceptLane: "swift" } : {}),
+    estimatedMinutes: 8,
+    verification: { revision: 1, cases: [{}] },
+  }));
+  const model = buildWeaknessLab({
+    items,
+    testDesignAttempts: attempts,
+    testDesignProbes: TEST_DESIGN_PROBES,
+    now: "2026-07-29T13:00:00.000Z",
+  });
+  const evidenceCases = model.cases.filter((entry) =>
+    entry.sourceKinds.includes("test-design"),
+  );
+  assert.deepEqual(new Set(evidenceCases.map((entry) => entry.lane)), new Set(["python", "swift", "ios"]));
+  for (const lane of ["python", "swift", "ios"]) {
+    assert.deepEqual(
+      evidenceCases
+        .filter((entry) => entry.lane === lane)
+        .map((entry) => entry.weakness)
+        .sort(),
+      ["boundary", "verification"],
+    );
+  }
+
+  for (const invalidAttempt of [
+    { ...attempts[0], probeRevision: 999 },
+    { ...attempts[1], lane: "ios" },
+    { ...attempts[2], itemRevision: 999 },
+  ]) {
+    const invalid = buildWeaknessLab({
+      items,
+      testDesignAttempts: [invalidAttempt],
+      testDesignProbes: TEST_DESIGN_PROBES,
+      now: "2026-07-29T13:00:00.000Z",
+    });
+    assert.equal(
+      invalid.cases.some((entry) => entry.sourceKinds.includes("test-design")),
+      false,
+    );
+  }
 });
 
-test("backup inventory and user confirmation copy include Test Design attempts", async () => {
-  assert.equal(backupInventory({testDesign:{attempts:[{},{}]}}).testDesignAttempts,2);
+test("backup inventory and user confirmation copy include attempts, drafts, and active labs", async () => {
+  const inventory = backupInventory({
+    testDesign: {
+      attempts: [{}, {}],
+      drafts: [{}],
+      activeSprint: { id: "active", status: "active" },
+    },
+  });
+  assert.equal(inventory.testDesignAttempts, 2);
+  assert.equal(inventory.testDesignDrafts, 1);
+  assert.equal(inventory.activeTestDesignSprints, 1);
   const app = await readFile(new URL("../app/components/SwiftGhostApp.tsx", import.meta.url), "utf8");
   assert.match(app, /inventory\.testDesignAttempts/);
-  assert.match(app, /portable v30 backup envelope/);
-  assert.match(app, /supported v2-v30 backups/);
+  assert.match(app, /inventory\.testDesignDrafts/);
+  assert.match(app, /inventory\.activeTestDesignSprints/);
+  assert.match(app, /portable v31 backup envelope/);
+  assert.match(app, /supported v2-v31 backups/);
 });

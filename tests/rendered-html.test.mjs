@@ -132,7 +132,12 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v30"/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v31"/);
+  assert.match(product, /THIRTIETH_STORAGE_KEY = "swift-ghost-state-v30"/);
+  assert.match(
+    product,
+    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+THIRTIETH_STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY/,
+  );
   assert.match(product, /TWENTY_SIXTH_STORAGE_KEY = "swift-ghost-state-v26"/);
   assert.match(product, /TWENTY_FIFTH_STORAGE_KEY = "swift-ghost-state-v25"/);
   assert.match(product, /TWENTY_FOURTH_STORAGE_KEY = "swift-ghost-state-v24"/);
@@ -148,7 +153,7 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(product, /TWELFTH_STORAGE_KEY = "swift-ghost-state-v12"/);
   assert.match(product, /PREVIOUS_STORAGE_KEY = "swift-ghost-state-v11"/);
   assert.match(product, /FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2"/);
-  assert.match(product, /version: 30/);
+  assert.match(product, /version: 31/);
   assert.match(product, /swift-ghost-state-v10/);
   assert.match(product, /swift-ghost-state-v9/);
   assert.match(product, /swift-ghost-state-v8/);
@@ -389,8 +394,8 @@ test("ships first-class Swift and iOS concept recall", async () => {
   assert.match(app, /finishConcept/);
   assert.match(app, /practiceKind: "concept"/);
   assert.match(app, /saveStateForScope/);
-  assert.match(app, /portable v30 backup envelope/);
-  assert.match(app, /supported v2-v30 backups/);
+  assert.match(app, /portable v31 backup envelope/);
+  assert.match(app, /supported v2-v31 backups/);
   assert.match(app, /notes, settings/);
   assert.match(concept, /Commit & compare answer/);
   assert.match(concept, /Optional guided typing/);

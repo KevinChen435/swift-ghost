@@ -1,4 +1,4 @@
-export const TEST_DESIGN_VERSION = 1;
+export const TEST_DESIGN_VERSION = 2;
 export const TEST_DESIGN_ATTEMPT_LIMIT = 180;
 export const TEST_DESIGN_DRAFT_LIMIT = 6;
 export const TEST_DESIGN_SPRINT_LIMIT = 3;
@@ -15,6 +15,15 @@ export const TEST_DESIGN_SOURCES = [
   "today",
   "assessment",
   "weakness",
+];
+export const TEST_DESIGN_LANES = ["python", "swift", "ios"];
+export const TEST_DESIGN_OBSERVATION_KINDS = [
+  "value",
+  "error",
+  "lifetime",
+  "event-sequence",
+  "state-transition",
+  "accessibility-tree",
 ];
 
 const EPOCH = "1970-01-01T00:00:00.000Z";
@@ -71,7 +80,11 @@ function canonicalExpected(value, comparator) {
   if (!text) return undefined;
   try {
     const parsed = JSON.parse(text);
-    if (comparator !== "unorderedNested") return canonicalJson(parsed);
+    if (
+      comparator !== "unorderedNested" &&
+      comparator !== "unorderedObjectArrays"
+    )
+      return canonicalJson(parsed);
     const normalize = (entry) =>
       Array.isArray(entry)
         ? entry
@@ -79,7 +92,14 @@ function canonicalExpected(value, comparator) {
             .sort((left, right) =>
               canonicalJson(left).localeCompare(canonicalJson(right)),
             )
-        : entry;
+        : entry && typeof entry === "object"
+          ? Object.fromEntries(
+              Object.entries(entry).map(([key, nested]) => [
+                key,
+                normalize(nested),
+              ]),
+            )
+          : entry;
     return canonicalJson(normalize(parsed));
   } catch {
     return undefined;
@@ -111,7 +131,8 @@ function probeRegistry(probes, items) {
   );
   return new Map(
     (Array.isArray(probes) ? probes : []).flatMap((probe) =>
-      revisions.get(probe.itemId) === probe.itemRevision
+      revisions.get(probe.itemId) === probe.itemRevision &&
+      TEST_DESIGN_LANES.includes(probe.lane)
         ? [[probe.id, probe]]
         : [],
     ),
@@ -130,21 +151,57 @@ export function createTestDesignWorkspace(now = EPOCH) {
 
 export function normalizeTestDesignWorkspace(value, options = {}) {
   const probes = probeRegistry(options.probes, options.items);
-  if (!isRecord(value) || value.version !== TEST_DESIGN_VERSION)
+  const knownProbes = new Map(
+    (Array.isArray(options.probes) ? options.probes : [])
+      .filter((probe) => probe?.id && TEST_DESIGN_LANES.includes(probe.lane))
+      .map((probe) => [probe.id, probe]),
+  );
+  if (!isRecord(value) || ![1, TEST_DESIGN_VERSION].includes(value.version))
     return createTestDesignWorkspace(options.now);
   const byId = new Map();
   for (const raw of Array.isArray(value.attempts) ? value.attempts : []) {
     if (!isRecord(raw)) continue;
     const id = cleanId(raw.id),
       sprintId = cleanId(raw.sprintId),
-      probe = probes.get(raw.probeId);
+      probeId = cleanId(raw.probeId),
+      currentProbe = probes.get(probeId),
+      knownProbe = knownProbes.get(probeId),
+      probeRevision = bounded(raw.probeRevision, 0, 1, 1_000_000),
+      itemId = cleanId(raw.itemId),
+      itemRevision = bounded(raw.itemRevision, 0, 1, 1_000_000),
+      current = Boolean(
+        currentProbe &&
+          probeRevision === currentProbe.revision &&
+          itemId === currentProbe.itemId &&
+          itemRevision === currentProbe.itemRevision,
+      ),
+      lane = current
+        ? currentProbe.lane
+        : TEST_DESIGN_LANES.includes(raw.lane)
+          ? raw.lane
+          : knownProbe?.lane,
+      skillId = current ? currentProbe.skillId : cleanId(raw.skillId),
+      observationKind = current
+        ? currentProbe.observationKind
+        : TEST_DESIGN_OBSERVATION_KINDS.includes(raw.observationKind)
+          ? raw.observationKind
+          : "value",
+      staleCompleted = Boolean(
+        !current &&
+          raw.revealedAt &&
+          TEST_DESIGN_GRADES.includes(raw.grade) &&
+          raw.completedAt,
+      );
     if (
       !id ||
       !sprintId ||
-      !probe ||
-      Number(raw.probeRevision) !== probe.revision ||
-      raw.itemId !== probe.itemId ||
-      Number(raw.itemRevision) !== probe.itemRevision
+      !probeId ||
+      !probeRevision ||
+      !itemId ||
+      !itemRevision ||
+      !lane ||
+      !skillId ||
+      (!current && !staleCompleted)
     )
       continue;
     const purpose = TEST_DESIGN_PURPOSES.includes(raw.purpose)
@@ -171,11 +228,14 @@ export function normalizeTestDesignWorkspace(value, options = {}) {
       id,
       sprintId,
       source: TEST_DESIGN_SOURCES.includes(raw.source) ? raw.source : "academy",
-      probeId: probe.id,
-      probeRevision: probe.revision,
-      itemId: probe.itemId,
-      itemRevision: probe.itemRevision,
-      skillId: probe.skillId,
+      probeId,
+      probeRevision,
+      lane,
+      itemId,
+      itemRevision,
+      skillId,
+      observationKind,
+      executionPolicy: "design-only",
       purpose,
       assumption,
       input,
@@ -183,8 +243,14 @@ export function normalizeTestDesignWorkspace(value, options = {}) {
       defectCaught,
       assisted: Boolean(raw.assisted),
       wasDue: Boolean(raw.wasDue),
-      purposeMatch: purpose === probe.primaryPurpose,
-      oracleStatus: classifyOracle(probe, input, expected),
+      purposeMatch: current
+        ? purpose === currentProbe.primaryPurpose
+        : Boolean(raw.purposeMatch),
+      oracleStatus: current
+        ? classifyOracle(currentProbe, input, expected)
+        : ["confirmed", "contradicted", "unverified"].includes(raw.oracleStatus)
+          ? raw.oracleStatus
+          : "unverified",
       committedAt,
       ...(revealedAt ? { revealedAt } : {}),
       ...(grade ? { grade } : {}),
@@ -205,6 +271,7 @@ export function normalizeTestDesignWorkspace(value, options = {}) {
         raw.updatedAt,
         completedAt ?? revealedAt ?? committedAt,
       ),
+      ...(!current ? { retired: true } : {}),
     };
     const prior = byId.get(id);
     if (!prior || prior.updatedAt <= attempt.updatedAt) byId.set(id, attempt);
@@ -260,8 +327,18 @@ export function normalizeTestDesignWorkspace(value, options = {}) {
         return [{ probeId: probe.id, probeRevision: probe.revision }];
       })
       .slice(0, TEST_DESIGN_SPRINT_LIMIT);
+    const entryLanes = new Set(
+      entries.map((entry) => probes.get(entry.probeId)?.lane).filter(Boolean),
+    );
+    const lane =
+      TEST_DESIGN_LANES.includes(raw.lane) && entryLanes.has(raw.lane)
+        ? raw.lane
+        : entryLanes.size === 1
+          ? [...entryLanes][0]
+          : undefined;
     if (
       id &&
+      lane &&
       rawEntries.length > 0 &&
       rawEntries.length <= TEST_DESIGN_SPRINT_LIMIT &&
       entries.length === rawEntries.length
@@ -270,6 +347,7 @@ export function normalizeTestDesignWorkspace(value, options = {}) {
         completed = raw.status === "completed" || cursor >= entries.length;
       activeSprint = {
         id,
+        lane,
         source: TEST_DESIGN_SOURCES.includes(raw.source)
           ? raw.source
           : "academy",
@@ -284,8 +362,17 @@ export function normalizeTestDesignWorkspace(value, options = {}) {
       };
     }
   }
-  const activeDrafts = activeSprint
-    ? drafts.filter((draft) => draft.sprintId === activeSprint.id)
+  const activeProbeIds = new Set(
+    activeSprint?.status === "active"
+      ? activeSprint.entries.map((entry) => entry.probeId)
+      : [],
+  );
+  const activeDrafts = activeSprint?.status === "active"
+    ? drafts.filter(
+        (draft) =>
+          draft.sprintId === activeSprint.id &&
+          activeProbeIds.has(draft.probeId),
+      )
     : [];
   return {
     version: TEST_DESIGN_VERSION,
@@ -306,11 +393,13 @@ function currentEntry(workspace) {
     ? sprint.entries[sprint.cursor]
     : undefined;
 }
-function completedForSkill(workspace, skillId, excludedId) {
+function completedForSkill(workspace, lane, skillId, excludedId) {
   return workspace.attempts
     .filter(
       (entry) =>
+        entry.lane === lane &&
         entry.skillId === skillId &&
+        !entry.retired &&
         entry.completedAt &&
         entry.id !== excludedId,
     )
@@ -323,6 +412,15 @@ export function deriveTestDesignState(
   probes,
   options = {},
 ) {
+  const lane = TEST_DESIGN_LANES.includes(options.lane)
+    ? options.lane
+    : [...new Set(
+        (Array.isArray(probes) ? probes : [])
+          .filter((probe) => probe.skillId === skillId)
+          .map((probe) => probe.lane),
+      )].length === 1
+      ? probes.find((probe) => probe.skillId === skillId)?.lane
+      : undefined;
   const valid = new Map(
     (Array.isArray(probes) ? probes : []).map((probe) => [
       probe.id,
@@ -332,6 +430,8 @@ export function deriveTestDesignState(
   const completed = workspace.attempts.filter(
     (attempt) =>
       attempt.skillId === skillId &&
+      (!lane || attempt.lane === lane) &&
+      !attempt.retired &&
       attempt.completedAt &&
       valid.get(attempt.probeId) === attempt.probeRevision,
   );
@@ -365,9 +465,12 @@ export function deriveTestDesignState(
 }
 
 export function deriveTestDesignOverview(probes, workspace, options = {}) {
-  const skills = [...new Set(probes.map((probe) => probe.skillId))];
+  const eligible = TEST_DESIGN_LANES.includes(options.lane)
+    ? probes.filter((probe) => probe.lane === options.lane)
+    : probes;
+  const skills = [...new Set(eligible.map((probe) => probe.skillId))];
   const states = skills.map((skillId) =>
-    deriveTestDesignState(skillId, workspace, probes, options),
+    deriveTestDesignState(skillId, workspace, eligible, options),
   );
   return {
     newCount: states.filter((s) => s.isNew).length,
@@ -381,8 +484,11 @@ export function deriveTestDesignOverview(probes, workspace, options = {}) {
 
 export function selectTestDesignProbes(probes, workspace, options = {}) {
   const count = bounded(options.count, 3, 1, TEST_DESIGN_SPRINT_LIMIT),
-    attempts = workspace.attempts ?? [];
-  const skills = [...new Set(probes.map((probe) => probe.skillId))]
+    attempts = workspace.attempts ?? [],
+    eligible = TEST_DESIGN_LANES.includes(options.lane)
+      ? probes.filter((probe) => probe.lane === options.lane)
+      : probes;
+  const skills = [...new Set(eligible.map((probe) => probe.skillId))]
     .map((skillId) => ({
       skillId,
       state: deriveTestDesignState(skillId, workspace, probes, options),
@@ -394,9 +500,14 @@ export function selectTestDesignProbes(probes, workspace, options = {}) {
         a.skillId.localeCompare(b.skillId),
     );
   return skills.slice(0, count).flatMap(({ skillId }) => {
-    const candidates = probes.filter((probe) => probe.skillId === skillId),
+    const candidates = eligible.filter((probe) => probe.skillId === skillId),
       history = attempts
-        .filter((a) => a.skillId === skillId)
+        .filter(
+          (attempt) =>
+            !attempt.retired &&
+            attempt.skillId === skillId &&
+            (!options.lane || attempt.lane === options.lane),
+        )
         .sort((a, b) => a.committedAt.localeCompare(b.committedAt)),
       last = history.at(-1)?.probeId;
     return candidates
@@ -415,6 +526,7 @@ export function startTestDesignSprint(workspace, probes, items, options = {}) {
   const normalized = mutable(workspace, { probes, items, now: options.now });
   if (normalized.activeSprint?.status === "active") return normalized;
   const id = cleanId(options.id),
+    lane = TEST_DESIGN_LANES.includes(options.lane) ? options.lane : "python",
     selected = selectTestDesignProbes(
       probes.filter((probe) =>
         items.some(
@@ -424,7 +536,7 @@ export function startTestDesignSprint(workspace, probes, items, options = {}) {
         ),
       ),
       normalized,
-      options,
+      { ...options, lane },
     );
   if (!id || !selected.length) return normalized;
   const now = cleanIso(options.now);
@@ -435,6 +547,7 @@ export function startTestDesignSprint(workspace, probes, items, options = {}) {
     drafts: [],
     activeSprint: {
       id,
+      lane,
       source: TEST_DESIGN_SOURCES.includes(options.source)
         ? options.source
         : "academy",
@@ -528,7 +641,7 @@ export function commitTestDesignAttempt(workspace, probe, input, options = {}) {
   )
     return normalized;
   const now = cleanIso(options.now),
-    prior = completedForSkill(normalized, probe.skillId).at(-1),
+    prior = completedForSkill(normalized, probe.lane, probe.skillId).at(-1),
     wasDue = Boolean(
       prior?.dueAt && Date.parse(prior.dueAt) <= Date.parse(now),
     );
@@ -538,9 +651,12 @@ export function commitTestDesignAttempt(workspace, probe, input, options = {}) {
     source: normalized.activeSprint.source,
     probeId: probe.id,
     probeRevision: probe.revision,
+    lane: probe.lane,
     itemId: probe.itemId,
     itemRevision: probe.itemRevision,
     skillId: probe.skillId,
+    observationKind: probe.observationKind,
+    executionPolicy: "design-only",
     purpose,
     assumption,
     input: rawInput,
@@ -612,7 +728,12 @@ export function gradeTestDesignAttempt(
   )
     return normalized;
   const now = cleanIso(options.now),
-    prior = completedForSkill(normalized, existing.skillId, existing.id).at(-1),
+    prior = completedForSkill(
+      normalized,
+      existing.lane,
+      existing.skillId,
+      existing.id,
+    ).at(-1),
     priorLevel = prior?.levelAfter ?? 0,
     strong = grade === "good" || grade === "easy",
     qualifies =

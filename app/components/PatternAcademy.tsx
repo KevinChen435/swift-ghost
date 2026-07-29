@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PatternLesson, PatternLessonStep } from "../data/pattern-lessons";
 import type { PatternDecisionProbe } from "../data/pattern-decision-probes";
+import type { TestDesignLane } from "../data/test-design-probes";
 import {
   countStrongPatternChecks,
   derivePatternEvidence,
@@ -47,8 +48,8 @@ type Props = {
   onBrowsePattern: (lesson: PatternLesson) => void;
   onOpenTransferLab: () => void;
   onOpenDecisionReview: () => void;
-  onOpenTestDesign: () => void;
-  testDesignSummary: { newCount: number; dueCount: number; retainedCount: number; totalSkills: number };
+  onOpenTestDesign: (lane: TestDesignLane) => void;
+  testDesignSummaries: Record<TestDesignLane, { newCount: number; dueCount: number; retainedCount: number; totalSkills: number }>;
 };
 
 const STEP_META: {
@@ -219,7 +220,7 @@ export function PatternAcademy({
   onOpenTransferLab,
   onOpenDecisionReview,
   onOpenTestDesign,
-  testDesignSummary,
+  testDesignSummaries,
 }: Props) {
   const [templateLanguage, setTemplateLanguage] = useState<"python" | "swift">("python");
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -303,16 +304,21 @@ export function PatternAcademy({
         </section>
         <section className="academy-test-design-card" aria-labelledby="academy-test-design-title">
           <div>
-            <p className="eyebrow">Counterexample retrieval · 7 minutes</p>
+            <p className="eyebrow">Counterexample retrieval · multi-lane</p>
             <h2 id="academy-test-design-title">Can you design the failure before coding?</h2>
-            <p>Turn one hidden Python contract into a minimal input, expected result, and named defect. Project-authored references are original teaching cases, not hidden judge payloads.</p>
-            <button className="primary-button" onClick={onOpenTestDesign}>Open Test Design Lab</button>
+            <p>Turn a Python, Swift, or iOS contract into a minimal structured scenario, expected observation, and named defect. Project-authored references are original teaching cases, not hidden judge payloads.</p>
           </div>
-          <dl>
-            <div><dt>New</dt><dd>{testDesignSummary.newCount}</dd></div>
-            <div><dt>Due</dt><dd>{testDesignSummary.dueCount}</dd></div>
-            <div><dt>Retained</dt><dd>{testDesignSummary.retainedCount}/{testDesignSummary.totalSkills}</dd></div>
-          </dl>
+          <div className="test-design-entry-lanes">
+            {(["python", "swift", "ios"] as TestDesignLane[]).map((lane) => {
+              const summary = testDesignSummaries[lane];
+              return (
+                <button key={lane} className="secondary-button" onClick={() => onOpenTestDesign(lane)}>
+                  <strong>{lane === "ios" ? "iOS" : lane[0].toUpperCase() + lane.slice(1)}</strong>
+                  <span>{summary.newCount} new · {summary.dueCount} due · {summary.retainedCount}/{summary.totalSkills} retained</span>
+                </button>
+              );
+            })}
+          </div>
           <small>Design evidence stays separate from executed tests, accepted submissions, solves, and transfer evidence.</small>
         </section>
         <section aria-labelledby="academy-curriculum-title">
