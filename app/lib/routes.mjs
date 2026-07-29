@@ -6,10 +6,15 @@ import {
   DEFAULT_SUBMISSION_WORK_LOG_QUERY,
   normalizeSubmissionWorkLogQuery,
 } from "./submission-work-log.mjs";
+import {
+  WEAKNESS_FILTERS,
+  WEAKNESS_LANES,
+} from "./weakness-lab.mjs";
 
 export const ROUTE_VIEWS = [
   "today",
   "plans",
+  "improve",
   "practice",
   "sessions",
   "assessments",
@@ -90,6 +95,10 @@ function cleanSessionId(value) {
 }
 
 function cleanContestRoundId(value) {
+  return cleanSessionId(value);
+}
+
+function cleanWeaknessCaseId(value) {
   return cleanSessionId(value);
 }
 
@@ -211,6 +220,20 @@ export function parseRoute(input) {
       : undefined;
   const sessionId =
     view === "sessions" ? cleanSessionId(params.get("session")) : undefined;
+  const weaknessFilter =
+    view === "improve" && WEAKNESS_FILTERS.includes(params.get("inbox"))
+      ? params.get("inbox")
+      : view === "improve"
+        ? "priority"
+        : undefined;
+  const weaknessLane =
+    view === "improve" && WEAKNESS_LANES.includes(params.get("lane"))
+      ? params.get("lane")
+      : view === "improve"
+        ? "all"
+        : undefined;
+  const weaknessCaseId =
+    view === "improve" ? cleanWeaknessCaseId(params.get("case")) : undefined;
   return {
     view,
     language,
@@ -228,6 +251,13 @@ export function parseRoute(input) {
         }
       : {}),
     ...(sessionId ? { sessionId } : {}),
+    ...(view === "improve"
+      ? {
+          weaknessFilter,
+          weaknessLane,
+          ...(weaknessCaseId ? { weaknessCaseId } : {}),
+        }
+      : {}),
     ...(view === "library" ? { catalog: catalogQueryFromParams(params) } : {}),
     ...(recordsSection
       ? {
@@ -397,6 +427,19 @@ export function serializeRoute(
   if (view === "sessions") {
     const sessionId = cleanSessionId(route?.sessionId);
     if (sessionId) url.searchParams.set("session", sessionId);
+  }
+  if (view === "improve") {
+    const weaknessFilter = WEAKNESS_FILTERS.includes(route?.weaknessFilter)
+      ? route.weaknessFilter
+      : "priority";
+    const weaknessLane = WEAKNESS_LANES.includes(route?.weaknessLane)
+      ? route.weaknessLane
+      : "all";
+    const weaknessCaseId = cleanWeaknessCaseId(route?.weaknessCaseId);
+    if (weaknessFilter !== "priority")
+      url.searchParams.set("inbox", weaknessFilter);
+    if (weaknessLane !== "all") url.searchParams.set("lane", weaknessLane);
+    if (weaknessCaseId) url.searchParams.set("case", weaknessCaseId);
   }
   const assessment =
     view === "assessments" ? cleanAssessmentId(route?.assessment) : undefined;

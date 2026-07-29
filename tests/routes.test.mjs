@@ -18,6 +18,43 @@ test("study plans have a first-class reload-safe route", () => {
   );
 });
 
+test("Weakness Lab filters and selected cases are bounded and reload-safe", () => {
+  const route = parseRoute(
+    "/?view=improve&inbox=due&lane=python&case=python%3Aarrays-hashing%3Averification",
+  );
+  assert.equal(route.view, "improve");
+  assert.equal(route.weaknessFilter, "due");
+  assert.equal(route.weaknessLane, "python");
+  assert.equal(route.weaknessCaseId, "python:arrays-hashing:verification");
+  assert.equal(
+    serializeRoute(route, "https://example.test/swift-ghost/?stale=1"),
+    "/swift-ghost/?view=improve&inbox=due&lane=python&case=python%3Aarrays-hashing%3Averification",
+  );
+
+  const fallback = parseRoute(
+    "/?view=improve&inbox=../../all&lane=admin&case=../../private",
+  );
+  assert.equal(fallback.weaknessFilter, "priority");
+  assert.equal(fallback.weaknessLane, "all");
+  assert.equal(fallback.weaknessCaseId, undefined);
+  assert.equal(
+    serializeRoute(fallback, "https://example.test/swift-ghost/"),
+    "/swift-ghost/?view=improve",
+  );
+  assert.doesNotMatch(
+    serializeRoute(
+      {
+        view: "library",
+        weaknessFilter: "due",
+        weaknessLane: "python",
+        weaknessCaseId: "python:arrays-hashing:verification",
+      },
+      "https://example.test/",
+    ),
+    /inbox=|case=/,
+  );
+});
+
 test("practice-session recaps have a bounded reload-safe route", () => {
   const route = parseRoute("/?view=sessions&session=session_01-recap:2");
   assert.equal(route.view, "sessions");

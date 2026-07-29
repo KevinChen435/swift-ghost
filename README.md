@@ -19,6 +19,7 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - A Today dashboard with a deterministic Daily Type, Python and iOS reactivation exercises, due recall, and resumable drafts
 - An Adaptive Daily Coach that builds deterministic 15-, 30-, or 45-minute plans from overdue work, missing evidence, Python fluency, independent solves, and iOS maintenance
 - Reusable Study Plans with four evidence-based templates, fixed personal collections, 15/30/45-minute focus blocks, due-review priority, rolling Python/Swift/iOS allocation, and honest assisted-versus-independent progress
+- A unified Weakness Lab that turns recurring debrief, solution-review, assessment, mock, and transfer signals into ranked Python, Swift, and iOS remediation cases, targeted three-context practice queues, exact evidence trails, and delayed transfer-based resolution
 - Plan-linked Python and Swift/iOS Interview Studio capstones, with plan structure and session links preserved without turning typing passes into solving mastery
 - Searchable, filterable, sortable problem library
 - Strict and free-correction typing modes with selection-aware character feedback

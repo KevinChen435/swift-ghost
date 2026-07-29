@@ -54,6 +54,7 @@ import { SessionRecap } from "./SessionRecap";
 import { CustomChallengeDialog } from "./CustomChallengeDialog";
 import { SubmissionWorkLog } from "./SubmissionWorkLog";
 import { SolutionReviewWorkspace } from "./SolutionReviewWorkspace";
+import { WeaknessLab } from "./WeaknessLab";
 import { getSolutionGuide } from "../data/solution-guides";
 import {
   InterviewStudioPanel,
@@ -109,6 +110,14 @@ import {
   buildContestSummary,
   buildPersonalStandings,
 } from "../lib/contest-center.mjs";
+import {
+  WEAKNESS_META,
+  buildWeaknessLab,
+  type WeaknessCase,
+  type WeaknessEvidence,
+  type WeaknessFilter,
+  type WeaknessLane,
+} from "../lib/weakness-lab.mjs";
 import {
   createCloudClient,
   type CloudCapabilities,
@@ -405,6 +414,7 @@ const THEMES: { id: Theme; label: string; colors: string[] }[] = [
 const NAV: { id: View; label: string; icon: string }[] = [
   { id: "today", label: "Today", icon: "◉" },
   { id: "plans", label: "Plans", icon: "◎" },
+  { id: "improve", label: "Improve", icon: "◈" },
   { id: "practice", label: "Practice", icon: "⌨" },
   { id: "sessions", label: "Studio", icon: "≡" },
   { id: "assessments", label: "Assess", icon: "◇" },
@@ -767,6 +777,10 @@ export default function SwiftGhostApp() {
       normalizeSubmissionWorkLogQuery(DEFAULT_SUBMISSION_WORK_LOG_QUERY),
     );
   const [assessmentRouteId, setAssessmentRouteId] = useState<string>();
+  const [weaknessFilter, setWeaknessFilter] =
+    useState<WeaknessFilter>("priority");
+  const [weaknessLane, setWeaknessLane] = useState<WeaknessLane>("all");
+  const [weaknessCaseId, setWeaknessCaseId] = useState<string>();
   const [contestSection, setContestSection] =
     useState<ContestSection>("overview");
   const [contestRoundId, setContestRoundId] = useState<string>();
@@ -877,6 +891,9 @@ export default function SwiftGhostApp() {
         ),
       );
       setAssessmentRouteId(route.assessment);
+      setWeaknessFilter(route.weaknessFilter ?? "priority");
+      setWeaknessLane(route.weaknessLane ?? "all");
+      setWeaknessCaseId(route.weaknessCaseId);
       setContestSection(route.contestSection ?? "overview");
       setContestRoundId(route.contestRoundId);
       setSelectedSessionId(route.sessionId);
@@ -892,6 +909,20 @@ export default function SwiftGhostApp() {
       if (route.view === "library") {
         const canonicalHref = serializeRoute(
           { view: "library", catalog: route.catalog },
+          window.location.href,
+        );
+        const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        if (canonicalHref !== currentHref)
+          window.history.replaceState({}, "", canonicalHref);
+      }
+      if (route.view === "improve") {
+        const canonicalHref = serializeRoute(
+          {
+            view: "improve",
+            weaknessFilter: route.weaknessFilter,
+            weaknessLane: route.weaknessLane,
+            weaknessCaseId: route.weaknessCaseId,
+          },
           window.location.href,
         );
         const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
@@ -1017,6 +1048,9 @@ export default function SwiftGhostApp() {
         ),
       );
       setAssessmentRouteId(route.assessment);
+      setWeaknessFilter(route.weaknessFilter ?? "priority");
+      setWeaknessLane(route.weaknessLane ?? "all");
+      setWeaknessCaseId(route.weaknessCaseId);
       setContestSection(route.contestSection ?? "overview");
       setContestRoundId(route.contestRoundId);
       setSelectedSessionId(route.sessionId);
@@ -1872,6 +1906,68 @@ export default function SwiftGhostApp() {
     () => buildContestSummary(state.virtualRoundWorkspace.history),
     [state.virtualRoundWorkspace.history],
   );
+  const weaknessNow = Math.floor((now || Date.now()) / 60_000) * 60_000;
+  const weaknessAssessmentReports = useMemo(
+    () =>
+      state.assessments.runs
+        .map((run) => deriveAssessmentReport(run))
+        .filter((report): report is NonNullable<typeof report> => Boolean(report)),
+    [state.assessments.runs],
+  );
+  const weaknessTransferRecords = useMemo(
+    () =>
+      buildTransferRecords({
+        variants: allItems.filter((candidate) => Boolean(candidate.transfer)),
+        workspace: state.transferWorkspace,
+        attempts: state.attempts,
+        submissionLog: state.submissionLog,
+        reviews: state.solutionReviews,
+        now: new Date(weaknessNow).toISOString(),
+      }).records,
+    [
+      allItems,
+      state.transferWorkspace,
+      state.attempts,
+      state.submissionLog,
+      state.solutionReviews,
+      weaknessNow,
+    ],
+  );
+  const weaknessModel = useMemo(() => {
+    const itemSignals = Object.fromEntries(
+      curriculumItems.map((candidate) => {
+        const progress = itemStats(state, candidate.itemId);
+        return [
+          candidate.itemId,
+          {
+            due: isReviewDue(state, candidate.itemId, weaknessNow),
+            completions: progress.completions,
+            owned: progress.owned,
+            recommendedStage: recommendedStage(state, candidate),
+          },
+        ];
+      }),
+    );
+    return buildWeaknessLab({
+      items: allItems,
+      attempts: state.attempts,
+      submissionReceipts: state.submissionLog.receipts,
+      learningEvents: state.learningEvents,
+      solutionReviews: state.solutionReviews,
+      assessmentReports: weaknessAssessmentReports,
+      sessionHistory: state.sessionHistory,
+      transferRecords: weaknessTransferRecords,
+      itemSignals,
+      now: weaknessNow,
+    });
+  }, [
+    allItems,
+    curriculumItems,
+    state,
+    weaknessAssessmentReports,
+    weaknessTransferRecords,
+    weaknessNow,
+  ]);
   const personalRoundStandings = useMemo(
     () =>
       buildPersonalStandings(state.virtualRoundWorkspace.history).map(
@@ -1930,6 +2026,11 @@ export default function SwiftGhostApp() {
     setAssessmentRouteId(undefined);
     setSelectedSessionId(undefined);
     setResult(null);
+    if (nextView === "improve") {
+      setWeaknessFilter("priority");
+      setWeaknessLane("all");
+      setWeaknessCaseId(undefined);
+    }
     if (nextView === "records") {
       setRecordsSection("overview");
       setReviewAttemptId(undefined);
@@ -2018,6 +2119,121 @@ export default function SwiftGhostApp() {
       {},
       "",
       href,
+    );
+  }
+
+  function updateWeaknessRoute(input: {
+    filter: WeaknessFilter;
+    lane: WeaknessLane;
+    caseId?: string;
+  }) {
+    if (blockVirtualRoundNavigation()) return;
+    setWeaknessFilter(input.filter);
+    setWeaknessLane(input.lane);
+    setWeaknessCaseId(input.caseId);
+    setView("improve");
+    writeRoute({
+      view: "improve",
+      weaknessFilter: input.filter,
+      weaknessLane: input.lane,
+      weaknessCaseId: input.caseId,
+    });
+  }
+
+  function startWeaknessCase(value: WeaknessCase) {
+    if (blockVirtualRoundNavigation()) return;
+    if (!value.queue.length) {
+      setToast("No current-revision practice items match this remediation case");
+      return;
+    }
+    const entries: SessionQueueEntry[] = value.queue.map((entry) => ({
+      itemId: entry.itemId,
+      itemRevision: entry.itemRevision,
+      stage: entry.stage,
+      status: "pending",
+      practiceKind: entry.practiceKind,
+      estimatedMinutes: entry.estimatedMinutes,
+      rationale: entry.rationale,
+      lane: entry.lane,
+    }));
+    startSession(
+      {
+        name: `Weakness Lab · ${value.topicKey} · ${WEAKNESS_META[value.weakness].short}`,
+        count: entries.length,
+        source: "mixed",
+        track: value.lane === "ios" ? "ios" : "interview",
+        language: value.lane === "python" ? "python" : "swift",
+        pattern: value.topicKey,
+        difficulty: "All",
+        stageMode: "recommended",
+      },
+      entries,
+    );
+  }
+
+  function openWeaknessEvidence(value: WeaknessEvidence) {
+    if (blockVirtualRoundNavigation()) return;
+    if (value.kind === "solution-review" && value.sourceId) {
+      openSolutionReview(value.sourceId);
+      return;
+    }
+    if (value.kind === "assessment" && value.sourceId) {
+      selectAssessment(value.sourceId);
+      return;
+    }
+    if (value.kind === "mock-debrief" && value.sourceId) {
+      setMockReviewSessionId(value.sourceId);
+      navigateView("sessions");
+      return;
+    }
+    if (value.kind === "transfer" && value.sourceId) {
+      openTransferRecords(value.sourceId);
+      return;
+    }
+    const itemToOpen = value.itemId
+      ? allItems.find((candidate) => candidate.itemId === value.itemId)
+      : undefined;
+    if (!itemToOpen) {
+      setToast("That source item is no longer available in the current catalog");
+      return;
+    }
+    const sourceAttempt = value.sourceId
+      ? stateRef.current.attempts.find(
+          (candidate) => candidate.id === value.sourceId,
+        )
+      : undefined;
+    const sourcePracticeKind = coercePracticeKind(
+      itemToOpen,
+      sourceAttempt?.practiceKind ??
+        (itemToOpen.track === "ios" ? "concept" : "typing"),
+    );
+    openItem(
+      itemToOpen,
+      sourcePracticeKind === "solving" || sourcePracticeKind === "concept"
+        ? 5
+        : recommendedStage(stateRef.current, itemToOpen),
+      undefined,
+      undefined,
+      sourcePracticeKind,
+    );
+  }
+
+  function browseWeaknessCase(value: WeaknessCase) {
+    if (blockVirtualRoundNavigation()) return;
+    const hasMatchingPattern = curriculumItems.some(
+      (candidate) =>
+        candidate.pattern === value.topicKey &&
+        (value.lane === "ios"
+          ? candidate.track === "ios"
+          : candidate.track === "interview" && candidate.language === value.lane),
+    );
+    updateCatalogRoute(
+      normalizeCatalogQuery({
+        ...DEFAULT_CATALOG_QUERY,
+        lanes: [value.lane],
+        patterns: hasMatchingPattern ? [value.topicKey] : [],
+      }),
+      "push",
     );
   }
 
@@ -6026,6 +6242,8 @@ export default function SwiftGhostApp() {
           items={curriculumItems}
           cloudStatus={cloud.status}
           cloudDaily={cloud.dailyChallenge}
+          weaknessCase={weaknessModel.nextCase}
+          weaknessActiveCount={weaknessModel.summary.active}
           onOpen={openItem}
           onResumeDraft={resumeSavedDraft}
           onReview={() => randomItem("due")}
@@ -6033,6 +6251,13 @@ export default function SwiftGhostApp() {
           onCreate={() => setCustomEditor("new")}
           onSessions={() => navigateView("sessions")}
           onPlans={() => navigateView("plans")}
+          onWeakness={() =>
+            updateWeaknessRoute({
+              filter: "priority",
+              lane: "all",
+              caseId: weaknessModel.nextCase?.id,
+            })
+          }
           onAssess={() =>
             selectAssessment(state.assessments.activeRunId ?? "python-reentry")
           }
@@ -6076,6 +6301,20 @@ export default function SwiftGhostApp() {
           onStartFocusBlock={startStudyFocusBlock}
           onResumeActiveSession={resumeSession}
           onStartCapstone={startStudyCapstone}
+        />
+      )}
+      {view === "improve" && (
+        <WeaknessLab
+          model={weaknessModel}
+          filter={weaknessFilter}
+          lane={weaknessLane}
+          selectedCaseId={weaknessCaseId}
+          onRouteChange={updateWeaknessRoute}
+          onStartCase={startWeaknessCase}
+          onOpenEvidence={openWeaknessEvidence}
+          onBrowseCase={browseWeaknessCase}
+          onOpenAssessment={() => selectAssessment("python-reentry")}
+          onOpenTransferLab={openTransferLab}
         />
       )}
       {view === "practice" && (
@@ -6445,6 +6684,8 @@ function TodayView({
   items,
   cloudStatus,
   cloudDaily,
+  weaknessCase,
+  weaknessActiveCount,
   onOpen,
   onResumeDraft,
   onReview,
@@ -6452,6 +6693,7 @@ function TodayView({
   onCreate,
   onSessions,
   onPlans,
+  onWeakness,
   onAssess,
   onStartCoach,
   onResumeSession,
@@ -6461,6 +6703,8 @@ function TodayView({
   items: PracticeItem[];
   cloudStatus: CloudRuntime["status"];
   cloudDaily: CloudDailyChallenge | null;
+  weaknessCase: WeaknessCase | null;
+  weaknessActiveCount: number;
   onOpen: (
     item: PracticeItem,
     stage?: number,
@@ -6474,6 +6718,7 @@ function TodayView({
   onCreate: () => void;
   onSessions: () => void;
   onPlans: () => void;
+  onWeakness: () => void;
   onAssess: () => void;
   onStartCoach: (
     entries: SessionQueueEntry[],
@@ -6565,6 +6810,25 @@ function TodayView({
           <button className="primary-button" onClick={onPlans}>
             Continue plan <span>→</span>
           </button>
+        </section>
+      )}
+      {weaknessCase && (
+        <section className="today-weakness" aria-label="Highest-priority remediation">
+          <div className="today-weakness-rank" aria-hidden="true">01</div>
+          <div>
+            <span className="eyebrow">Weakness Lab · highest priority</span>
+            <h2>{weaknessCase.title}</h2>
+            <p>
+              {weaknessCase.recurrence} signal{weaknessCase.recurrence === 1 ? "" : "s"} across {weaknessCase.sourceKinds.length} evidence source{weaknessCase.sourceKinds.length === 1 ? "" : "s"}. {weaknessCase.prompt}
+            </p>
+          </div>
+          <span className={`weakness-status is-${weaknessCase.status}`}>
+            {weaknessCase.status === "due" ? "Due now" : weaknessCase.status}
+          </span>
+          <button className="primary-button" onClick={onWeakness}>
+            Open repair plan →
+          </button>
+          <small>{weaknessActiveCount} active remediation case{weaknessActiveCount === 1 ? "" : "s"}</small>
         </section>
       )}
       <section className="today-assessment" aria-label="Interview baseline">

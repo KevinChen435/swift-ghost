@@ -3,6 +3,7 @@ import type { View } from "./product";
 import type { PracticeKind } from "./product";
 import type { CatalogQuery } from "./catalog-discovery.mjs";
 import type { SubmissionWorkLogQuery } from "./submission-work-log.mjs";
+import type { WeaknessFilter, WeaknessLane } from "./weakness-lab.mjs";
 
 export type CommunityTab = "recent" | "records" | "daily" | "profile";
 export type RecordsSection =
@@ -36,6 +37,9 @@ export type AppRoute = {
   transferVariantId?: string;
   transferAttemptId?: string;
   sessionId?: string;
+  weaknessFilter?: WeaknessFilter;
+  weaknessLane?: WeaknessLane;
+  weaknessCaseId?: string;
 };
 
 export const ROUTE_VIEWS: View[];
