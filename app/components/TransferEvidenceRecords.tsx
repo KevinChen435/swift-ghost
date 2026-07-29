@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   TransferRecord,
   TransferRecordTimelineEvent,
@@ -98,6 +98,16 @@ function evidenceClassFor(event: TransferRecordTimelineEvent) {
   return EVIDENCE_LABELS[event.evidenceClass] ?? "Recorded evidence";
 }
 
+function reviewableAttempt(event: TransferRecordTimelineEvent | undefined) {
+  return Boolean(
+    event?.kind === "attempt" &&
+      event.outcome === "completed" &&
+      event.verificationTotal &&
+      event.verificationTotal > 0 &&
+      event.verificationPassed === event.verificationTotal,
+  );
+}
+
 function eventTitle(event: TransferRecordTimelineEvent) {
   if (event.kind === "prompt-open") {
     return event.occurrence === "first-and-last"
@@ -191,6 +201,9 @@ export function TransferEvidenceRecords({
 }: TransferEvidenceRecordsProps) {
   const [filter, setFilter] = useState<TransferRecordFilter>("all");
   const [query, setQuery] = useState("");
+  const indexHeadingRef = useRef<HTMLHeadingElement>(null);
+  const detailHeadingRef = useRef<HTMLHeadingElement>(null);
+  const hadSelectionRef = useRef(false);
   const variantsById = useMemo(
     () => new Map(variants.map((variant) => [variant.id, variant])),
     [variants],
@@ -198,6 +211,7 @@ export function TransferEvidenceRecords({
   const selectedRecord = selectedVariantId
     ? model.records.find((record) => record.variantId === selectedVariantId)
     : undefined;
+  const selectedRecordId = selectedRecord?.variantId;
   const selectedAttempt = selectedRecord && selectedAttemptId
     ? selectedRecord.timeline.find(
         (event) => event.kind === "attempt" && event.attemptId === selectedAttemptId,
@@ -222,12 +236,34 @@ export function TransferEvidenceRecords({
   const selectedVariant = selectedRecord
     ? variantsById.get(selectedRecord.variantId)
     : undefined;
-  const reviewAttemptId = selectedAttempt?.kind === "attempt"
-    ? selectedAttempt.attemptId
+  const reviewAttemptId = selectedAttemptId
+    ? reviewableAttempt(selectedAttempt)
+      ? selectedAttemptId
+      : undefined
     : selectedRecord?.latestReviewAttemptId ?? selectedRecord?.currentAcceptedAttemptId;
+  const hasSavedReview = Boolean(
+    selectedRecord &&
+      reviewAttemptId &&
+      selectedRecord.timeline.some(
+        (event) => event.kind === "review" && event.attemptId === reviewAttemptId,
+      ),
+  );
   const completedCheckpoints = selectedRecord?.progress.spacedSolveCount ?? 0;
   const selectedRouteInvalid = Boolean(selectedVariantId && !selectedRecord);
   const attemptRouteInvalid = Boolean(selectedRecord && selectedAttemptId && !selectedAttempt);
+
+  useEffect(() => {
+    const hadSelection = hadSelectionRef.current;
+    hadSelectionRef.current = Boolean(selectedRecordId);
+    const target = selectedRecordId
+      ? detailHeadingRef.current
+      : hadSelection
+        ? indexHeadingRef.current
+        : null;
+    if (!target) return;
+    const frame = window.requestAnimationFrame(() => target.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedRecordId]);
 
   return (
     <section className="transfer-records" aria-labelledby="transfer-records-title">
@@ -299,7 +335,7 @@ export function TransferEvidenceRecords({
           <div className="transfer-records-panel-head">
             <div>
               <small>Local ledger</small>
-              <h3 id="transfer-records-index-title">Variant records</h3>
+              <h3 id="transfer-records-index-title" ref={indexHeadingRef} tabIndex={-1}>Variant records</h3>
             </div>
             <span>{filteredRecords.length} shown</span>
           </div>
@@ -349,7 +385,7 @@ export function TransferEvidenceRecords({
             <header className="transfer-record-detail-head">
               <div>
                 <small>{selectedVariant?.displayLabel ?? selectedRecord.variantId} · prompt revision {selectedRecord.currentRevision}</small>
-                <h3 id="transfer-record-detail-title">{titleFor(selectedRecord, selectedVariant)}</h3>
+                <h3 id="transfer-record-detail-title" ref={detailHeadingRef} tabIndex={-1}>{titleFor(selectedRecord, selectedVariant)}</h3>
                 <p>{patternFor(selectedRecord, selectedVariant)}</p>
               </div>
               <span className="transfer-record-detail-status" data-status={selectedRecord.status}>
@@ -368,7 +404,7 @@ export function TransferEvidenceRecords({
               ) : null}
               {reviewAttemptId ? (
                 <button className="outline-button" type="button" onClick={() => onOpenReview(reviewAttemptId)}>
-                  {selectedRecord.latestReviewAttemptId ? "Open solution review" : "Start solution review"}
+                  {hasSavedReview ? "Open solution review" : "Start solution review"}
                 </button>
               ) : null}
             </div>

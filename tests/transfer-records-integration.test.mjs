@@ -124,3 +124,27 @@ test("canonical transfer routes connect Records, Transfer Lab, and exact results
   assert.match(app, /View transfer records/);
   assert.match(app, /Open Transfer Lab/);
 });
+
+test("record selection moves focus and never offers review for rejected evidence", async () => {
+  const component = await read(
+    "../app/components/TransferEvidenceRecords.tsx",
+  );
+
+  assert.match(component, /const detailHeadingRef = useRef<HTMLHeadingElement>\(null\)/);
+  assert.match(component, /window\.requestAnimationFrame\(\(\) => target\.focus\(\)\)/);
+  assert.match(component, /ref=\{detailHeadingRef\} tabIndex=\{-1\}/);
+  assert.match(component, /ref=\{indexHeadingRef\} tabIndex=\{-1\}/);
+
+  const reviewGuard = section(
+    component,
+    "function reviewableAttempt(",
+    "function eventTitle(",
+  );
+  assert.match(reviewGuard, /event\.outcome === "completed"/);
+  assert.match(reviewGuard, /event\.verificationTotal > 0/);
+  assert.match(reviewGuard, /event\.verificationPassed === event\.verificationTotal/);
+  assert.match(
+    component,
+    /const reviewAttemptId = selectedAttemptId[\s\S]*?reviewableAttempt\(selectedAttempt\)[\s\S]*?\? selectedAttemptId[\s\S]*?: undefined/,
+  );
+});
