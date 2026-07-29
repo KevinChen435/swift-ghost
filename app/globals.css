@@ -7677,6 +7677,9 @@ kbd {
     z-index: 30;
     left: 10px;
     right: 10px;
+    min-width: 0;
+    max-width: calc(100vw - 20px);
+    overflow: hidden;
     bottom: max(10px, env(safe-area-inset-bottom));
     justify-content: stretch;
     box-shadow: 0 12px 45px rgba(0, 0, 0, 0.45);
@@ -7685,12 +7688,14 @@ kbd {
   }
   .main-nav button {
     flex: 1;
+    min-width: 0;
+    overflow: hidden;
     justify-content: center;
     flex-direction: column;
     gap: 1px;
     min-height: 44px;
     padding: 7px 3px;
-    font-size: 8px;
+    font-size: clamp(6px, 2.1vw, 8px);
   }
   .main-nav button span {
     display: block;
@@ -13671,9 +13676,16 @@ details.virtual-round-disclosure p {
 
 /* Weakness Lab */
 .weakness-lab-page {
+  width: 100%;
+  min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 22px;
   max-width: 1500px;
+}
+.weakness-lab-page > * {
+  min-width: 0;
+  max-width: 100%;
 }
 .weakness-hero {
   position: relative;
@@ -13813,6 +13825,9 @@ details.virtual-round-disclosure p {
 }
 .weakness-filter-tabs,
 .weakness-lane-filter {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   gap: 5px;
   overflow-x: auto;

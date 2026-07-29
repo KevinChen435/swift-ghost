@@ -41,7 +41,19 @@ test("the remediation surface explains evidence and avoids false mastery claims"
 });
 
 test("Weakness Lab has desktop, mobile, focus, reduced-layout, and forced-color styling", () => {
+  assert.match(
+    css,
+    /\.weakness-lab-page\s*\{[\s\S]*min-width:\s*0;[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\);/,
+  );
   assert.match(css, /\.weakness-workspace\s*\{[\s\S]*grid-template-columns/);
+  assert.match(
+    css,
+    /\.weakness-filter-tabs,[\s\S]*\.weakness-lane-filter\s*\{[\s\S]*min-width:\s*0;[\s\S]*max-width:\s*100%;[\s\S]*overflow-x:\s*auto;/,
+  );
+  assert.match(
+    css,
+    /@media \(max-width: 720px\)[\s\S]*\.main-nav\s*\{[\s\S]*min-width:\s*0;[\s\S]*max-width:\s*calc\(100vw - 20px\);[\s\S]*overflow:\s*hidden;[\s\S]*\.main-nav button\s*\{[\s\S]*min-width:\s*0;[\s\S]*overflow:\s*hidden;/,
+  );
   assert.match(css, /\.weakness-case-detail:focus-visible/);
   assert.match(css, /@media \(max-width: 620px\)[\s\S]*\.weakness-detail-header/);
   assert.match(css, /@media \(forced-colors: active\)[\s\S]*\.weakness-case-detail/);
