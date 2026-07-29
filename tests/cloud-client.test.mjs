@@ -463,6 +463,25 @@ test("session preserves private identity fields without mixing them into public 
   assert.equal(result.data.profile.handle, "kevin-swift");
 });
 
+test("authenticated sessions without a stable user id fail closed", async () => {
+  const client = createCloudClient({
+    location: { hostname: "swift.test" },
+    fetchImpl: async () =>
+      json({
+        authenticated: true,
+        user: { displayName: "Missing identity" },
+        profile: { handle: "should-not-load", isPublic: false },
+      }),
+  });
+  const result = await client.session();
+  assert.equal(result.available, true);
+  assert.deepEqual(result.data, {
+    authenticated: false,
+    user: null,
+    profile: null,
+  });
+});
+
 test("profile patches are trimmed, bounded, and invalid patches never fetch", async () => {
   const mock = recorder((_url, init) =>
     json({

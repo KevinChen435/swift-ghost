@@ -340,6 +340,8 @@ function normalizeSession(value) {
   if (!isRecord(value)) return undefined;
   const user = normalizeSessionUser(value.user);
   const profile = normalizeProfile(value.profile);
+  if (value.authenticated === true && !user?.id)
+    return { authenticated: false, user: null, profile: null };
   return {
     authenticated: value.authenticated === true,
     user,

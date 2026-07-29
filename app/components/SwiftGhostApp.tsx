@@ -155,6 +155,7 @@ import {
   SUPPORTED_STATE_VERSIONS,
   activeStreak,
   analyzeEdit,
+  clearStateFallbacksForScope,
   completedAttempts,
   consistencyFromSamples,
   currentMetrics,
@@ -5468,8 +5469,10 @@ export default function SwiftGhostApp() {
         !window.confirm(
           `Replace ${profileLabel} with this backup${exportedLabel}?\n\nIt contains ${inventory.attempts} attempts, ${inventory.submissions} submissions, ${inventory.sessions} sessions, ${inventory.customItems} custom items, and ${inventory.plans} study plans. Community sharing stays off. Hosted Study Plans are preserved and merged after import.`,
         )
-      )
+      ) {
+        event.target.value = "";
         return;
+      }
       const restored: AppState = {
         ...normalized,
         studyWorkspace:
@@ -5497,6 +5500,7 @@ export default function SwiftGhostApp() {
       invalidateCloudWork();
       if (!saveStateForScope(restored, activeScope))
         throw new Error("storage unavailable");
+      clearStateFallbacksForScope(activeScope);
       stateRef.current = restored;
       setState(restored);
       setSelectedId(restoredItem?.itemId ?? BUILTIN_ITEMS[0].itemId);
@@ -5533,6 +5537,7 @@ export default function SwiftGhostApp() {
       setToast("Local storage is unavailable · data was not cleared");
       return;
     }
+    clearStateFallbacksForScope(activeScope);
     stateRef.current = EMPTY_STATE;
     setState(EMPTY_STATE);
     setSelectedId(BUILTIN_ITEMS[0].itemId);
@@ -5578,6 +5583,7 @@ export default function SwiftGhostApp() {
       setToast("Local storage is unavailable · guest data was not copied");
       return;
     }
+    clearStateFallbacksForScope(activeScope);
     stateRef.current = restored;
     setState(restored);
     setSelectedId(restored.lastItemId ?? BUILTIN_ITEMS[0].itemId);
