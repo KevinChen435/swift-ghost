@@ -4,6 +4,7 @@ import type { LearningEvent } from "./learning-state.mjs";
 import type { InterviewStudioHistoryRecord, InterviewStudioFormat, InterviewStudioMode } from "./interview-studio.mjs";
 import type { DailyPlan } from "./planner.mjs";
 import type { SessionQueueEntry } from "./sessions.mjs";
+import type { TypingProgressionWorkspace } from "./typing-progression.mjs";
 
 export type StudyPlanPace = 15 | 30 | 45;
 export type StudyModule = { id: string; title: string; outcome: string; itemIds: ItemId[]; patterns: string[]; simulation?: boolean };
@@ -23,7 +24,7 @@ export type StudyPlan = {
 };
 export type StudyTombstone = { entity: "collection" | "plan"; id: string; deletedAt: string };
 export type StudyWorkspace = { version: 1; revision: number; updatedAt: string; activePlanId: string | null; collections: StudyCollection[]; plans: StudyPlan[]; tombstones: StudyTombstone[] };
-export type StudyEvidence = { items: PracticeItem[]; attempts?: AttemptRecord[]; learningEvents?: LearningEvent[]; interviewStudioHistory?: InterviewStudioHistoryRecord[]; sessionHistory?: SessionHistoryRecord[]; now?: string | Date | number };
+export type StudyEvidence = { items: PracticeItem[]; attempts?: AttemptRecord[]; learningEvents?: LearningEvent[]; typingProgress?: TypingProgressionWorkspace; interviewStudioHistory?: InterviewStudioHistoryRecord[]; sessionHistory?: SessionHistoryRecord[]; now?: string | Date | number };
 export type StudyPlanTemplate = { id: string; title: string; description: string; outcome: string; recommended?: boolean; estimatedBlocks: number; defaultPace: StudyPlanPace; lanes: string[]; modules: ReadonlyArray<Record<string, unknown>>; selector?: Record<string, unknown>; capstone?: StudyCapstone };
 
 export const STUDY_PLAN_LIMITS: Readonly<{ maxCollections: number; maxPlans: number; maxItemsPerCollection: number; maxTombstones: number; maxName: number; maxDescription: number; maxSessionLinks: number }>;

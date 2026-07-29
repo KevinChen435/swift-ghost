@@ -46,6 +46,28 @@ export function backupInventory(state) {
     state.testDesign.activeSprint.status === "active"
       ? 1
       : 0;
+  const typingProgressRecords = isRecord(state?.typingProgress)
+    ? boundedCount(state.typingProgress.records)
+    : 0;
+  const conceptTransferAttempts = isRecord(state?.conceptTransfer)
+    ? boundedCount(state.conceptTransfer.attempts)
+    : 0;
+  const conceptTransferDrafts = isRecord(state?.conceptTransfer)
+    ? boundedCount(state.conceptTransfer.drafts)
+    : 0;
+  const activeConceptTransferAttempts =
+    isRecord(state?.conceptTransfer) &&
+    typeof state.conceptTransfer.activeAttemptId === "string" &&
+    Array.isArray(state.conceptTransfer.attempts) &&
+    state.conceptTransfer.attempts.some(
+      (attempt) =>
+        isRecord(attempt) &&
+        attempt.id === state.conceptTransfer.activeAttemptId &&
+        !attempt.finishedAt &&
+        !attempt.retired,
+    )
+      ? 1
+      : 0;
   return {
     attempts: boundedCount(state?.attempts),
     submissions: submissionReceipts,
@@ -63,6 +85,10 @@ export function backupInventory(state) {
     testDesignAttempts,
     testDesignDrafts,
     activeTestDesignSprints,
+    typingProgressRecords,
+    conceptTransferAttempts,
+    conceptTransferDrafts,
+    activeConceptTransferAttempts,
   };
 }
 

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { PatternLesson, PatternLessonStep } from "../data/pattern-lessons";
 import type { PatternDecisionProbe } from "../data/pattern-decision-probes";
 import type { TestDesignLane } from "../data/test-design-probes";
+import type { ConceptTransferLane } from "../data/concept-transfer-variants";
 import {
   countStrongPatternChecks,
   derivePatternEvidence,
@@ -50,6 +51,11 @@ type Props = {
   onOpenDecisionReview: () => void;
   onOpenTestDesign: (lane: TestDesignLane) => void;
   testDesignSummaries: Record<TestDesignLane, { newCount: number; dueCount: number; retainedCount: number; totalSkills: number }>;
+  onOpenConceptTransfer: (lane: ConceptTransferLane) => void;
+  conceptTransferSummaries: Record<
+    ConceptTransferLane,
+    { newCount: number; dueCount: number; coldSelfAssessedCount: number }
+  >;
 };
 
 const STEP_META: {
@@ -221,6 +227,8 @@ export function PatternAcademy({
   onOpenDecisionReview,
   onOpenTestDesign,
   testDesignSummaries,
+  onOpenConceptTransfer,
+  conceptTransferSummaries,
 }: Props) {
   const [templateLanguage, setTemplateLanguage] = useState<"python" | "swift">("python");
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -320,6 +328,43 @@ export function PatternAcademy({
             })}
           </div>
           <small>Design evidence stays separate from executed tests, accepted submissions, solves, and transfer evidence.</small>
+        </section>
+        <section
+          className="academy-concept-transfer-card"
+          aria-labelledby="academy-concept-transfer-title"
+        >
+          <div>
+            <p className="eyebrow">Cold reconstruction · Swift + iOS</p>
+            <h2 id="academy-concept-transfer-title">
+              Can you type the boundary before seeing its name?
+            </h2>
+            <p>
+              Reconstruct one small Swift implementation from a neutral
+              scenario. The pattern label and grey reference remain sealed
+              until you commit your prediction, code, and tradeoff.
+            </p>
+          </div>
+          <div className="concept-transfer-entry-lanes">
+            {(["swift", "ios"] as ConceptTransferLane[]).map((lane) => {
+              const summary = conceptTransferSummaries[lane];
+              return (
+                <button
+                  key={lane}
+                  className="secondary-button"
+                  onClick={() => onOpenConceptTransfer(lane)}
+                >
+                  <strong>{lane === "ios" ? "iOS" : "Swift"}</strong>
+                  <span>
+                    {summary.newCount} new · {summary.dueCount} due · {summary.coldSelfAssessedCount} cold self-checks
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <small>
+            Self-assessed syntax comparison only. No Swift code is compiled or
+            called a verified solve.
+          </small>
         </section>
         <section aria-labelledby="academy-curriculum-title">
           <div className="section-heading-row">

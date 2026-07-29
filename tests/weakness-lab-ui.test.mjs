@@ -10,6 +10,7 @@ const css = await readFile(new URL("app/globals.css", root), "utf8");
 test("Weakness Lab is a first-class routed product destination", () => {
   assert.match(app, /id: "improve", label: "Improve"/);
   assert.match(app, /view === "improve"[\s\S]*<WeaknessLab/);
+  assert.match(app, /buildWeaknessLab\(\{[\s\S]*typingProgress: state\.typingProgress/);
   assert.match(app, /function updateWeaknessRoute/);
   assert.match(app, /weaknessFilter: input\.filter/);
   assert.match(app, /weaknessLane: input\.lane/);
@@ -34,8 +35,10 @@ test("targeted remediation reuses the canonical session pipeline", () => {
 test("the remediation surface explains evidence and avoids false mastery claims", () => {
   assert.match(component, /One typo never becomes a diagnosis/);
   assert.match(component, /not a score,[\s\S]*certification,[\s\S]*hiring signal/);
-  assert.match(component, /A case resolves only after delayed independent evidence plus a distinct transfer proof/);
-  assert.match(component, /Hints, reference reveals, restored source, and self-ratings do not count/);
+  assert.match(component, /A case resolves only after delayed independent evidence plus[\s\S]*a distinct transfer proof/);
+  assert.match(component, /A Swift or iOS case resolves only after delayed clean checks[\s\S]*in two distinct contexts/);
+  assert.match(component, /Cold Reconstruction entries are[\s\S]*explicitly self-assessed/);
+  assert.match(component, /hinted or reference-only attempts[\s\S]*do not count/);
   assert.match(component, /aria-labelledby="weakness-case-title"/);
   assert.match(component, /role="tablist"/);
 });

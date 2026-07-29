@@ -1,3 +1,8 @@
+import {
+  deriveTypingProgression,
+  isCleanTypingRecall,
+} from "./typing-progression.mjs";
+
 const DAY_MS = 86_400_000;
 
 export const WEAKNESS_TAGS = [
@@ -347,7 +352,7 @@ function collectEvidence(input, itemById) {
     .slice(-500);
 }
 
-function strongAttempt(attempt, item, receiptById) {
+function strongAttempt(attempt, item, receiptById, typingProgress) {
   if (!attempt || attempt.outcome !== "completed" || Number(attempt.peeks) > 0) return false;
   if (Number(attempt.itemRevision) !== Number(item?.contentRevision ?? attempt.itemRevision)) return false;
   if (attempt.practiceKind === "solving") {
@@ -373,7 +378,21 @@ function strongAttempt(attempt, item, receiptById) {
     return ["good", "easy"].includes(attempt.conceptGrade) &&
       attempt.qualification !== "assisted";
   }
-  return attempt.stage === 5 && attempt.qualification === "independent";
+  if (attempt.practiceKind !== "typing" || !isCleanTypingRecall(attempt))
+    return false;
+  const currentRevision = Math.max(
+    1,
+    Math.round(Number(item?.contentRevision) || 1),
+  );
+  const progress = deriveTypingProgression(
+    typingProgress,
+    attempt.itemId,
+    currentRevision,
+    attempt.completedAt,
+  );
+  return progress.owned &&
+    progress.attemptIds.includes(attempt.id) &&
+    !progress.bypassAttemptIds.includes(attempt.id);
 }
 
 function successesForCase(caseEvidence, input, itemById, lane, topicKey) {
@@ -384,6 +403,13 @@ function successesForCase(caseEvidence, input, itemById, lane, topicKey) {
       .filter(([id]) => Boolean(id)),
   );
   const successes = [];
+  const conceptVariantById = new Map(
+    (Array.isArray(input.conceptTransferVariants)
+      ? input.conceptTransferVariants
+      : [])
+      .filter((variant) => variant && typeof variant.id === "string")
+      .map((variant) => [variant.id, variant]),
+  );
   for (const attempt of Array.isArray(input.attempts) ? input.attempts : []) {
     const at = validDate(attempt?.completedAt);
     const item = itemById.get(itemIdOf(attempt));
@@ -392,7 +418,7 @@ function successesForCase(caseEvidence, input, itemById, lane, topicKey) {
       !item ||
       laneFor(item) !== lane ||
       topicFor(item) !== topicKey ||
-      !strongAttempt(attempt, item, receiptById)
+      !strongAttempt(attempt, item, receiptById, input.typingProgress)
     ) continue;
     successes.push({
       id: `attempt:${attempt.id}`,
@@ -414,6 +440,31 @@ function successesForCase(caseEvidence, input, itemById, lane, topicKey) {
       itemId: record.variantId,
       at: new Date(at).toISOString(),
       transfer: true,
+    });
+  }
+  for (const attempt of Array.isArray(input.conceptTransferAttempts)
+    ? input.conceptTransferAttempts
+    : []) {
+    const at = validDate(attempt?.finishedAt);
+    const variant = conceptVariantById.get(attempt?.variantId);
+    if (
+      at <= lastEvidenceAt ||
+      !variant ||
+      attempt?.retired ||
+      Number(attempt?.variantRevision) !== Number(variant.revision) ||
+      attempt?.qualification !== "cold-self-assessed" ||
+      attempt?.lane !== variant.lane ||
+      cleanText(attempt?.family, "") !== cleanText(variant.family, "") ||
+      variant.lane !== lane ||
+      cleanText(variant.family, "") !== topicKey
+    )
+      continue;
+    successes.push({
+      id: `concept-transfer:${attempt.id}`,
+      itemId: attempt.variantId,
+      at: new Date(at).toISOString(),
+      transfer: false,
+      selfAssessed: true,
     });
   }
   const unique = new Map(successes.map((entry) => [entry.id, entry]));

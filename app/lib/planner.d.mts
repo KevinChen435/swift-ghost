@@ -2,6 +2,7 @@ import type { AttemptRecord } from "./product";
 import type { ItemId, PracticeItem } from "./items";
 import type { SessionQueueEntry } from "./sessions.mjs";
 import type { LearningEvent } from "./learning-state.mjs";
+import type { TypingProgressionWorkspace } from "./typing-progression.mjs";
 
 export type PlannerActivityKind = "syntax" | "solve" | "concept";
 export type PlannerLane = "review" | "interview" | "python" | "ios";
@@ -38,6 +39,7 @@ export type DailyPlan = {
 export type DailyPlanInput = {
   items: PracticeItem[];
   attempts?: AttemptRecord[];
+  typingProgress?: TypingProgressionWorkspace;
   solves?: AttemptRecord[];
   learningEvents?: LearningEvent[];
   reviews?: LearningEvent[];

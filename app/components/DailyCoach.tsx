@@ -48,6 +48,7 @@ export function DailyCoach({
         {
           items,
           attempts: state.attempts,
+          typingProgress: state.typingProgress,
           learningEvents: state.learningEvents,
           favorites: state.favorites,
           profile: {
@@ -69,6 +70,7 @@ export function DailyCoach({
       items,
       planningDate,
       state.attempts,
+      state.typingProgress,
       state.learningEvents,
       state.favorites,
       state.settings.dailyGoalMinutes,

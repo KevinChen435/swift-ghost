@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  CONCEPT_TRANSFER_LANES,
+  CONCEPT_TRANSFER_SOURCES,
   parseRoute,
   resolveRouteItem,
   routeForItem,
@@ -150,6 +152,59 @@ test("Test Design Academy round-trips lane, sprint, and exact evidence while cle
       testDesignAttemptId: "evidence-1",
     }),
     /review=tests|lane=swift|attempt=evidence-1/,
+  );
+});
+
+test("Cold Reconstruction Lab routes preserve only bounded Swift and iOS variant state", () => {
+  assert.deepEqual(CONCEPT_TRANSFER_LANES, ["swift", "ios"]);
+  assert.deepEqual(CONCEPT_TRANSFER_SOURCES, ["academy", "today", "assessment", "weakness"]);
+  const route = parseRoute(
+    "/?view=learn&review=reconstruct&lane=swift&variant=concept-transfer%3Aarc-capture&from=weakness&pattern=trees&sprint=wrong",
+  );
+  assert.equal(route.learnReview, "reconstruct");
+  assert.equal(route.conceptTransferLane, "swift");
+  assert.equal(route.conceptTransferVariantId, "concept-transfer:arc-capture");
+  assert.equal(route.conceptTransferSource, "weakness");
+  assert.equal(route.patternId, undefined);
+  assert.equal(route.patternSprintId, undefined);
+  assert.equal(route.testDesignLane, undefined);
+  assert.equal(
+    serializeRoute(route),
+    "/?view=learn&review=reconstruct&lane=swift&variant=concept-transfer%3Aarc-capture&from=weakness",
+  );
+
+  const ios = parseRoute("/?view=learn&review=reconstruct&lane=ios");
+  assert.equal(ios.conceptTransferLane, "ios");
+  assert.equal(serializeRoute(ios), "/?view=learn&review=reconstruct&lane=ios");
+
+  const invalid = parseRoute(
+    "/?view=learn&review=reconstruct&lane=python&variant=..%2Fprivate&from=admin",
+  );
+  assert.equal(invalid.conceptTransferLane, undefined);
+  assert.equal(invalid.conceptTransferVariantId, undefined);
+  assert.equal(invalid.conceptTransferSource, undefined);
+  assert.equal(serializeRoute(invalid), "/?view=learn&review=reconstruct");
+
+  assert.doesNotMatch(
+    serializeRoute({
+      view: "records",
+      learnReview: "reconstruct",
+      conceptTransferLane: "swift",
+      conceptTransferVariantId: "concept-transfer:arc-capture",
+      conceptTransferSource: "today",
+      patternSprintId: "stale-pattern-sprint",
+    }),
+    /reconstruct|concept-transfer|lane=swift|from=today|sprint=/,
+  );
+
+  assert.doesNotMatch(
+    serializeRoute({
+      view: "learn",
+      learnReview: "reconstruct",
+      conceptTransferLane: "swift",
+      patternSprintId: "stale-pattern-sprint",
+    }),
+    /sprint=/,
   );
 });
 

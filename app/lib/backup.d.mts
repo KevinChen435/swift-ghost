@@ -18,6 +18,10 @@ export type BackupInventory = {
   testDesignAttempts: number;
   testDesignDrafts: number;
   activeTestDesignSprints: number;
+  typingProgressRecords: number;
+  conceptTransferAttempts: number;
+  conceptTransferDrafts: number;
+  activeConceptTransferAttempts: number;
 };
 
 export function backupInventory(state: unknown): BackupInventory;

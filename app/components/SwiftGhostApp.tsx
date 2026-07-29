@@ -62,6 +62,10 @@ import {
 } from "./PatternDecisionReview";
 import { TestDesignLab } from "./TestDesignLab";
 import {
+  ConceptTransferLab,
+  type ConceptTransferSource,
+} from "./ConceptTransferLab";
+import {
   PATTERN_LESSONS,
   type PatternLesson,
   type PatternLessonStep,
@@ -77,6 +81,10 @@ import {
   type TestDesignProbe,
   type TestDesignSource,
 } from "../data/test-design-probes";
+import {
+  CONCEPT_TRANSFER_VARIANTS,
+  type ConceptTransferLane,
+} from "../data/concept-transfer-variants";
 import { getSolutionGuide } from "../data/solution-guides";
 import {
   InterviewStudioPanel,
@@ -226,6 +234,10 @@ import {
   type View,
 } from "../lib/product";
 import {
+  applyTypingAttempt,
+  deriveTypingProgression,
+} from "../lib/typing-progression.mjs";
+import {
   GUEST_PERSISTENCE_SCOPE,
   resolvePersistenceScope,
   scopeMatchesAuthenticatedUser,
@@ -283,6 +295,20 @@ import {
   startTestDesignSprint,
   type TestDesignInput,
 } from "../lib/test-design.mjs";
+import {
+  commitConceptTransferAttempt,
+  finishConceptTransferAttempt,
+  recordConceptTransferCriteria,
+  recordConceptTransferTeachBack,
+  revealConceptTransferHint,
+  selectConceptTransferVariant,
+  selfGradeConceptTransferAttempt,
+  startConceptTransferAttempt,
+  summarizeConceptTransferWorkspace,
+  updateConceptTransferDraft,
+  type ConceptTransferDraft,
+  type ConceptTransferGrade,
+} from "../lib/concept-transfer.mjs";
 import {
   activateStudyPlan,
   appendStudyCollectionItems,
@@ -398,6 +424,13 @@ type Result = AttemptRecord & {
   item: PracticeItem;
   previousBest: AttemptRecord | null;
   nextReview: Date | null;
+  typingEvidence?: {
+    owned: boolean;
+    retained: boolean;
+    nextStage: 1 | 2 | 3 | 4 | 5;
+    diagnosticOnly: boolean;
+    recallLevel: number;
+  };
   sessionNext?: {
     itemId: ItemId;
     stage: number;
@@ -807,7 +840,8 @@ export default function SwiftGhostApp() {
   const [patternRouteId, setPatternRouteId] = useState<string>();
   const [patternLessonStep, setPatternLessonStep] =
     useState<PatternLessonStep>("recognize");
-  const [patternReviewMode, setPatternReviewMode] = useState<"mixed" | "tests">();
+  const [patternReviewMode, setPatternReviewMode] =
+    useState<"mixed" | "tests" | "reconstruct">();
   const [patternSprintId, setPatternSprintId] = useState<string>();
   const [testDesignSprintId, setTestDesignSprintId] = useState<string>();
   const [testDesignLane, setTestDesignLane] =
@@ -815,6 +849,12 @@ export default function SwiftGhostApp() {
   const [testDesignSource, setTestDesignSource] =
     useState<TestDesignSource>("academy");
   const [testDesignAttemptId, setTestDesignAttemptId] = useState<string>();
+  const [conceptTransferLane, setConceptTransferLane] =
+    useState<ConceptTransferLane>("swift");
+  const [conceptTransferSource, setConceptTransferSource] =
+    useState<ConceptTransferSource>("academy");
+  const [conceptTransferVariantId, setConceptTransferVariantId] =
+    useState<string>();
   const [catalogQuery, setCatalogQuery] = useState<CatalogQuery>(() =>
     normalizeCatalogQuery(DEFAULT_CATALOG_QUERY),
   );
@@ -945,6 +985,21 @@ export default function SwiftGhostApp() {
         hydratedState.testDesign.activeSprint?.source ?? "academy",
       );
       setTestDesignAttemptId(route.testDesignAttemptId);
+      const activeConceptTransferAttempt =
+        hydratedState.conceptTransfer.attempts.find(
+          (attempt) =>
+            attempt.id === hydratedState.conceptTransfer.activeAttemptId,
+        );
+      setConceptTransferLane(
+        activeConceptTransferAttempt?.lane ??
+          route.conceptTransferLane ??
+          "swift",
+      );
+      setConceptTransferSource(route.conceptTransferSource ?? "academy");
+      setConceptTransferVariantId(
+        activeConceptTransferAttempt?.variantId ??
+          route.conceptTransferVariantId,
+      );
       setCatalogQuery(
         normalizeCatalogQuery(route.catalog ?? DEFAULT_CATALOG_QUERY),
       );
@@ -1009,6 +1064,12 @@ export default function SwiftGhostApp() {
               hydratedState.testDesign.activeSprint?.lane ??
               route.testDesignLane,
             testDesignAttemptId: route.testDesignAttemptId,
+            conceptTransferLane:
+              activeConceptTransferAttempt?.lane ?? route.conceptTransferLane,
+            conceptTransferVariantId:
+              activeConceptTransferAttempt?.variantId ??
+              route.conceptTransferVariantId,
+            conceptTransferSource: route.conceptTransferSource,
           },
           window.location.href,
         );
@@ -1136,6 +1197,21 @@ export default function SwiftGhostApp() {
         stateRef.current.testDesign.activeSprint?.source ?? "academy",
       );
       setTestDesignAttemptId(route.testDesignAttemptId);
+      const activeConceptTransferAttempt =
+        stateRef.current.conceptTransfer.attempts.find(
+          (attempt) =>
+            attempt.id === stateRef.current.conceptTransfer.activeAttemptId,
+        );
+      setConceptTransferLane(
+        activeConceptTransferAttempt?.lane ??
+          route.conceptTransferLane ??
+          "swift",
+      );
+      setConceptTransferSource(route.conceptTransferSource ?? "academy");
+      setConceptTransferVariantId(
+        activeConceptTransferAttempt?.variantId ??
+          route.conceptTransferVariantId,
+      );
       setCatalogQuery(
         normalizeCatalogQuery(route.catalog ?? DEFAULT_CATALOG_QUERY),
       );
@@ -2052,6 +2128,23 @@ export default function SwiftGhostApp() {
       >,
     [now, state.testDesign],
   );
+  const conceptTransferLaneSummaries = useMemo(
+    () =>
+      Object.fromEntries(
+        (["swift", "ios"] as ConceptTransferLane[]).map((lane) => [
+          lane,
+          summarizeConceptTransferWorkspace(
+            state.conceptTransfer,
+            CONCEPT_TRANSFER_VARIANTS,
+            { lane, now: new Date(now).toISOString() },
+          ),
+        ]),
+      ) as Record<
+        ConceptTransferLane,
+        ReturnType<typeof summarizeConceptTransferWorkspace>
+      >,
+    [now, state.conceptTransfer],
+  );
   const weaknessModel = useMemo(() => {
     const itemSignals = Object.fromEntries(
       curriculumItems.map((candidate) => {
@@ -2070,12 +2163,15 @@ export default function SwiftGhostApp() {
     return buildWeaknessLab({
       items: allItems,
       attempts: state.attempts,
+      typingProgress: state.typingProgress,
       submissionReceipts: state.submissionLog.receipts,
       learningEvents: state.learningEvents,
       solutionReviews: state.solutionReviews,
       assessmentReports: weaknessAssessmentReports,
       sessionHistory: state.sessionHistory,
       transferRecords: weaknessTransferRecords,
+      conceptTransferAttempts: state.conceptTransfer.attempts,
+      conceptTransferVariants: CONCEPT_TRANSFER_VARIANTS,
       patternDecisionAttempts: state.patternLearning.decisionAttempts,
       patternLessons: PATTERN_LESSONS,
       patternDecisionProbes: PATTERN_DECISION_PROBES,
@@ -2156,6 +2252,7 @@ export default function SwiftGhostApp() {
     setPatternSprintId(undefined);
     setTestDesignSprintId(undefined);
     setTestDesignAttemptId(undefined);
+    setConceptTransferVariantId(undefined);
     if (nextView === "improve") {
       setWeaknessFilter("priority");
       setWeaknessLane("all");
@@ -2206,6 +2303,7 @@ export default function SwiftGhostApp() {
       current.attempts,
       curriculumItems,
       mode,
+      current.typingProgress,
     );
     if (!entries.length) {
       setToast(
@@ -2465,6 +2563,229 @@ export default function SwiftGhostApp() {
     if (source === "today") navigateView("today");
     else if (source === "assessment") navigateView("assessments");
     else if (source === "weakness") navigateView("improve");
+    else openPatternLesson();
+  }
+
+  function openConceptTransferLab(
+    source: ConceptTransferSource = "academy",
+    lane: ConceptTransferLane = "swift",
+    variantId?: string,
+  ) {
+    if (blockVirtualRoundNavigation()) return;
+    const activeAttempt = stateRef.current.conceptTransfer.attempts.find(
+      (attempt) =>
+        attempt.id === stateRef.current.conceptTransfer.activeAttemptId,
+    );
+    const selectedLane = activeAttempt?.lane ?? lane;
+    const selectedVariantId = activeAttempt?.variantId ?? variantId;
+    setView("learn");
+    setPatternRouteId(undefined);
+    setPatternLessonStep("recognize");
+    setPatternReviewMode("reconstruct");
+    setPatternSprintId(undefined);
+    setTestDesignSprintId(undefined);
+    setTestDesignAttemptId(undefined);
+    setConceptTransferLane(selectedLane);
+    setConceptTransferSource(source);
+    setConceptTransferVariantId(selectedVariantId);
+    writeRoute({
+      view: "learn",
+      learnReview: "reconstruct",
+      conceptTransferLane: selectedLane,
+      ...(selectedVariantId
+        ? { conceptTransferVariantId: selectedVariantId }
+        : {}),
+      ...(source !== "academy" ? { conceptTransferSource: source } : {}),
+    });
+  }
+
+  function startConceptTransferLab(
+    source: ConceptTransferSource,
+    lane: ConceptTransferLane,
+    variantId?: string,
+  ) {
+    if (blockVirtualRoundNavigation()) return;
+    const nowIso = new Date().toISOString();
+    const activeAttempt = stateRef.current.conceptTransfer.attempts.find(
+      (attempt) =>
+        attempt.id === stateRef.current.conceptTransfer.activeAttemptId,
+    );
+    const selected = activeAttempt
+      ? CONCEPT_TRANSFER_VARIANTS.find(
+          (variant) => variant.id === activeAttempt.variantId,
+        )
+      : variantId
+        ? CONCEPT_TRANSFER_VARIANTS.find(
+            (variant) => variant.id === variantId && variant.lane === lane,
+          )
+        : selectConceptTransferVariant(
+            CONCEPT_TRANSFER_VARIANTS,
+            stateRef.current.conceptTransfer,
+            { lane, now: nowIso },
+          );
+    if (!selected) {
+      setToast("No current reconstruction scenario is available in that lane");
+      return;
+    }
+    const attemptId = activeAttempt?.id ?? makeId();
+    if (!activeAttempt) {
+      mutateState((current) => ({
+        ...current,
+        conceptTransfer: startConceptTransferAttempt(
+          current.conceptTransfer,
+          CONCEPT_TRANSFER_VARIANTS,
+          {
+            id: attemptId,
+            variantId: selected.id,
+            lane: selected.lane,
+            now: nowIso,
+          },
+        ),
+      }));
+    }
+    setView("learn");
+    setPatternReviewMode("reconstruct");
+    setConceptTransferLane(selected.lane);
+    setConceptTransferSource(source);
+    setConceptTransferVariantId(selected.id);
+    writeRoute({
+      view: "learn",
+      learnReview: "reconstruct",
+      conceptTransferLane: selected.lane,
+      conceptTransferVariantId: selected.id,
+      ...(source !== "academy" ? { conceptTransferSource: source } : {}),
+    });
+  }
+
+  function saveConceptTransferDraft(
+    attemptId: string,
+    patch: Partial<
+      Pick<ConceptTransferDraft, "prediction" | "reconstruction" | "tradeoff">
+    >,
+  ) {
+    mutateState((current) => ({
+      ...current,
+      conceptTransfer: updateConceptTransferDraft(
+        current.conceptTransfer,
+        attemptId,
+        patch,
+        { variants: CONCEPT_TRANSFER_VARIANTS, now: new Date().toISOString() },
+      ),
+    }));
+  }
+
+  function revealConceptTransferHintForAttempt(attemptId: string) {
+    mutateState((current) => ({
+      ...current,
+      conceptTransfer: revealConceptTransferHint(
+        current.conceptTransfer,
+        attemptId,
+        { variants: CONCEPT_TRANSFER_VARIANTS, now: new Date().toISOString() },
+      ),
+    }));
+    setToast("Hint revealed · this reconstruction is permanently assisted");
+  }
+
+  function commitConceptTransfer(attemptId: string) {
+    mutateState((current) => ({
+      ...current,
+      conceptTransfer: commitConceptTransferAttempt(
+        current.conceptTransfer,
+        attemptId,
+        { variants: CONCEPT_TRANSFER_VARIANTS, now: new Date().toISOString() },
+      ),
+    }));
+    setToast("Reconstruction locked · project-authored comparison revealed");
+  }
+
+  function saveConceptTransferDebrief(
+    attemptId: string,
+    patch: {
+      grade?: ConceptTransferGrade;
+      criteria?: string[];
+      teachBack?: string;
+    },
+  ) {
+    const nowIso = new Date().toISOString();
+    mutateState((current) => {
+      let next = current.conceptTransfer;
+      if (Object.hasOwn(patch, "grade") && patch.grade) {
+        next = selfGradeConceptTransferAttempt(next, attemptId, patch.grade, {
+          variants: CONCEPT_TRANSFER_VARIANTS,
+          now: nowIso,
+        });
+      }
+      if (Object.hasOwn(patch, "criteria")) {
+        next = recordConceptTransferCriteria(
+          next,
+          attemptId,
+          patch.criteria ?? [],
+          { variants: CONCEPT_TRANSFER_VARIANTS, now: nowIso },
+        );
+      }
+      if (Object.hasOwn(patch, "teachBack")) {
+        next = recordConceptTransferTeachBack(
+          next,
+          attemptId,
+          patch.teachBack ?? "",
+          { variants: CONCEPT_TRANSFER_VARIANTS, now: nowIso },
+        );
+      }
+      return { ...current, conceptTransfer: next };
+    });
+  }
+
+  function finishConceptTransfer(
+    attemptId: string,
+    grade: ConceptTransferGrade,
+    criteria: string[],
+    teachBack: string,
+  ) {
+    const nowIso = new Date().toISOString();
+    const finishedLane =
+      stateRef.current.conceptTransfer.attempts.find(
+        (attempt) => attempt.id === attemptId,
+      )?.lane ?? conceptTransferLane;
+    mutateState((current) => {
+      let next = selfGradeConceptTransferAttempt(
+        current.conceptTransfer,
+        attemptId,
+        grade,
+        { variants: CONCEPT_TRANSFER_VARIANTS, now: nowIso },
+      );
+      next = recordConceptTransferCriteria(next, attemptId, criteria, {
+        variants: CONCEPT_TRANSFER_VARIANTS,
+        now: nowIso,
+      });
+      next = recordConceptTransferTeachBack(next, attemptId, teachBack, {
+        variants: CONCEPT_TRANSFER_VARIANTS,
+        now: nowIso,
+      });
+      next = finishConceptTransferAttempt(next, attemptId, {
+        variants: CONCEPT_TRANSFER_VARIANTS,
+        now: nowIso,
+      });
+      return { ...current, conceptTransfer: next };
+    });
+    setConceptTransferVariantId(undefined);
+    writeRoute({
+      view: "learn",
+      learnReview: "reconstruct",
+      conceptTransferLane: finishedLane,
+      ...(conceptTransferSource !== "academy"
+        ? { conceptTransferSource }
+        : {}),
+    });
+    setToast(
+      "Self-assessed reconstruction saved · next review scheduled locally",
+    );
+  }
+
+  function exitConceptTransferLab() {
+    if (conceptTransferSource === "today") navigateView("today");
+    else if (conceptTransferSource === "assessment")
+      navigateView("assessments");
+    else if (conceptTransferSource === "weakness") navigateView("improve");
     else openPatternLesson();
   }
 
@@ -3321,6 +3642,11 @@ export default function SwiftGhostApp() {
       ...synchronized,
       activeSession,
       attempts: [...synchronized.attempts, attempt].slice(-1000),
+      typingProgress: applyTypingAttempt(
+        synchronized.typingProgress,
+        attempt,
+        { now: attempt.completedAt },
+      ),
       draft: null,
     };
   }
@@ -3429,6 +3755,14 @@ export default function SwiftGhostApp() {
       setToast("Stage is fixed for this session step");
       return;
     }
+    const recommended = recommendedStage(stateRef.current, item);
+    if (
+      nextStage > recommended &&
+      !window.confirm(
+        `Jump ahead to Stage ${nextStage} as a diagnostic?\n\nYou can practice it, but it will not count as retained typing evidence until you complete a worked example, a later faded reconstruction, and then blank recall in order.`,
+      )
+    )
+      return;
     mutateState((current) => {
       const sessionId = current.draft?.sessionId;
       const base = recordAbandon(current);
@@ -3854,6 +4188,9 @@ export default function SwiftGhostApp() {
     let projected: AppState = {
       ...state,
       attempts: [...state.attempts, attempt].slice(-1000),
+      typingProgress: applyTypingAttempt(state.typingProgress, attempt, {
+        now: attempt.completedAt,
+      }),
       learningEvents: learningEvent
         ? upsertLearningEvent(state.learningEvents, learningEvent)
         : state.learningEvents,
@@ -3917,6 +4254,9 @@ export default function SwiftGhostApp() {
       let committed: AppState = {
         ...current,
         attempts: [...current.attempts, attempt].slice(-1000),
+        typingProgress: applyTypingAttempt(current.typingProgress, attempt, {
+          now: attempt.completedAt,
+        }),
         learningEvents: learningEvent
           ? upsertLearningEvent(current.learningEvents, learningEvent)
           : current.learningEvents,
@@ -4044,6 +4384,24 @@ export default function SwiftGhostApp() {
       item,
       previousBest,
       nextReview: reviewDueAt(projected, selectedId),
+      typingEvidence:
+        attempt.practiceKind === "typing"
+          ? (() => {
+              const evidence = deriveTypingProgression(
+                projected.typingProgress,
+                attempt.itemId,
+                attempt.itemRevision,
+                attempt.completedAt,
+              );
+              return {
+                owned: evidence.owned,
+                retained: evidence.retained,
+                nextStage: evidence.nextStage,
+                diagnosticOnly: evidence.diagnosticOnly,
+                recallLevel: evidence.recallLevel,
+              };
+            })()
+          : undefined,
       sessionNext,
       sessionComplete,
       transferEvidenceClass,
@@ -6314,7 +6672,7 @@ export default function SwiftGhostApp() {
     link.download = `swift-ghost-progress-${dayKey(new Date())}.json`;
     link.click();
     URL.revokeObjectURL(link.href);
-    setToast("Progress exported");
+    setToast("Progress exported · typing progress and Cold Reconstruction included");
   }
 
   async function importProgress(event: ChangeEvent<HTMLInputElement>) {
@@ -6338,7 +6696,7 @@ export default function SwiftGhostApp() {
         : "";
       if (
         !window.confirm(
-          `Replace ${profileLabel} with this backup${exportedLabel}?\n\nIt contains ${inventory.attempts} attempts, ${inventory.submissions} submissions, ${inventory.sessions} sessions, ${inventory.customItems} custom items, ${inventory.plans} study plans, ${inventory.testDesignAttempts} Test Design attempts, ${inventory.testDesignDrafts} Test Design drafts, and ${inventory.activeTestDesignSprints} active Test Design lab. Community sharing stays off. Hosted Study Plans are preserved and merged after import.`,
+          `Replace ${profileLabel} with this backup${exportedLabel}?\n\nIt contains ${inventory.attempts} attempts, ${inventory.submissions} submissions, ${inventory.sessions} sessions, ${inventory.customItems} custom items, ${inventory.typingProgressRecords} typing progress records, ${inventory.plans} study plans, ${inventory.testDesignAttempts} Test Design attempts, ${inventory.testDesignDrafts} Test Design drafts, ${inventory.activeTestDesignSprints} active Test Design lab, ${inventory.conceptTransferAttempts} Cold Reconstruction attempts, ${inventory.conceptTransferDrafts} Cold Reconstruction drafts, and ${inventory.activeConceptTransferAttempts} active Cold Reconstruction attempt. Community sharing stays off. Hosted Study Plans are preserved and merged after import.`,
         )
       ) {
         event.target.value = "";
@@ -6436,7 +6794,7 @@ export default function SwiftGhostApp() {
     const inventory = backupInventory(guestState);
     if (
       !window.confirm(
-        `Copy guest progress into ${cloud.session?.user?.displayName ?? "this account"}?\n\nThis replaces browser-only account data with ${inventory.attempts} attempts, ${inventory.sessions} sessions, ${inventory.customItems} custom items, ${inventory.testDesignAttempts} Test Design attempts, ${inventory.testDesignDrafts} Test Design drafts, and ${inventory.activeTestDesignSprints} active Test Design lab. Account Study Plans are merged, community sharing stays off, and the guest copy remains available.`,
+        `Copy guest progress into ${cloud.session?.user?.displayName ?? "this account"}?\n\nThis replaces browser-only account data with ${inventory.attempts} attempts, ${inventory.sessions} sessions, ${inventory.customItems} custom items, ${inventory.typingProgressRecords} typing progress records, ${inventory.testDesignAttempts} Test Design attempts, ${inventory.testDesignDrafts} Test Design drafts, ${inventory.activeTestDesignSprints} active Test Design lab, ${inventory.conceptTransferAttempts} Cold Reconstruction attempts, ${inventory.conceptTransferDrafts} Cold Reconstruction drafts, and ${inventory.activeConceptTransferAttempts} active Cold Reconstruction attempt. Account Study Plans are merged, community sharing stays off, and the guest copy remains available.`,
       )
     )
       return;
@@ -6496,7 +6854,7 @@ export default function SwiftGhostApp() {
       openItem(result.item, 5, undefined, undefined, "concept");
       return;
     }
-    chooseStage(Math.min(5, stage + 1));
+    chooseStage(recommendedStage(stateRef.current, result.item));
   }
 
   function handleResultRetry() {
@@ -6763,6 +7121,9 @@ export default function SwiftGhostApp() {
           }
           onPatternReview={() => openPatternDecisionReview("today")}
           onTestDesign={(lane) => openTestDesignLab("today", lane)}
+          onConceptTransfer={(lane) =>
+            openConceptTransferLab("today", lane)
+          }
           onStartCoach={(entries, budgetMinutes) =>
             startSession(
               {
@@ -6787,6 +7148,7 @@ export default function SwiftGhostApp() {
           items={curriculumItems}
           attempts={state.attempts}
           learningEvents={state.learningEvents}
+          typingProgress={state.typingProgress}
           interviewStudioHistory={state.interviewStudio.history}
           sessionHistory={state.sessionHistory}
           activeSession={state.activeSession}
@@ -6850,6 +7212,22 @@ export default function SwiftGhostApp() {
           onStartSolve={startTestDesignSolve}
         />
       )}
+      {view === "learn" && patternReviewMode === "reconstruct" && (
+        <ConceptTransferLab
+          variants={CONCEPT_TRANSFER_VARIANTS}
+          workspace={state.conceptTransfer}
+          selectedLane={conceptTransferLane}
+          routedVariantId={conceptTransferVariantId}
+          entrySource={conceptTransferSource}
+          onStart={startConceptTransferLab}
+          onSaveDraft={saveConceptTransferDraft}
+          onRevealHint={revealConceptTransferHintForAttempt}
+          onCommit={commitConceptTransfer}
+          onSaveDebrief={saveConceptTransferDebrief}
+          onFinish={finishConceptTransfer}
+          onExit={exitConceptTransferLab}
+        />
+      )}
       {view === "learn" && patternReviewMode === undefined && (
         <PatternAcademy
           lessons={PATTERN_LESSONS}
@@ -6871,6 +7249,10 @@ export default function SwiftGhostApp() {
           onOpenDecisionReview={() => openPatternDecisionReview("academy")}
           onOpenTestDesign={(lane) => openTestDesignLab("academy", lane)}
           testDesignSummaries={testDesignLaneSummaries}
+          onOpenConceptTransfer={(lane) =>
+            openConceptTransferLab("academy", lane)
+          }
+          conceptTransferSummaries={conceptTransferLaneSummaries}
         />
       )}
       {view === "improve" && (
@@ -6885,6 +7267,9 @@ export default function SwiftGhostApp() {
           onBrowseCase={browseWeaknessCase}
           onOpenAssessment={() => selectAssessment("python-reentry")}
           onOpenTransferLab={openTransferLab}
+          onOpenConceptTransfer={(lane) =>
+            openConceptTransferLab("weakness", lane)
+          }
         />
       )}
       {view === "practice" && (
@@ -7106,6 +7491,9 @@ export default function SwiftGhostApp() {
           onOpenVirtualRounds={openVirtualRounds}
           onOpenPatternReview={() => openPatternDecisionReview("assessment")}
           onOpenTestDesign={(lane) => openTestDesignLab("assessment", lane)}
+          onOpenConceptTransfer={(lane) =>
+            openConceptTransferLab("assessment", lane)
+          }
           patternDecisionSummary={derivePatternDecisionOverview(
             PATTERN_LESSONS,
             PATTERN_DECISION_PROBES,
@@ -7113,6 +7501,7 @@ export default function SwiftGhostApp() {
             { now: new Date(now || Date.now()).toISOString() },
           )}
           testDesignSummaries={testDesignLaneSummaries}
+          conceptTransferSummaries={conceptTransferLaneSummaries}
         />
       )}
       {view === "library" && (
@@ -7282,6 +7671,7 @@ function TodayView({
   onAssess,
   onPatternReview,
   onTestDesign,
+  onConceptTransfer,
   onStartCoach,
   onResumeSession,
 }: {
@@ -7309,6 +7699,7 @@ function TodayView({
   onAssess: () => void;
   onPatternReview: () => void;
   onTestDesign: (lane: TestDesignLane) => void;
+  onConceptTransfer: (lane: ConceptTransferLane) => void;
   onStartCoach: (
     entries: SessionQueueEntry[],
     budgetMinutes: number,
@@ -7393,6 +7784,22 @@ function TodayView({
     (total, summary) => total + summary.readyCount,
     0,
   );
+  const conceptTransferLaneOverviews = Object.fromEntries(
+    (["swift", "ios"] as ConceptTransferLane[]).map((lane) => [
+      lane,
+      summarizeConceptTransferWorkspace(
+        state.conceptTransfer,
+        CONCEPT_TRANSFER_VARIANTS,
+        { lane, now: todayDate.toISOString() },
+      ),
+    ]),
+  ) as Record<
+    ConceptTransferLane,
+    ReturnType<typeof summarizeConceptTransferWorkspace>
+  >;
+  const readyConceptTransferCount = Object.values(
+    conceptTransferLaneOverviews,
+  ).reduce((total, summary) => total + summary.dueCount, 0);
   return (
     <main id="main-content" tabIndex={-1} className="page-container today-page">
       <PageHeading
@@ -7496,6 +7903,45 @@ function TodayView({
               <button key={lane} className="secondary-button" onClick={() => onTestDesign(lane)}>
                 <strong>{lane === "ios" ? "iOS" : lane[0].toUpperCase() + lane.slice(1)}</strong>
                 <span>{summary.newCount} new · {summary.dueCount} due · {summary.retainedCount}/{summary.totalSkills} retained</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+      <section
+        className="today-concept-transfer"
+        aria-label="Cold reconstruction lab"
+      >
+        <div>
+          <span className="eyebrow">Cold Reconstruction · Swift and iOS</span>
+          <h2>
+            {readyConceptTransferCount
+              ? `${readyConceptTransferCount} reconstruction ${readyConceptTransferCount === 1 ? "is" : "are"} due.`
+              : "Type one known boundary before seeing the answer."}
+          </h2>
+          <p>
+            Commit a prediction, a small Swift fragment, and a tradeoff before
+            the grey project-authored reference appears. It runs as a
+            standalone lab so it never silently replaces the Python tasks in
+            your adaptive plan.
+          </p>
+        </div>
+        <div
+          className="concept-transfer-entry-lanes today-test-design-lanes"
+          aria-label="Cold reconstruction lanes"
+        >
+          {(["swift", "ios"] as ConceptTransferLane[]).map((lane) => {
+            const summary = conceptTransferLaneOverviews[lane];
+            return (
+              <button
+                key={lane}
+                className="secondary-button"
+                onClick={() => onConceptTransfer(lane)}
+              >
+                <strong>{lane === "ios" ? "iOS" : "Swift"}</strong>
+                <span>
+                  {summary.newCount} new · {summary.dueCount} due · {summary.coldSelfAssessedCount} cold
+                </span>
               </button>
             );
           })}
@@ -9346,14 +9792,20 @@ function PracticeView(props: PracticeProps) {
         {props.practiceKind === "typing" ? (
           <div className="stage-panel">
             <div className="stage-title">
-              <span className="eyebrow">Recall ladder</span>
+              <span className="eyebrow">
+                {props.stage === 1
+                  ? "Worked example"
+                  : props.stage === 5
+                    ? "Blank recall"
+                    : "Faded reconstruction"}
+              </span>
               <span>{STAGES[props.stage - 1].note}</span>
             </div>
             <div className="stage-track">
               {STAGES.map((step) => (
                 <button
                   key={step.id}
-                  className={`${props.stage === step.id ? "active" : ""} ${step.id <= props.stats.highestStage ? "complete" : ""}`}
+                  className={`${props.stage === step.id ? "active" : ""} ${props.stats.typingCompletedStages.includes(step.id as 1 | 2 | 3 | 4 | 5) ? "complete" : ""}`}
                   aria-pressed={props.stage === step.id}
                   disabled={Boolean(props.draft.sessionId)}
                   onClick={() => props.onChooseStage(step.id)}
@@ -9364,12 +9816,25 @@ function PracticeView(props: PracticeProps) {
                   }
                 >
                   <span>
-                    {step.id <= props.stats.highestStage ? "✓" : step.id}
+                    {props.stats.typingCompletedStages.includes(
+                      step.id as 1 | 2 | 3 | 4 | 5,
+                    )
+                      ? "✓"
+                      : step.id}
                   </span>
                   <small>{step.short}</small>
                 </button>
               ))}
             </div>
+            <p className="stage-progression-note">
+              {props.stats.typingOwned
+                ? props.stats.typingRetained
+                  ? `Independent recall recorded · review level ${props.stats.typingRecallLevel}`
+                  : "Recall lapsed · repeat Stage 5 without help"
+                : props.stats.typingDiagnosticOnly
+                  ? "Diagnostic only · complete worked then faded practice before another blank recall"
+                  : `Next evidence step: Stage ${props.stats.typingNextStage}. Guided stages teach; only ordered blank recall schedules review.`}
+            </p>
           </div>
         ) : (
           <div className="solve-brief">
@@ -11433,9 +11898,10 @@ function SettingsView({
             attempt summaries when you explicitly turn sharing on.
           </p>
           <p>
-            Exports use a portable v31 backup envelope and imports accept
-            supported v2-v31 backups. Account-bound sharing consent and upload
-            receipts are never carried into another profile.
+            Exports use a portable v32 backup envelope and imports accept
+            supported v2-v32 backups, including typing progress and Cold
+            Reconstruction work. Account-bound sharing consent and upload receipts
+            are never carried into another profile.
           </p>
         </div>
         <div className="data-actions">
@@ -11868,9 +12334,11 @@ function ResultDialog({
                   ? "You recorded an unassisted Good/Easy retrieval. This is self-rated concept evidence, not automated correctness."
                   : "This recall is saved as assisted or still developing. The coach will bring it back sooner."
               : eligible
-                ? result.qualification === "independent"
-                  ? "Independent recall verified. This solution now counts as owned."
-                  : "Clean pass recorded. Keep climbing toward blank-editor recall."
+                ? result.typingEvidence?.owned
+                  ? `Independent blank recall completed in order. Typing recall is now scheduled at level ${result.typingEvidence.recallLevel}.`
+                  : result.typingEvidence?.diagnosticOnly
+                    ? "Blank recall recorded as a diagnostic. Complete a worked example and a later faded reconstruction before blank recall can establish ownership."
+                    : `Clean learning step recorded. The next evidence step is Stage ${result.typingEvidence?.nextStage ?? Math.min(5, result.stage + 1)}; guided typing does not claim mastery.`
                 : result.peeks
                   ? "Assisted pass recorded. Because you peeked, it does not advance mastery or personal records."
                   : "Practice saved, but 95% accuracy is required for mastery and personal records."}
@@ -12042,9 +12510,9 @@ function ResultDialog({
                   ? "Review next concept →"
                   : isSolve
                   ? "Practice recall next →"
-                  : result.stage < 5
-                    ? "Climb to next stage →"
-                    : "Practice recall again →"}
+                  : result.typingEvidence?.owned
+                    ? "Review blank recall →"
+                    : `Continue to Stage ${result.typingEvidence?.nextStage ?? Math.min(5, result.stage + 1)} →`}
           </button>
             </>
           )}

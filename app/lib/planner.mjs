@@ -1,5 +1,9 @@
 import { applyDebriefToReviewState } from "./learning-state.mjs";
 import { supportsConceptPractice } from "./concept-practice.mjs";
+import {
+  deriveTypingProgression,
+  rebuildTypingProgression,
+} from "./typing-progression.mjs";
 
 const DAY_MS = 86_400_000;
 const REVIEW_DAYS = [1, 3, 7, 14, 30];
@@ -49,8 +53,23 @@ function successful(attempt, activityKind) {
     );
   }
   if (attempt.practiceKind !== "typing") return false;
-  if (Number(attempt.accuracy ?? 0) < 95) return false;
-  return true;
+  return (
+    Number(attempt.stage) === 5 &&
+    attempt.qualification === "independent" &&
+    Number(attempt.accuracy ?? 0) >= 95
+  );
+}
+
+function cleanGuidedTyping(attempt) {
+  return Boolean(
+    attempt &&
+      attempt.practiceKind === "typing" &&
+      attempt.outcome === "completed" &&
+      Number(attempt.stage) >= 1 &&
+      Number(attempt.stage) <= 4 &&
+      Number(attempt.peeks ?? 0) === 0 &&
+      Number(attempt.accuracy ?? 0) >= 95,
+  );
 }
 
 function modeAttempts(attempts, item, activityKind) {
@@ -78,9 +97,44 @@ function modeEvents(events, item, activityKind) {
     .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
 }
 
-function learningState(attempts, events, item, activityKind, now) {
+function learningState(
+  attempts,
+  events,
+  item,
+  activityKind,
+  now,
+  typingProgress,
+) {
   const relevant = modeAttempts(attempts, item, activityKind);
   const relevantEvents = modeEvents(events, item, activityKind);
+  if (activityKind === "syntax") {
+    const progression = deriveTypingProgression(
+      typingProgress,
+      item.itemId,
+      item.contentRevision ?? 1,
+      now.toISOString(),
+    );
+    return {
+      relevant,
+      level: progression.recallLevel,
+      dueAt: progression.dueAt ? new Date(progression.dueAt) : null,
+      due: progression.due,
+      overdueDays:
+        progression.due && progression.dueAt
+          ? Math.max(
+              0,
+              Math.floor(
+                (now.getTime() - Date.parse(progression.dueAt)) / DAY_MS,
+              ),
+            )
+          : 0,
+      lapses: progression.lapses,
+      successes: progression.owned ? Math.max(1, progression.recallLevel) : 0,
+      last: relevant.at(-1) ?? null,
+      lastDebrief: relevantEvents.at(-1) ?? null,
+      typingProgression: progression,
+    };
+  }
   let level = 0;
   let dueAt = null;
   let lapses = 0;
@@ -148,10 +202,7 @@ function estimateMinutes(item, activityKind) {
 function recommendedStage(state, activityKind) {
   if (activityKind === "solve") return 5;
   if (activityKind === "concept") return state.successes ? 5 : 4;
-  const highest = state.relevant
-    .filter((attempt) => successful(attempt, activityKind))
-    .reduce((value, attempt) => Math.max(value, Number(attempt.stage ?? 0)), 0);
-  return Math.max(1, Math.min(5, highest + 1));
+  return state.typingProgression?.nextStage ?? 1;
 }
 
 function taskRationale(item, state, activityKind, favorite) {
@@ -165,6 +216,10 @@ function taskRationale(item, state, activityKind, favorite) {
     return `You marked the last retrieval Again because of ${state.lastDebrief.friction}, so this returns quickly.`;
   if (state.lastDebrief?.grade === "hard")
     return `The last retrieval felt hard (${state.lastDebrief.friction}); reinforce it before the trace fades.`;
+  if (activityKind === "syntax" && state.typingProgression?.diagnosticOnly)
+    return "The blank-editor pass was diagnostic. Rebuild the worked and faded steps before another ownership attempt.";
+  if (activityKind === "syntax" && cleanGuidedTyping(state.last))
+    return `Stage ${state.last.stage} was a clean learning step. Continue to Stage ${state.typingProgression?.nextStage ?? Math.min(5, Number(state.last.stage) + 1)} without treating guided work as mastery.`;
   if (state.last && !successful(state.last, activityKind))
     return "The most recent attempt was incomplete or assisted, so this skill needs a clean retrieval.";
   if (activityKind === "solve" && state.successes === 0)
@@ -177,15 +232,26 @@ function taskRationale(item, state, activityKind, favorite) {
   return "Selected to broaden current-revision interview evidence.";
 }
 
-function candidateFor(item, attempts, events, favorites, now) {
+function candidateFor(item, attempts, events, favorites, now, typingProgress) {
   const activityKind = activityFor(item);
-  const state = learningState(attempts, events, item, activityKind, now);
+  const state = learningState(
+    attempts,
+    events,
+    item,
+    activityKind,
+    now,
+    typingProgress,
+  );
   const favorite = favorites.has(item.itemId);
   const lane = laneFor(item, state);
   let score = 0;
   if (state.due) score += 1_000 + state.overdueDays * 12;
   if (!state.relevant.length) score += 180;
-  if (state.last && !successful(state.last, activityKind)) score += 260;
+  const guidedProgress =
+    activityKind === "syntax" && cleanGuidedTyping(state.last);
+  if (state.typingProgression?.diagnosticOnly) score += 260;
+  else if (guidedProgress) score += 120;
+  else if (state.last && !successful(state.last, activityKind)) score += 260;
   score += state.lapses * 30;
   if (activityKind === "solve") score += state.successes ? 55 : 150;
   if (item.pattern === "Python Fluency") score += 85;
@@ -248,7 +314,7 @@ function normalizeInputs(input) {
     ...(Array.isArray(input?.learningEvents) ? input.learningEvents : []),
     ...(Array.isArray(input?.reviews) ? input.reviews : []),
   ];
-  return { items, attempts, events };
+  return { items, attempts, events, typingProgress: input?.typingProgress };
 }
 
 function addTask(selected, candidate, budgetMinutes, maxItems) {
@@ -375,8 +441,17 @@ function selectByRollingAllocation(
 }
 
 export function buildDailyPlan(input = {}, options = {}) {
-  const { items, attempts, events } = normalizeInputs(input);
+  const { items, attempts, events, typingProgress } = normalizeInputs(input);
   const now = asDate(options.now ?? input.now);
+  const effectiveTypingProgress =
+    typingProgress ??
+    rebuildTypingProgression(attempts, {
+      now: now.toISOString(),
+      validItemIds: items.map((item) => item.itemId),
+      revisions: new Map(
+        items.map((item) => [item.itemId, item.contentRevision ?? 1]),
+      ),
+    });
   const profile = input.profile ?? input.trainingProfile ?? {};
   const shares = requestedShares(profile);
   const recent = recentLaneTotals(
@@ -397,7 +472,16 @@ export function buildDailyPlan(input = {}, options = {}) {
     Array.isArray(input.favorites) ? input.favorites : [],
   );
   const candidates = items
-    .map((item) => candidateFor(item, attempts, events, favorites, now))
+    .map((item) =>
+      candidateFor(
+        item,
+        attempts,
+        events,
+        favorites,
+        now,
+        effectiveTypingProgress,
+      ),
+    )
     .sort(
       (a, b) =>
         b.score - a.score ||

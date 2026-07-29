@@ -30,8 +30,15 @@ export const LEARN_STEPS = [
   "template",
   "practice",
 ];
-export const LEARN_REVIEW_MODES = ["mixed", "tests"];
+export const LEARN_REVIEW_MODES = ["mixed", "tests", "reconstruct"];
 export const TEST_DESIGN_LANES = ["python", "swift", "ios"];
+export const CONCEPT_TRANSFER_LANES = ["swift", "ios"];
+export const CONCEPT_TRANSFER_SOURCES = [
+  "academy",
+  "today",
+  "assessment",
+  "weakness",
+];
 export const COMMUNITY_TABS = ["recent", "records", "daily", "profile"];
 export const RECORDS_SECTIONS = [
   "overview",
@@ -270,6 +277,20 @@ export function parseRoute(input) {
       : undefined;
   const testDesignAttemptId =
     learnReview === "tests" ? cleanSessionId(params.get("attempt")) : undefined;
+  const conceptTransferLane =
+    learnReview === "reconstruct" &&
+    CONCEPT_TRANSFER_LANES.includes(params.get("lane"))
+      ? params.get("lane")
+      : undefined;
+  const conceptTransferVariantId =
+    learnReview === "reconstruct"
+      ? cleanSessionId(params.get("variant"))
+      : undefined;
+  const conceptTransferSource =
+    learnReview === "reconstruct" &&
+    CONCEPT_TRANSFER_SOURCES.includes(params.get("from"))
+      ? params.get("from")
+      : undefined;
   const lessonStep =
     view === "learn" && LEARN_STEPS.includes(params.get("lessonStep"))
       ? params.get("lessonStep")
@@ -295,6 +316,13 @@ export function parseRoute(input) {
                 ...(testDesignSprintId ? { testDesignSprintId } : {}),
                 ...(testDesignLane ? { testDesignLane } : {}),
                 ...(testDesignAttemptId ? { testDesignAttemptId } : {}),
+                ...(conceptTransferLane ? { conceptTransferLane } : {}),
+                ...(conceptTransferVariantId
+                  ? { conceptTransferVariantId }
+                  : {}),
+                ...(conceptTransferSource
+                  ? { conceptTransferSource }
+                  : {}),
               }
             : {
                 ...(patternId ? { patternId } : {}),
@@ -510,13 +538,28 @@ export function serializeRoute(
         TEST_DESIGN_LANES.includes(route?.testDesignLane)
       )
         url.searchParams.set("lane", route.testDesignLane);
+      if (
+        learnReview === "reconstruct" &&
+        CONCEPT_TRANSFER_LANES.includes(route?.conceptTransferLane)
+      )
+        url.searchParams.set("lane", route.conceptTransferLane);
       const sprintId = cleanSessionId(
-        learnReview === "tests" ? route?.testDesignSprintId : route?.patternSprintId,
+        learnReview === "tests"
+          ? route?.testDesignSprintId
+          : learnReview === "mixed"
+            ? route?.patternSprintId
+            : undefined,
       );
       if (sprintId) url.searchParams.set("sprint", sprintId);
       if (learnReview === "tests") {
         const attemptId = cleanSessionId(route?.testDesignAttemptId);
         if (attemptId) url.searchParams.set("attempt", attemptId);
+      }
+      if (learnReview === "reconstruct") {
+        const variantId = cleanSessionId(route?.conceptTransferVariantId);
+        if (variantId) url.searchParams.set("variant", variantId);
+        if (CONCEPT_TRANSFER_SOURCES.includes(route?.conceptTransferSource))
+          url.searchParams.set("from", route.conceptTransferSource);
       }
     } else {
       const patternId = cleanPatternId(route?.patternId);

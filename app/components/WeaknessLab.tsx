@@ -27,6 +27,7 @@ type WeaknessLabProps = {
   onBrowseCase: (value: WeaknessCase) => void;
   onOpenAssessment: () => void;
   onOpenTransferLab: () => void;
+  onOpenConceptTransfer: (lane: "swift" | "ios") => void;
 };
 
 const FILTER_LABELS: Record<WeaknessFilter, string> = {
@@ -73,7 +74,10 @@ function compactDate(value: string) {
 }
 
 function dueCopy(value: WeaknessCase, now = Date.now()) {
-  if (value.status === "resolved") return "Closed with delayed transfer evidence";
+  if (value.status === "resolved")
+    return value.lane === "python"
+      ? "Closed with delayed transfer evidence"
+      : "Closed with delayed multi-context evidence";
   const due = Date.parse(value.dueAt);
   if (!Number.isFinite(due)) return "Review date unavailable";
   const days = Math.ceil((due - now) / 86_400_000);
@@ -105,6 +109,7 @@ export function WeaknessLab({
   onBrowseCase,
   onOpenAssessment,
   onOpenTransferLab,
+  onOpenConceptTransfer,
 }: WeaknessLabProps) {
   const visibleCases = useMemo(
     () => filterWeaknessCases(model.cases, { filter, lane }),
@@ -294,8 +299,26 @@ export function WeaknessLab({
               <div className="weakness-detail-metrics">
                 <span><strong>{selectedCase.recurrence}</strong> signals</span>
                 <span><strong>{selectedCase.sourceKinds.length}</strong> evidence sources</span>
-                <span><strong>{selectedCase.successes.length}</strong> later clean proofs</span>
-                <span><strong>{selectedCase.transferRequired ? "Needed" : "Recorded"}</strong> transfer proof</span>
+                <span>
+                  <strong>{selectedCase.successes.length}</strong>{" "}
+                  {selectedCase.lane === "python"
+                    ? "later clean proofs"
+                    : "later clean checks"}
+                </span>
+                <span>
+                  <strong>
+                    {selectedCase.lane === "python"
+                      ? selectedCase.transferRequired
+                        ? "Needed"
+                        : "Recorded"
+                      : new Set(
+                          selectedCase.successes.map((entry) => entry.itemId),
+                        ).size}
+                  </strong>{" "}
+                  {selectedCase.lane === "python"
+                    ? "transfer proof"
+                    : "distinct contexts"}
+                </span>
               </div>
 
               <section className="weakness-contract" aria-labelledby="weakness-contract-title">
@@ -349,6 +372,17 @@ export function WeaknessLab({
                   {selectedCase.transferRequired && selectedCase.lane === "python" && (
                     <button className="text-button" onClick={onOpenTransferLab}>Open Transfer Lab</button>
                   )}
+                  {(selectedCase.lane === "swift" ||
+                    selectedCase.lane === "ios") && (
+                    <button
+                      className="text-button"
+                      onClick={() =>
+                        onOpenConceptTransfer(selectedCase.lane as "swift" | "ios")
+                      }
+                    >
+                      Open Cold Reconstruction Lab
+                    </button>
+                  )}
                 </div>
               </section>
 
@@ -378,8 +412,21 @@ export function WeaknessLab({
               </section>
 
               <footer className="weakness-disclosure">
-                A case resolves only after delayed independent evidence plus a distinct transfer proof.
-                Hints, reference reveals, restored source, and self-ratings do not count as independent proof.
+                {selectedCase.lane === "python" ? (
+                  <>
+                    A case resolves only after delayed independent evidence plus
+                    a distinct transfer proof. Hints, reference reveals,
+                    restored source, and self-ratings do not count as
+                    independent proof.
+                  </>
+                ) : (
+                  <>
+                    A Swift or iOS case resolves only after delayed clean checks
+                    in two distinct contexts. Cold Reconstruction entries are
+                    explicitly self-assessed; hinted or reference-only attempts
+                    do not count.
+                  </>
+                )}
               </footer>
             </article>
           )}

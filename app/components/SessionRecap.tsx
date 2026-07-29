@@ -28,8 +28,8 @@ export function SessionRecap({
 }) {
   const titleRef = useRef<HTMLHeadingElement>(null);
   const recap = useMemo(
-    () => buildSessionRecap(record, state.attempts, items),
-    [record, state.attempts, items],
+    () => buildSessionRecap(record, state.attempts, items, state.typingProgress),
+    [record, state.attempts, state.typingProgress, items],
   );
   useEffect(() => {
     titleRef.current?.focus();

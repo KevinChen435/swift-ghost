@@ -18,6 +18,7 @@ import type {
   InterviewStudioMode,
 } from "../lib/interview-studio.mjs";
 import type { SessionQueueEntry } from "../lib/sessions.mjs";
+import type { TypingProgressionWorkspace } from "../lib/typing-progression.mjs";
 import {
   STUDY_PLAN_LIMITS,
   STUDY_PLAN_TEMPLATES,
@@ -60,6 +61,7 @@ export type StudyPlansProps = {
   items: PracticeItem[];
   attempts: AttemptRecord[];
   learningEvents?: LearningEvent[];
+  typingProgress: TypingProgressionWorkspace;
   interviewStudioHistory: InterviewStudioHistoryRecord[];
   sessionHistory: SessionHistoryRecord[];
   activeSession: TrainingSession | null;
@@ -310,6 +312,7 @@ export function StudyPlans({
   items,
   attempts,
   learningEvents = [],
+  typingProgress,
   interviewStudioHistory,
   sessionHistory,
   activeSession,
@@ -360,6 +363,7 @@ export function StudyPlans({
     items,
     attempts,
     learningEvents,
+    typingProgress,
     interviewStudioHistory,
     sessionHistory,
     now: new Date().toISOString(),

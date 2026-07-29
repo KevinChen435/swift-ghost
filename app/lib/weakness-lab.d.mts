@@ -10,6 +10,9 @@ import type { PatternLesson } from "../data/pattern-lessons";
 import type { PatternDecisionProbe } from "../data/pattern-decision-probes";
 import type { TestDesignAttempt } from "./test-design.mjs";
 import type { TestDesignProbe } from "../data/test-design-probes";
+import type { ConceptTransferAttempt } from "./concept-transfer.mjs";
+import type { ConceptTransferVariant } from "../data/concept-transfer-variants";
+import type { TypingProgressionWorkspace } from "./typing-progression.mjs";
 
 export type WeaknessTag = "syntax-fluency" | "missed-cue" | "wrong-invariant" | "data-structure" | "complexity" | "boundary" | "implementation" | "verification" | "communication" | "overfit" | "api";
 export type WeaknessFilter = "priority" | "due" | "stabilizing" | "resolved" | "all";
@@ -18,12 +21,12 @@ export type WeaknessStatus = "open" | "due" | "stabilizing" | "resolved";
 export type WeaknessEvidenceKind = "learning-event" | "solution-review" | "assessment" | "mock-debrief" | "transfer" | "pattern-decision" | "test-design";
 export type WeaknessEvidence = { id: string; kind: WeaknessEvidenceKind; weakness: WeaknessTag; lane: Exclude<WeaknessLane, "all">; topicKey: string; itemId?: ItemId; itemRevision?: number; occurredAt: string; weight: number; label: string; summary: string; sourceId?: string };
 export type WeaknessQueueEntry = { itemId: ItemId; itemRevision: number; title: string; pattern: string; stage: number; practiceKind: "typing" | "solving" | "concept"; estimatedMinutes: number; rationale: string; lane: "python" | "interview" | "ios" };
-export type WeaknessCase = { id: string; lane: Exclude<WeaknessLane, "all">; topicKey: string; weakness: WeaknessTag; title: string; status: WeaknessStatus; recurrence: number; evidenceWeight: number; sourceKinds: WeaknessEvidenceKind[]; evidence: WeaknessEvidence[]; successes: Array<{ id: string; itemId: string; at: string; transfer: boolean }>; dueAt: string; lastEvidenceAt: string; prompt: string; queue: WeaknessQueueEntry[]; transferRequired: boolean; priority: number };
+export type WeaknessCase = { id: string; lane: Exclude<WeaknessLane, "all">; topicKey: string; weakness: WeaknessTag; title: string; status: WeaknessStatus; recurrence: number; evidenceWeight: number; sourceKinds: WeaknessEvidenceKind[]; evidence: WeaknessEvidence[]; successes: Array<{ id: string; itemId: string; at: string; transfer: boolean; selfAssessed?: true }>; dueAt: string; lastEvidenceAt: string; prompt: string; queue: WeaknessQueueEntry[]; transferRequired: boolean; priority: number };
 export type WeaknessLabModel = { generatedAt: string; scope: "private-local-learning-evidence"; cases: WeaknessCase[]; nextCase: WeaknessCase | null; summary: { total: number; active: number; due: number; open: number; stabilizing: number; resolved: number; laneCounts: Record<"python" | "swift" | "ios", number>; tagCounts: Array<{ id: WeaknessTag; label: string; count: number }> } };
 
 export const WEAKNESS_TAGS: WeaknessTag[];
 export const WEAKNESS_FILTERS: WeaknessFilter[];
 export const WEAKNESS_LANES: WeaknessLane[];
 export const WEAKNESS_META: Record<WeaknessTag, { label: string; short: string; prompt: string }>;
-export function buildWeaknessLab(input?: { items?: PracticeItem[]; attempts?: AttemptRecord[]; submissionReceipts?: SubmissionReceipt[]; learningEvents?: LearningEvent[]; solutionReviews?: SolutionReviewRecord[]; assessmentReports?: AssessmentReport[]; sessionHistory?: SessionHistoryRecord[]; transferRecords?: TransferRecord[]; patternDecisionAttempts?: PatternDecisionAttempt[]; patternLessons?: readonly PatternLesson[]; patternDecisionProbes?: readonly PatternDecisionProbe[]; testDesignAttempts?: TestDesignAttempt[]; testDesignProbes?: readonly TestDesignProbe[]; itemSignals?: Record<string, { due?: boolean; completions?: number; owned?: boolean; recommendedStage?: number }>; now?: string | number | Date }): WeaknessLabModel;
+export function buildWeaknessLab(input?: { items?: PracticeItem[]; attempts?: AttemptRecord[]; typingProgress?: TypingProgressionWorkspace; submissionReceipts?: SubmissionReceipt[]; learningEvents?: LearningEvent[]; solutionReviews?: SolutionReviewRecord[]; assessmentReports?: AssessmentReport[]; sessionHistory?: SessionHistoryRecord[]; transferRecords?: TransferRecord[]; conceptTransferAttempts?: ConceptTransferAttempt[]; conceptTransferVariants?: readonly ConceptTransferVariant[]; patternDecisionAttempts?: PatternDecisionAttempt[]; patternLessons?: readonly PatternLesson[]; patternDecisionProbes?: readonly PatternDecisionProbe[]; testDesignAttempts?: TestDesignAttempt[]; testDesignProbes?: readonly TestDesignProbe[]; itemSignals?: Record<string, { due?: boolean; completions?: number; owned?: boolean; recommendedStage?: number }>; now?: string | number | Date }): WeaknessLabModel;
 export function filterWeaknessCases(cases: WeaknessCase[], options?: { filter?: WeaknessFilter; lane?: WeaknessLane }): WeaknessCase[];
