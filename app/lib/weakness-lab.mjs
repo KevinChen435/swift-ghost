@@ -266,6 +266,60 @@ function collectEvidence(input, itemById) {
     }, itemById);
   }
 
+  const decisionProbes = new Map(
+    (Array.isArray(input.patternDecisionProbes) ? input.patternDecisionProbes : [])
+      .map((probe) => [probe?.id, probe])
+      .filter(([id]) => Boolean(id)),
+  );
+  const decisionLessons = new Map(
+    (Array.isArray(input.patternLessons) ? input.patternLessons : [])
+      .map((lesson) => [lesson?.id, lesson])
+      .filter(([id]) => Boolean(id)),
+  );
+  const missesByLesson = new Map();
+  for (const attempt of Array.isArray(input.patternDecisionAttempts)
+    ? input.patternDecisionAttempts
+    : []) {
+    const probe = decisionProbes.get(attempt?.probeId);
+    const lesson = decisionLessons.get(attempt?.lessonId);
+    if (
+      !attempt?.completedAt ||
+      attempt.match !== false ||
+      !probe ||
+      !lesson ||
+      Number(attempt.probeRevision) !== Number(probe.revision) ||
+      Number(attempt.lessonRevision) !== Number(lesson.revision) ||
+      probe.lessonId !== lesson.id
+    )
+      continue;
+    const entries = missesByLesson.get(lesson.id) ?? [];
+    entries.push({ attempt, probe, lesson });
+    missesByLesson.set(lesson.id, entries);
+  }
+  for (const misses of missesByLesson.values()) {
+    const distinct = new Map();
+    for (const miss of misses.sort((a, b) =>
+      a.attempt.completedAt.localeCompare(b.attempt.completedAt),
+    ))
+      distinct.set(miss.probe.id, miss);
+    if (distinct.size < 2) continue;
+    for (const { attempt, probe, lesson } of distinct.values()) {
+      pushEvidence(evidence, {
+        id: `pattern-decision:${attempt.id}`,
+        kind: "pattern-decision",
+        weakness: "missed-cue",
+        itemId: probe.solveItemId,
+        occurredAt: attempt.completedAt,
+        weight: 3,
+        label: "Mixed pattern decision",
+        summary: `The authored pattern choice for an unlabeled ${lesson.title} prompt did not match the committed selection. Free-text reasoning was not auto-scored.`,
+        sourceId: attempt.id,
+        lane: "python",
+        topicKey: lesson.pattern,
+      }, itemById);
+    }
+  }
+
   const byId = new Map();
   for (const entry of evidence) byId.set(entry.id, entry);
   return [...byId.values()]

@@ -269,6 +269,8 @@ export function AssessmentCenter({
   onArchive,
   onOpenTransferLab,
   onOpenVirtualRounds,
+  onOpenPatternReview,
+  patternDecisionSummary,
 }: {
   workspace: AssessmentWorkspace;
   items: PracticeItem[];
@@ -302,6 +304,13 @@ export function AssessmentCenter({
   onArchive: (runId: string) => void;
   onOpenTransferLab: () => void;
   onOpenVirtualRounds: () => void;
+  onOpenPatternReview: () => void;
+  patternDecisionSummary: {
+    newCount: number;
+    dueCount: number;
+    retainedCount: number;
+    totalPatterns: number;
+  };
 }) {
   const selectedRun = useMemo(
     () => workspace.runs.find((run) => run.id === selectedAssessment) ?? null,
@@ -343,6 +352,31 @@ export function AssessmentCenter({
       />
 
       <section className="assessment-program-grid" aria-label="Assessment programs">
+        <article className="assessment-pattern-decision-card">
+          <div className="assessment-program-topline">
+            <span>Pattern selection</span>
+            <small>Private · 5 minutes</small>
+          </div>
+          <h2>Mixed Decision Review</h2>
+          <p>
+            Classify unlabeled micro-prompts, state the cue and invariant, and
+            reject a nearby pattern before seeing the authored comparison.
+          </p>
+          <div className="assessment-program-stats">
+            <span><strong>{patternDecisionSummary.newCount}</strong> new</span>
+            <span><strong>{patternDecisionSummary.dueCount}</strong> due</span>
+            <span><strong>{patternDecisionSummary.retainedCount}/{patternDecisionSummary.totalPatterns}</strong> retained</span>
+          </div>
+          <small className="assessment-program-disclaimer">
+            This checks prompt classification only. It does not replace the
+            algorithm checkpoint or create solve evidence.
+          </small>
+          <div className="assessment-card-actions">
+            <button className="primary-button" type="button" onClick={onOpenPatternReview}>
+              Open hidden-pattern review →
+            </button>
+          </div>
+        </article>
         <article className="assessment-virtual-round-card">
           <div className="assessment-program-topline">
             <span>Timed strategy</span>

@@ -9,7 +9,7 @@ import {
 } from "../app/lib/backup.mjs";
 
 const state = {
-  version: 28,
+  version: 29,
   attempts: [{ id: "a" }],
   settings: {},
   lastItemId: "two-sum",
@@ -24,15 +24,18 @@ const state = {
   interviewStudio: { history: [{ id: "i" }], active: null },
   assessments: { history: [{ id: "assessment" }], active: null },
   virtualRoundWorkspace: { history: [{ id: "round" }], active: null },
-  patternLearning: { reviews: [{ lessonId: "pattern:arrays-hashing" }] },
+  patternLearning: {
+    reviews: [{ lessonId: "pattern:arrays-hashing" }],
+    decisionAttempts: [{ id: "decision" }],
+  },
 };
 
 test("round trips a versioned backup envelope", () => {
   const envelope = createBackupEnvelope(state, "2026-07-28T12:00:00.000Z");
   assert.equal(envelope.kind, BACKUP_KIND);
-  assert.equal(envelope.stateVersion, 28);
+  assert.equal(envelope.stateVersion, 29);
   assert.equal(envelope.exportedAt, "2026-07-28T12:00:00.000Z");
-  const restored = readBackupPayload(envelope, [27, 28]);
+  const restored = readBackupPayload(envelope, [28, 29]);
   assert.equal(restored.envelope, true);
   assert.equal(restored.exportedAt, envelope.exportedAt);
   assert.equal(restored.payload, state);
@@ -52,12 +55,13 @@ test("reports a human-checkable inventory", () => {
     plans: 1,
     collections: 1,
     patternReviews: 1,
+    patternDecisions: 1,
   });
   assert.equal(hasMeaningfulBackupState(state), true);
-  assert.equal(hasMeaningfulBackupState({ version: 28 }), false);
+  assert.equal(hasMeaningfulBackupState({ version: 29 }), false);
   assert.equal(
     hasMeaningfulBackupState({
-      version: 28,
+      version: 29,
       patternLearning: { reviews: [{ lessonId: "pattern:trees" }] },
     }),
     true,
@@ -65,13 +69,13 @@ test("reports a human-checkable inventory", () => {
 });
 
 test("accepts plausible legacy raw states and rejects version-only impostors", () => {
-  assert.equal(readBackupPayload(state, [27, 28]).envelope, false);
-  assert.equal(readBackupPayload({ version: 27 }, [27, 28]), undefined);
-  assert.equal(readBackupPayload({ ...state, version: 1 }, [27, 28]), undefined);
+  assert.equal(readBackupPayload(state, [28, 29]).envelope, false);
+  assert.equal(readBackupPayload({ version: 28 }, [28, 29]), undefined);
+  assert.equal(readBackupPayload({ ...state, version: 1 }, [28, 29]), undefined);
   assert.equal(
     readBackupPayload(
       { kind: BACKUP_KIND, envelopeVersion: 99, payload: state },
-      [27, 28],
+      [28, 29],
     ),
     undefined,
   );

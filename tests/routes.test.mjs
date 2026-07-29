@@ -57,6 +57,43 @@ test("Pattern Academy routes round-trip bounded lesson state and ignore it elsew
   );
 });
 
+test("Pattern Decision Review routes preserve a bounded sprint and exclude lesson state", () => {
+  const route = parseRoute(
+    "/swift-ghost/?view=learn&review=mixed&sprint=pattern-sprint%3Aabc-123&pattern=trees&lessonStep=trace",
+  );
+  assert.equal(route.view, "learn");
+  assert.equal(route.learnReview, "mixed");
+  assert.equal(route.patternSprintId, "pattern-sprint:abc-123");
+  assert.equal(route.patternId, undefined);
+  assert.equal(route.lessonStep, undefined);
+  assert.equal(
+    serializeRoute(route, "https://example.test/swift-ghost/?stale=1"),
+    "/swift-ghost/?view=learn&review=mixed&sprint=pattern-sprint%3Aabc-123",
+  );
+
+  const malformed = parseRoute(
+    `/?view=learn&review=mixed&sprint=${encodeURIComponent("../".repeat(80))}`,
+  );
+  assert.equal(malformed.learnReview, "mixed");
+  assert.equal(malformed.patternSprintId, undefined);
+  assert.equal(
+    parseRoute("/?view=learn&review=admin&sprint=valid-sprint").learnReview,
+    undefined,
+  );
+  assert.equal(
+    parseRoute("/?view=records&review=mixed&sprint=valid-sprint").learnReview,
+    undefined,
+  );
+  assert.doesNotMatch(
+    serializeRoute({
+      view: "records",
+      learnReview: "mixed",
+      patternSprintId: "valid-sprint",
+    }),
+    /review=mixed|sprint=/,
+  );
+});
+
 test("Weakness Lab filters and selected cases are bounded and reload-safe", () => {
   const route = parseRoute(
     "/?view=improve&inbox=due&lane=python&case=python%3Aarrays-hashing%3Averification",

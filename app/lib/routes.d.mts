@@ -7,6 +7,7 @@ import type { WeaknessFilter, WeaknessLane } from "./weakness-lab.mjs";
 import type { PatternLessonStep } from "../data/pattern-lessons";
 
 export type CommunityTab = "recent" | "records" | "daily" | "profile";
+export type LearnReviewMode = "mixed";
 export type RecordsSection =
   | "overview"
   | "trends"
@@ -43,6 +44,8 @@ export type AppRoute = {
   weaknessCaseId?: string;
   patternId?: string;
   lessonStep?: PatternLessonStep;
+  learnReview?: LearnReviewMode;
+  patternSprintId?: string;
 };
 
 export const ROUTE_VIEWS: View[];
@@ -51,6 +54,7 @@ export const RECORDS_SECTIONS: RecordsSection[];
 export const CONTEST_SECTIONS: ContestSection[];
 export const ROUTE_LANGUAGES: CodeLanguage[];
 export const LEARN_STEPS: PatternLessonStep[];
+export const LEARN_REVIEW_MODES: LearnReviewMode[];
 export function parseRoute(input: string | URL | URLSearchParams): AppRoute;
 export function itemRouteToken(item: PracticeItem): string;
 export function resolveRouteItem(

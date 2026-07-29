@@ -12,9 +12,9 @@ test("state v21 retains bounded local assessments and the v20 fallback", async (
     new URL("../app/lib/product.ts", import.meta.url),
     "utf8",
   );
-  assert.match(product, /export type AppState = \{\s+version: 28;/);
+  assert.match(product, /export type AppState = \{\s+version: 29;/);
   assert.match(product, /assessments: AssessmentWorkspace/);
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v28"/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v29"/);
   assert.match(product, /TWENTY_FIRST_STORAGE_KEY = "swift-ghost-state-v21"/);
   assert.match(product, /TWENTIETH_STORAGE_KEY = "swift-ghost-state-v20"/);
   assert.match(product, /NINETEENTH_STORAGE_KEY = "swift-ghost-state-v19"/);

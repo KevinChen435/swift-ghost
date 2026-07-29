@@ -20,8 +20,8 @@ const studio = await readFile(
 );
 
 test("current state keeps v26, v25, and v24 fallbacks and gates authored judges", () => {
-  assert.match(product, /version: 28;/);
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v28"/);
+  assert.match(product, /version: 29;/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v29"/);
   assert.match(product, /TWENTY_SIXTH_STORAGE_KEY = "swift-ghost-state-v26"/);
   assert.match(product, /TWENTY_FIFTH_STORAGE_KEY = "swift-ghost-state-v25"/);
   assert.match(
@@ -30,7 +30,7 @@ test("current state keeps v26, v25, and v24 fallbacks and gates authored judges"
   );
   assert.match(
     product,
-    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_SEVENTH_STORAGE_KEY,\s+TWENTY_SIXTH_STORAGE_KEY,\s+TWENTY_FIFTH_STORAGE_KEY,\s+TWENTY_FOURTH_STORAGE_KEY,/,
+    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_EIGHTH_STORAGE_KEY,\s+TWENTY_SEVENTH_STORAGE_KEY,\s+TWENTY_SIXTH_STORAGE_KEY,\s+TWENTY_FIFTH_STORAGE_KEY,\s+TWENTY_FOURTH_STORAGE_KEY,/,
   );
   assert.match(product, /stateVersion >= 25/);
   assert.match(product, /CUSTOM_ITEM_STATE_BYTE_LIMIT = 2_500_000/);
