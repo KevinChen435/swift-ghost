@@ -2433,7 +2433,7 @@ export default function SwiftGhostApp() {
           {
             id: sprintId,
             source,
-            count: 3,
+            count: 4,
             now: new Date().toISOString(),
           },
         ),
@@ -2480,7 +2480,10 @@ export default function SwiftGhostApp() {
       patternLearning: revealPatternDecision(
         current.patternLearning,
         attemptId,
-        { now: new Date().toISOString() },
+        {
+          now: new Date().toISOString(),
+          probes: PATTERN_DECISION_PROBES,
+        },
       ),
     }));
   }
@@ -2970,7 +2973,7 @@ export default function SwiftGhostApp() {
     ) {
       openPatternDecisionReview("weakness");
       setToast(
-        "Mixed pattern review opened · repeated objective misses, not a diagnosis",
+        "Core pattern skill check opened · repeated objective misses, not a diagnosis",
       );
       return;
     }
@@ -8117,16 +8120,16 @@ function TodayView({
       </section>
       <section className="today-pattern-review" aria-label="Pattern decision review">
         <div>
-          <span className="eyebrow">Pattern decisions · 5 minutes</span>
+          <span className="eyebrow">Core Pattern Skill Check · 12-18 minutes</span>
           <h2>
             {patternDecisionOverview.readyCount
               ? `${patternDecisionOverview.readyCount} pattern ${patternDecisionOverview.readyCount === 1 ? "decision is" : "decisions are"} ready.`
-              : "Keep pattern recognition warm with a mixed sprint."}
+              : "Map your recognition across all twelve core patterns."}
           </h2>
           <p>
-            Classify unlabeled prompts before opening a full problem.
-            Recognition evidence remains separate from local solve and transfer
-            receipts.
+            Classify four unlabeled prompts, state the invariant and expected
+            complexity, then see one bounded confirmation after a miss.
+            Recognition evidence remains separate from solve and transfer receipts.
           </p>
         </div>
         <div className="today-pattern-review-stats" aria-label="Pattern decision status">
@@ -8135,7 +8138,7 @@ function TodayView({
           <span><strong>{patternDecisionOverview.retainedCount}</strong> retained</span>
         </div>
         <button className="secondary-button" onClick={onPatternReview}>
-          Start mixed review →
+          Open skill check →
         </button>
       </section>
       <section className="today-test-design" aria-label="Test design lab">

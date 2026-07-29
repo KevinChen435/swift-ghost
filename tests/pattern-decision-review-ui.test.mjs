@@ -3,17 +3,17 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { PATTERN_DECISION_PROBES } from "../app/data/pattern-decision-probes.ts";
 
-test("ships a balanced original decision cluster with revisioned solve handoffs", () => {
-  assert.equal(PATTERN_DECISION_PROBES.length, 6);
+test("ships a balanced twelve-family bank with revisioned solve handoffs", () => {
+  assert.equal(PATTERN_DECISION_PROBES.length, 24);
   const byLesson = Map.groupBy(
     PATTERN_DECISION_PROBES,
     (probe) => probe.lessonId,
   );
   assert.deepEqual(
     [...byLesson.values()].map((entries) => entries.length).sort(),
-    [2, 2, 2],
+    Array(12).fill(2),
   );
-  assert.equal(new Set(PATTERN_DECISION_PROBES.map((probe) => probe.id)).size, 6);
+  assert.equal(new Set(PATTERN_DECISION_PROBES.map((probe) => probe.id)).size, 24);
   for (const probe of PATTERN_DECISION_PROBES) {
     assert.equal(probe.revision, 1);
     assert.equal(probe.candidateLessonIds.length, 3);
@@ -21,6 +21,7 @@ test("ships a balanced original decision cluster with revisioned solve handoffs"
     assert.ok(probe.authoredCue.length >= 60);
     assert.ok(probe.authoredInvariant.length >= 60);
     assert.ok(probe.whyConfusableLoses.length >= 60);
+    assert.ok(probe.expectedComplexity.length >= 40);
     assert.match(probe.solveItemId, /^python:/);
   }
 });
@@ -36,12 +37,12 @@ test("mixed review is routed, commit-before-reveal, and evidence-honest", async 
   assert.match(app, /startPatternDecisionSprint/);
   assert.match(routes, /LEARN_REVIEW_MODES = \["mixed", "tests", "reconstruct"\]/);
   assert.match(routes, /patternSprintId/);
-  assert.match(academy, /Can you recognize the pattern without its label/);
+  assert.match(academy, /Can you recognize the pattern before coding/);
   assert.match(component, /Commit before reveal/);
   assert.match(component, /Reveal authored comparison/);
   assert.match(component, /Self-grade decision reasoning/);
-  assert.match(component, /This records prompt classification only/);
-  assert.match(component, /It is not a solve/);
+  assert.match(component, /This records pattern selection objectively/);
+  assert.match(component, /not a solve, transfer result, score/);
   assert.match(component, /Continue to blank solve/);
   assert.doesNotMatch(component, /mastered|certified|server verified/i);
 });

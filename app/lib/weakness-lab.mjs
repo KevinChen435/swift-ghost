@@ -367,7 +367,7 @@ function collectEvidence(input, itemById) {
         itemId: probe.solveItemId,
         occurredAt: attempt.completedAt,
         weight: 3,
-        label: "Mixed pattern decision",
+        label: "Core Pattern Skill Check",
         summary: `The authored pattern choice for an unlabeled ${lesson.title} prompt did not match the committed selection. Free-text reasoning was not auto-scored.`,
         sourceId: attempt.id,
         lane: "python",

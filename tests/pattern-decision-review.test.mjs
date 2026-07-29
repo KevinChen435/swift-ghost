@@ -49,6 +49,7 @@ function commitCurrent(workspace, attemptId, now, overrides = {}) {
       cue: "The prompt exposes a monotonic or remembered-state decision.",
       invariant: "The maintained state describes exactly the processed region.",
       whyNot: "The nearby pattern cannot use the decisive constraint.",
+      complexity: "O(n) time and O(n) auxiliary space for the maintained state.",
       assisted: false,
       ...overrides,
     },
@@ -57,7 +58,10 @@ function commitCurrent(workspace, attemptId, now, overrides = {}) {
 }
 
 function completeCurrent(workspace, attemptId, now, grade = "good") {
-  const revealed = revealPatternDecision(workspace, attemptId, { now });
+  const revealed = revealPatternDecision(workspace, attemptId, {
+    now,
+    probes: PATTERN_DECISION_PROBES,
+  });
   return gradePatternDecision(revealed, attemptId, grade, {
     now,
     lessons: clusterLessons,
@@ -65,7 +69,7 @@ function completeCurrent(workspace, attemptId, now, grade = "good") {
   });
 }
 
-test("Pattern Learning v1 migrates to v2 without losing retrieval checks", () => {
+test("Pattern Learning v1 migrates to v3 without losing retrieval checks", () => {
   const lesson = PATTERN_LESSONS[0];
   const check = lesson.checks[0];
   const v1 = commitPatternResponse(
@@ -79,7 +83,7 @@ test("Pattern Learning v1 migrates to v2 without losing retrieval checks", () =>
     { ...v1, version: 1 },
     { lessons: PATTERN_LESSONS, probes: PATTERN_DECISION_PROBES, now: startAt },
   );
-  assert.equal(normalized.version, 2);
+  assert.equal(normalized.version, 3);
   assert.equal(normalized.reviews.length, 1);
   assert.deepEqual(normalized.decisionAttempts, []);
 });
@@ -141,7 +145,13 @@ test("decision fields must be committed before reveal and self-grade", () => {
     { id: "attempt-incomplete", now: startAt, probes: PATTERN_DECISION_PROBES },
   );
   assert.equal(incomplete, sprint);
-  assert.equal(revealPatternDecision(sprint, "missing", { now: startAt }), sprint);
+  assert.equal(
+    revealPatternDecision(sprint, "missing", {
+      now: startAt,
+      probes: PATTERN_DECISION_PROBES,
+    }),
+    sprint,
+  );
   assert.equal(
     gradePatternDecision(sprint, "missing", "good", {
       now: startAt,
@@ -153,7 +163,10 @@ test("decision fields must be committed before reveal and self-grade", () => {
   const committed = commitCurrent(sprint, "attempt-gated", startAt);
   assert.equal(committed.decisionAttempts.length, 1);
   assert.equal(committed.decisionAttempts[0].revealedAt, undefined);
-  const revealed = revealPatternDecision(committed, "attempt-gated", { now: startAt });
+  const revealed = revealPatternDecision(committed, "attempt-gated", {
+    now: startAt,
+    probes: PATTERN_DECISION_PROBES,
+  });
   assert.equal(revealed.decisionAttempts[0].match, true);
   assert.equal(revealed.decisionAttempts[0].grade, undefined);
 });

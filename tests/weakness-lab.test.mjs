@@ -969,5 +969,6 @@ test("two distinct objective pattern misses create recognition evidence, but one
   assert.equal(patternCase.weakness, "missed-cue");
   assert.equal(patternCase.recurrence, 2);
   assert.equal(patternCase.topicKey, lesson.pattern);
+  assert.equal(patternCase.evidence[0].label, "Core Pattern Skill Check");
   assert.match(patternCase.evidence[0].summary, /Free-text reasoning was not auto-scored/);
 });

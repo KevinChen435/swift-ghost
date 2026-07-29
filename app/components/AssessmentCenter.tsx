@@ -368,12 +368,13 @@ export function AssessmentCenter({
         <article className="assessment-pattern-decision-card">
           <div className="assessment-program-topline">
             <span>Pattern selection</span>
-            <small>Private · 5 minutes</small>
+            <small>Private · 12-18 minutes</small>
           </div>
-          <h2>Mixed Decision Review</h2>
+          <h2>Core Pattern Skill Check</h2>
           <p>
-            Classify unlabeled micro-prompts, state the cue and invariant, and
-            reject a nearby pattern before seeing the authored comparison.
+            Sample a revisioned 24-prompt bank across all twelve core families.
+            Commit the cue, invariant, rejected alternative, and expected
+            complexity before seeing the authored comparison.
           </p>
           <div className="assessment-program-stats">
             <span><strong>{patternDecisionSummary.newCount}</strong> new</span>
@@ -386,7 +387,7 @@ export function AssessmentCenter({
           </small>
           <div className="assessment-card-actions">
             <button className="primary-button" type="button" onClick={onOpenPatternReview}>
-              Open hidden-pattern review →
+              Open pattern skill check →
             </button>
           </div>
         </article>
