@@ -14,6 +14,7 @@ export type BackupInventory = {
   plans: number;
   collections: number;
   patternReviews: number;
+  patternDecisions: number;
 };
 
 export function backupInventory(state: unknown): BackupInventory;

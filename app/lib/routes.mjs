@@ -30,6 +30,7 @@ export const LEARN_STEPS = [
   "template",
   "practice",
 ];
+export const LEARN_REVIEW_MODES = ["mixed"];
 export const COMMUNITY_TABS = ["recent", "records", "daily", "profile"];
 export const RECORDS_SECTIONS = [
   "overview",
@@ -251,7 +252,15 @@ export function parseRoute(input) {
   const weaknessCaseId =
     view === "improve" ? cleanWeaknessCaseId(params.get("case")) : undefined;
   const patternId =
-    view === "learn" ? cleanPatternId(params.get("pattern")) : undefined;
+    view === "learn" && !LEARN_REVIEW_MODES.includes(params.get("review"))
+      ? cleanPatternId(params.get("pattern"))
+      : undefined;
+  const learnReview =
+    view === "learn" && LEARN_REVIEW_MODES.includes(params.get("review"))
+      ? params.get("review")
+      : undefined;
+  const patternSprintId =
+    learnReview === "mixed" ? cleanSessionId(params.get("sprint")) : undefined;
   const lessonStep =
     view === "learn" && LEARN_STEPS.includes(params.get("lessonStep"))
       ? params.get("lessonStep")
@@ -270,8 +279,15 @@ export function parseRoute(input) {
     assessment,
     ...(view === "learn"
       ? {
-          ...(patternId ? { patternId } : {}),
-          ...(lessonStep ? { lessonStep } : {}),
+          ...(learnReview
+            ? {
+                learnReview,
+                ...(patternSprintId ? { patternSprintId } : {}),
+              }
+            : {
+                ...(patternId ? { patternId } : {}),
+                ...(lessonStep ? { lessonStep } : {}),
+              }),
         }
       : {}),
     ...(contestSection
@@ -472,15 +488,24 @@ export function serializeRoute(
     if (weaknessCaseId) url.searchParams.set("case", weaknessCaseId);
   }
   if (view === "learn") {
-    const patternId = cleanPatternId(route?.patternId);
-    if (patternId) url.searchParams.set("pattern", patternId);
-    const lessonStep = LEARN_STEPS.includes(route?.lessonStep)
-      ? route.lessonStep
-      : patternId
-        ? "recognize"
-        : undefined;
-    if (lessonStep && lessonStep !== "recognize")
-      url.searchParams.set("lessonStep", lessonStep);
+    const learnReview = LEARN_REVIEW_MODES.includes(route?.learnReview)
+      ? route.learnReview
+      : undefined;
+    if (learnReview) {
+      url.searchParams.set("review", learnReview);
+      const patternSprintId = cleanSessionId(route?.patternSprintId);
+      if (patternSprintId) url.searchParams.set("sprint", patternSprintId);
+    } else {
+      const patternId = cleanPatternId(route?.patternId);
+      if (patternId) url.searchParams.set("pattern", patternId);
+      const lessonStep = LEARN_STEPS.includes(route?.lessonStep)
+        ? route.lessonStep
+        : patternId
+          ? "recognize"
+          : undefined;
+      if (lessonStep && lessonStep !== "recognize")
+        url.searchParams.set("lessonStep", lessonStep);
+    }
   }
   const assessment =
     view === "assessments" ? cleanAssessmentId(route?.assessment) : undefined;

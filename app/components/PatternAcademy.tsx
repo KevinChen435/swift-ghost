@@ -2,9 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PatternLesson, PatternLessonStep } from "../data/pattern-lessons";
+import type { PatternDecisionProbe } from "../data/pattern-decision-probes";
 import {
   countStrongPatternChecks,
   derivePatternEvidence,
+  derivePatternDecisionOverview,
   selectNextPatternLesson,
   type PatternLearningWorkspace,
 } from "../lib/pattern-learning.mjs";
@@ -17,9 +19,11 @@ import type { PracticeItem } from "../lib/items";
 
 type Props = {
   lessons: readonly PatternLesson[];
+  decisionProbes: readonly PatternDecisionProbe[];
   items: PracticeItem[];
   attempts: AttemptRecord[];
   workspace: PatternLearningWorkspace;
+  now: number;
   draftBoundary: string;
   selectedPatternId?: string;
   lessonStep?: PatternLessonStep;
@@ -42,6 +46,7 @@ type Props = {
   ) => void;
   onBrowsePattern: (lesson: PatternLesson) => void;
   onOpenTransferLab: () => void;
+  onOpenDecisionReview: () => void;
 };
 
 const STEP_META: {
@@ -195,9 +200,11 @@ function RetrievalCard({
 
 export function PatternAcademy({
   lessons,
+  decisionProbes,
   items,
   attempts,
   workspace,
+  now,
   draftBoundary,
   selectedPatternId,
   lessonStep = "recognize",
@@ -208,6 +215,7 @@ export function PatternAcademy({
   onStartPractice,
   onBrowsePattern,
   onOpenTransferLab,
+  onOpenDecisionReview,
 }: Props) {
   const [templateLanguage, setTemplateLanguage] = useState<"python" | "swift">("python");
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -219,6 +227,13 @@ export function PatternAcademy({
   const itemsById = useMemo(
     () => new Map(items.map((item) => [item.itemId, item])),
     [items],
+  );
+  const decisionOverview = useMemo(
+    () =>
+      derivePatternDecisionOverview(lessons, decisionProbes, workspace, {
+        now: new Date(now).toISOString(),
+      }),
+    [decisionProbes, lessons, now, workspace],
   );
 
   useEffect(() => {
@@ -256,6 +271,31 @@ export function PatternAcademy({
         <section className="academy-boundary" aria-label="Evidence boundary">
           <strong>Evidence stays separate.</strong>
           <span>Lesson reading is exposure. Guided typing is assisted. Only a current, hint-free accepted local Python submission is labeled an independent local solve.</span>
+        </section>
+        <section className="academy-decision-card" aria-labelledby="academy-decision-title">
+          <div>
+            <p className="eyebrow">Mixed retrieval · 5 minutes</p>
+            <h2 id="academy-decision-title">Can you recognize the pattern without its label?</h2>
+            <p>
+              Classify hidden mini-prompts from Arrays & Hashing, Two Pointers,
+              and Sliding Window. Commit the cue, invariant, and rejected
+              alternative before revealing the authored comparison.
+            </p>
+            <button className="primary-button" onClick={onOpenDecisionReview}>
+              {decisionOverview.readyCount
+                ? `Review ${decisionOverview.readyCount} ready pattern${decisionOverview.readyCount === 1 ? "" : "s"}`
+                : "Practice a mixed sprint early"}
+            </button>
+          </div>
+          <dl>
+            <div><dt>New</dt><dd>{decisionOverview.newCount}</dd></div>
+            <div><dt>Due</dt><dd>{decisionOverview.dueCount}</dd></div>
+            <div><dt>Retained</dt><dd>{decisionOverview.retainedCount}/{decisionOverview.totalPatterns}</dd></div>
+          </dl>
+          <small>
+            Retained recognition requires two distinct delayed, unassisted
+            matches. It remains separate from solve and transfer evidence.
+          </small>
         </section>
         <section aria-labelledby="academy-curriculum-title">
           <div className="section-heading-row">

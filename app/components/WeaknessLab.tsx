@@ -57,6 +57,7 @@ const SOURCE_LABELS: Record<WeaknessEvidence["kind"], string> = {
   assessment: "Baseline assessment",
   "mock-debrief": "Mock debrief",
   transfer: "Transfer Lab",
+  "pattern-decision": "Pattern decision review",
 };
 
 function compactDate(value: string) {

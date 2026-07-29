@@ -6,12 +6,12 @@ const read = (path) => readFile(new URL(path, import.meta.url), "utf8");
 
 test("v23 state migrates v22 submissions into durable receipts and preserves every fallback", async () => {
   const product = await read("../app/lib/product.ts");
-  assert.match(product, /version: 28/);
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v28"/);
+  assert.match(product, /version: 29/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v29"/);
   assert.match(product, /TWENTY_SECOND_STORAGE_KEY = "swift-ghost-state-v22"/);
   assert.match(
     product,
-    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_SEVENTH_STORAGE_KEY,\s+TWENTY_SIXTH_STORAGE_KEY,\s+TWENTY_FIFTH_STORAGE_KEY,\s+TWENTY_FOURTH_STORAGE_KEY,\s+TWENTY_THIRD_STORAGE_KEY,\s+TWENTY_SECOND_STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY/,
+    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_EIGHTH_STORAGE_KEY,\s+TWENTY_SEVENTH_STORAGE_KEY,\s+TWENTY_SIXTH_STORAGE_KEY,\s+TWENTY_FIFTH_STORAGE_KEY,\s+TWENTY_FOURTH_STORAGE_KEY,\s+TWENTY_THIRD_STORAGE_KEY,\s+TWENTY_SECOND_STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY/,
   );
   assert.match(product, /submissionLog: SubmissionLog/);
   assert.match(product, /submissionAnnotations: SubmissionAnnotations/);

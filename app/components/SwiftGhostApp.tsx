@@ -57,10 +57,19 @@ import { SolutionReviewWorkspace } from "./SolutionReviewWorkspace";
 import { WeaknessLab } from "./WeaknessLab";
 import { PatternAcademy } from "./PatternAcademy";
 import {
+  PatternDecisionReview,
+  type DecisionInput,
+} from "./PatternDecisionReview";
+import {
   PATTERN_LESSONS,
   type PatternLesson,
   type PatternLessonStep,
 } from "../data/pattern-lessons";
+import {
+  PATTERN_DECISION_PROBES,
+  type PatternDecisionProbe,
+  type PatternDecisionSource,
+} from "../data/pattern-decision-probes";
 import { getSolutionGuide } from "../data/solution-guides";
 import {
   InterviewStudioPanel,
@@ -249,9 +258,14 @@ import {
   type LearningEvent,
 } from "../lib/learning-state.mjs";
 import {
+  commitPatternDecision,
   commitPatternResponse,
+  derivePatternDecisionOverview,
+  gradePatternDecision,
   gradePatternCheck,
+  revealPatternDecision,
   revealPatternAnswer,
+  startPatternDecisionSprint,
 } from "../lib/pattern-learning.mjs";
 import {
   activateStudyPlan,
@@ -777,6 +791,8 @@ export default function SwiftGhostApp() {
   const [patternRouteId, setPatternRouteId] = useState<string>();
   const [patternLessonStep, setPatternLessonStep] =
     useState<PatternLessonStep>("recognize");
+  const [patternReviewMode, setPatternReviewMode] = useState<"mixed">();
+  const [patternSprintId, setPatternSprintId] = useState<string>();
   const [catalogQuery, setCatalogQuery] = useState<CatalogQuery>(() =>
     normalizeCatalogQuery(DEFAULT_CATALOG_QUERY),
   );
@@ -895,6 +911,8 @@ export default function SwiftGhostApp() {
       setView(route.view);
       setPatternRouteId(route.patternId);
       setPatternLessonStep(route.lessonStep ?? "recognize");
+      setPatternReviewMode(route.learnReview);
+      setPatternSprintId(route.patternSprintId);
       setCatalogQuery(
         normalizeCatalogQuery(route.catalog ?? DEFAULT_CATALOG_QUERY),
       );
@@ -952,6 +970,8 @@ export default function SwiftGhostApp() {
             view: "learn",
             patternId: route.patternId,
             lessonStep: route.lessonStep,
+            learnReview: route.learnReview,
+            patternSprintId: route.patternSprintId,
           },
           window.location.href,
         );
@@ -1067,6 +1087,8 @@ export default function SwiftGhostApp() {
       setView(route.view);
       setPatternRouteId(route.patternId);
       setPatternLessonStep(route.lessonStep ?? "recognize");
+      setPatternReviewMode(route.learnReview);
+      setPatternSprintId(route.patternSprintId);
       setCatalogQuery(
         normalizeCatalogQuery(route.catalog ?? DEFAULT_CATALOG_QUERY),
       );
@@ -1991,6 +2013,9 @@ export default function SwiftGhostApp() {
       assessmentReports: weaknessAssessmentReports,
       sessionHistory: state.sessionHistory,
       transferRecords: weaknessTransferRecords,
+      patternDecisionAttempts: state.patternLearning.decisionAttempts,
+      patternLessons: PATTERN_LESSONS,
+      patternDecisionProbes: PATTERN_DECISION_PROBES,
       itemSignals,
       now: weaknessNow,
     });
@@ -2060,10 +2085,10 @@ export default function SwiftGhostApp() {
     setAssessmentRouteId(undefined);
     setSelectedSessionId(undefined);
     setResult(null);
-    if (nextView !== "learn") {
-      setPatternRouteId(undefined);
-      setPatternLessonStep("recognize");
-    }
+    setPatternRouteId(undefined);
+    setPatternLessonStep("recognize");
+    setPatternReviewMode(undefined);
+    setPatternSprintId(undefined);
     if (nextView === "improve") {
       setWeaknessFilter("priority");
       setWeaknessLane("all");
@@ -2149,6 +2174,8 @@ export default function SwiftGhostApp() {
     setView("learn");
     setPatternRouteId(patternId);
     setPatternLessonStep(patternId ? lessonStep : "recognize");
+    setPatternReviewMode(undefined);
+    setPatternSprintId(undefined);
     writeRoute(
       {
         view: "learn",
@@ -2156,6 +2183,99 @@ export default function SwiftGhostApp() {
         lessonStep: patternId ? lessonStep : undefined,
       },
       replace,
+    );
+  }
+
+  function openPatternDecisionReview(
+    source: PatternDecisionSource = "academy",
+  ) {
+    if (blockVirtualRoundNavigation()) return;
+    const currentSprint = stateRef.current.patternLearning.activeSprint;
+    const sprintId =
+      currentSprint?.status === "active" ? currentSprint.id : makeId();
+    if (currentSprint?.status !== "active") {
+      mutateState((current) => ({
+        ...current,
+        patternLearning: startPatternDecisionSprint(
+          current.patternLearning,
+          PATTERN_LESSONS,
+          PATTERN_DECISION_PROBES,
+          {
+            id: sprintId,
+            source,
+            count: 3,
+            now: new Date().toISOString(),
+          },
+        ),
+      }));
+    }
+    setView("learn");
+    setPatternRouteId(undefined);
+    setPatternLessonStep("recognize");
+    setPatternReviewMode("mixed");
+    setPatternSprintId(sprintId);
+    writeRoute({
+      view: "learn",
+      learnReview: "mixed",
+      patternSprintId: sprintId,
+    });
+  }
+
+  function commitAcademyDecision(
+    probe: PatternDecisionProbe,
+    lesson: PatternLesson,
+    input: DecisionInput,
+  ) {
+    mutateState((current) => ({
+      ...current,
+      patternLearning: commitPatternDecision(
+        current.patternLearning,
+        probe,
+        lesson,
+        input,
+        {
+          id: makeId(),
+          probes: PATTERN_DECISION_PROBES,
+          now: new Date().toISOString(),
+        },
+      ),
+    }));
+  }
+
+  function revealAcademyDecision(attemptId: string) {
+    mutateState((current) => ({
+      ...current,
+      patternLearning: revealPatternDecision(
+        current.patternLearning,
+        attemptId,
+        { now: new Date().toISOString() },
+      ),
+    }));
+  }
+
+  function gradeAcademyDecision(
+    attemptId: string,
+    grade: "again" | "hard" | "good" | "easy",
+  ) {
+    mutateState((current) => ({
+      ...current,
+      patternLearning: gradePatternDecision(
+        current.patternLearning,
+        attemptId,
+        grade,
+        {
+          lessons: PATTERN_LESSONS,
+          probes: PATTERN_DECISION_PROBES,
+          now: new Date().toISOString(),
+        },
+      ),
+    }));
+  }
+
+  function startDecisionSolve(next: PracticeItem) {
+    openItem(next, 5, undefined, undefined, "solving");
+    setToast(
+      "Blank local solve opened · pattern-choice evidence remains separate",
     );
   }
 
@@ -2271,6 +2391,16 @@ export default function SwiftGhostApp() {
 
   function startWeaknessCase(value: WeaknessCase) {
     if (blockVirtualRoundNavigation()) return;
+    if (
+      value.weakness === "missed-cue" &&
+      value.sourceKinds.includes("pattern-decision")
+    ) {
+      openPatternDecisionReview("weakness");
+      setToast(
+        "Mixed pattern review opened · repeated objective misses, not a diagnosis",
+      );
+      return;
+    }
     if (!value.queue.length) {
       setToast("No current-revision practice items match this remediation case");
       return;
@@ -2318,6 +2448,18 @@ export default function SwiftGhostApp() {
     if (value.kind === "transfer" && value.sourceId) {
       openTransferRecords(value.sourceId);
       return;
+    }
+    if (value.kind === "pattern-decision") {
+      const lesson = PATTERN_LESSONS.find(
+        (candidate) => candidate.pattern === value.topicKey,
+      );
+      if (lesson) {
+        openPatternLesson(lesson.slug, "recognize");
+        setToast(
+          "Recognition cues opened · the objective decision miss remains in local history",
+        );
+        return;
+      }
     }
     const itemToOpen = value.itemId
       ? allItems.find((candidate) => candidate.itemId === value.itemId)
@@ -6390,6 +6532,7 @@ export default function SwiftGhostApp() {
           onAssess={() =>
             selectAssessment(state.assessments.activeRunId ?? "python-reentry")
           }
+          onPatternReview={() => openPatternDecisionReview("today")}
           onStartCoach={(entries, budgetMinutes) =>
             startSession(
               {
@@ -6432,12 +6575,33 @@ export default function SwiftGhostApp() {
           onStartCapstone={startStudyCapstone}
         />
       )}
-      {view === "learn" && (
+      {view === "learn" && patternReviewMode === "mixed" && (
+        <PatternDecisionReview
+          lessons={PATTERN_LESSONS}
+          probes={PATTERN_DECISION_PROBES}
+          items={BUILTIN_ITEMS}
+          workspace={state.patternLearning}
+          draftBoundary={`${persistenceScope ?? "loading"}:${practiceEpoch}`}
+          routedSprintId={patternSprintId}
+          onStartSprint={openPatternDecisionReview}
+          onCommit={commitAcademyDecision}
+          onReveal={revealAcademyDecision}
+          onGrade={gradeAcademyDecision}
+          onExit={() => openPatternLesson()}
+          onOpenLesson={(lesson) =>
+            openPatternLesson(lesson.slug, "recognize")
+          }
+          onStartSolve={startDecisionSolve}
+        />
+      )}
+      {view === "learn" && patternReviewMode !== "mixed" && (
         <PatternAcademy
           lessons={PATTERN_LESSONS}
+          decisionProbes={PATTERN_DECISION_PROBES}
           items={BUILTIN_ITEMS}
           attempts={state.attempts}
           workspace={state.patternLearning}
+          now={now}
           draftBoundary={`${persistenceScope ?? "loading"}:${practiceEpoch}`}
           selectedPatternId={patternRouteId}
           lessonStep={patternLessonStep}
@@ -6448,6 +6612,7 @@ export default function SwiftGhostApp() {
           onStartPractice={startAcademyPractice}
           onBrowsePattern={browseAcademyPattern}
           onOpenTransferLab={openTransferLab}
+          onOpenDecisionReview={() => openPatternDecisionReview("academy")}
         />
       )}
       {view === "improve" && (
@@ -6681,6 +6846,13 @@ export default function SwiftGhostApp() {
           onArchive={archiveAssessmentReport}
           onOpenTransferLab={openTransferLab}
           onOpenVirtualRounds={openVirtualRounds}
+          onOpenPatternReview={() => openPatternDecisionReview("assessment")}
+          patternDecisionSummary={derivePatternDecisionOverview(
+            PATTERN_LESSONS,
+            PATTERN_DECISION_PROBES,
+            state.patternLearning,
+            { now: new Date(now || Date.now()).toISOString() },
+          )}
         />
       )}
       {view === "library" && (
@@ -6848,6 +7020,7 @@ function TodayView({
   onPlans,
   onWeakness,
   onAssess,
+  onPatternReview,
   onStartCoach,
   onResumeSession,
 }: {
@@ -6873,6 +7046,7 @@ function TodayView({
   onPlans: () => void;
   onWeakness: () => void;
   onAssess: () => void;
+  onPatternReview: () => void;
   onStartCoach: (
     entries: SessionQueueEntry[],
     budgetMinutes: number,
@@ -6938,6 +7112,12 @@ function TodayView({
     (run) => run.id === state.assessments.activeRunId,
   );
   const latestAssessment = state.assessments.runs.at(-1);
+  const patternDecisionOverview = derivePatternDecisionOverview(
+    PATTERN_LESSONS,
+    PATTERN_DECISION_PROBES,
+    state.patternLearning,
+    { now: todayDate.toISOString() },
+  );
   return (
     <main id="main-content" tabIndex={-1} className="page-container today-page">
       <PageHeading
@@ -7003,6 +7183,29 @@ function TodayView({
         </div>
         <button className="primary-button" onClick={onAssess}>
           {activeAssessment ? "Resume assessment" : "Open assessment center"} →
+        </button>
+      </section>
+      <section className="today-pattern-review" aria-label="Pattern decision review">
+        <div>
+          <span className="eyebrow">Pattern decisions · 5 minutes</span>
+          <h2>
+            {patternDecisionOverview.readyCount
+              ? `${patternDecisionOverview.readyCount} pattern ${patternDecisionOverview.readyCount === 1 ? "decision is" : "decisions are"} ready.`
+              : "Keep pattern recognition warm with a mixed sprint."}
+          </h2>
+          <p>
+            Classify unlabeled prompts before opening a full problem.
+            Recognition evidence remains separate from local solve and transfer
+            receipts.
+          </p>
+        </div>
+        <div className="today-pattern-review-stats" aria-label="Pattern decision status">
+          <span><strong>{patternDecisionOverview.newCount}</strong> new</span>
+          <span><strong>{patternDecisionOverview.dueCount}</strong> due</span>
+          <span><strong>{patternDecisionOverview.retainedCount}</strong> retained</span>
+        </div>
+        <button className="secondary-button" onClick={onPatternReview}>
+          Start mixed review →
         </button>
       </section>
       <DailyCoach
@@ -10937,8 +11140,8 @@ function SettingsView({
             attempt summaries when you explicitly turn sharing on.
           </p>
           <p>
-            Exports use a portable v28 backup envelope and imports accept
-            supported v2-v28 backups. Account-bound sharing consent and upload
+            Exports use a portable v29 backup envelope and imports accept
+            supported v2-v29 backups. Account-bound sharing consent and upload
             receipts are never carried into another profile.
           </p>
         </div>

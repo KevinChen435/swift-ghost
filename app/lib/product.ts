@@ -111,6 +111,7 @@ import {
   type PatternLearningWorkspace,
 } from "./pattern-learning.mjs";
 import { PATTERN_LESSONS } from "../data/pattern-lessons";
+import { PATTERN_DECISION_PROBES } from "../data/pattern-decision-probes";
 
 export { analyzeEdit, correctPositionCount } from "./typing-engine.mjs";
 
@@ -320,7 +321,7 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 28;
+  version: 29;
   attempts: AttemptRecord[];
   submissionLog: SubmissionLog;
   submissionAnnotations: SubmissionAnnotations;
@@ -347,7 +348,8 @@ export type AppState = {
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v28";
+export const STORAGE_KEY = "swift-ghost-state-v29";
+export const TWENTY_EIGHTH_STORAGE_KEY = "swift-ghost-state-v28";
 export const TWENTY_SEVENTH_STORAGE_KEY = "swift-ghost-state-v27";
 export const TWENTY_SIXTH_STORAGE_KEY = "swift-ghost-state-v26";
 export const TWENTY_FIFTH_STORAGE_KEY = "swift-ghost-state-v25";
@@ -375,10 +377,11 @@ export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
-  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28,
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
 ];
 export const STATE_STORAGE_KEYS = [
   STORAGE_KEY,
+  TWENTY_EIGHTH_STORAGE_KEY,
   TWENTY_SEVENTH_STORAGE_KEY,
   TWENTY_SIXTH_STORAGE_KEY,
   TWENTY_FIFTH_STORAGE_KEY,
@@ -421,7 +424,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 28,
+  version: 29,
   attempts: [],
   submissionLog: createSubmissionLog(),
   submissionAnnotations: {},
@@ -1680,7 +1683,7 @@ export function normalizeState(value: unknown): AppState {
       .map((attempt) => attempt.id),
   );
   return {
-    version: 28,
+    version: 29,
     attempts,
     submissionLog,
     submissionAnnotations,
@@ -1711,6 +1714,7 @@ export function normalizeState(value: unknown): AppState {
       Number(value.version) >= 28 ? value.patternLearning : undefined,
       {
         lessons: PATTERN_LESSONS,
+        probes: PATTERN_DECISION_PROBES,
         now: "1970-01-01T00:00:00.000Z",
       },
     ),

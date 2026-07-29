@@ -4,6 +4,8 @@ import {
   buildWeaknessLab,
   filterWeaknessCases,
 } from "../app/lib/weakness-lab.mjs";
+import { PATTERN_DECISION_PROBES } from "../app/data/pattern-decision-probes.ts";
+import { PATTERN_LESSONS } from "../app/data/pattern-lessons.ts";
 
 const items = [
   {
@@ -368,4 +370,74 @@ test("filters preserve priority order and bound status/lane views", () => {
   assert.deepEqual(filterWeaknessCases(cases, { filter: "priority" }).map((entry) => entry.id), ["one", "two"]);
   assert.deepEqual(filterWeaknessCases(cases, { filter: "resolved", lane: "python" }).map((entry) => entry.id), ["three"]);
   assert.deepEqual(filterWeaknessCases(cases, { filter: "all", lane: "ios" }).map((entry) => entry.id), ["two"]);
+});
+
+test("two distinct objective pattern misses create recognition evidence, but one or repeats do not", () => {
+  const lesson = PATTERN_LESSONS[0];
+  const probes = PATTERN_DECISION_PROBES.filter(
+    (probe) => probe.lessonId === lesson.id,
+  );
+  const miss = (probe, id, completedAt) => ({
+    id,
+    sprintId: `sprint-${id}`,
+    source: "academy",
+    probeId: probe.id,
+    probeRevision: probe.revision,
+    lessonId: lesson.id,
+    lessonRevision: lesson.revision,
+    selectedLessonId: "pattern:two-pointers",
+    cue: "I chose the wrong cue.",
+    invariant: "I stated an invariant.",
+    whyNot: "I rejected another pattern.",
+    assisted: false,
+    wasDue: true,
+    match: false,
+    committedAt: completedAt,
+    revealedAt: completedAt,
+    grade: "again",
+    completedAt,
+    dueAt: "2026-07-31T12:00:00.000Z",
+    levelAfter: 0,
+    lapseCount: 1,
+    updatedAt: completedAt,
+  });
+  const base = {
+    items,
+    patternLessons: PATTERN_LESSONS,
+    patternDecisionProbes: PATTERN_DECISION_PROBES,
+    now: "2026-08-02T12:00:00.000Z",
+  };
+  assert.equal(
+    buildWeaknessLab({
+      ...base,
+      patternDecisionAttempts: [
+        miss(probes[0], "one", "2026-07-29T12:00:00.000Z"),
+      ],
+    }).cases.some((entry) => entry.sourceKinds.includes("pattern-decision")),
+    false,
+  );
+  assert.equal(
+    buildWeaknessLab({
+      ...base,
+      patternDecisionAttempts: [
+        miss(probes[0], "one", "2026-07-29T12:00:00.000Z"),
+        miss(probes[0], "repeat", "2026-07-30T12:00:00.000Z"),
+      ],
+    }).cases.some((entry) => entry.sourceKinds.includes("pattern-decision")),
+    false,
+  );
+  const model = buildWeaknessLab({
+    ...base,
+    patternDecisionAttempts: [
+      miss(probes[0], "one", "2026-07-29T12:00:00.000Z"),
+      miss(probes[1], "two", "2026-07-30T12:00:00.000Z"),
+    ],
+  });
+  const patternCase = model.cases.find((entry) =>
+    entry.sourceKinds.includes("pattern-decision"),
+  );
+  assert.equal(patternCase.weakness, "missed-cue");
+  assert.equal(patternCase.recurrence, 2);
+  assert.equal(patternCase.topicKey, lesson.pattern);
+  assert.match(patternCase.evidence[0].summary, /Free-text reasoning was not auto-scored/);
 });
