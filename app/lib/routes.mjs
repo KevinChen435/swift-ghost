@@ -14,6 +14,7 @@ import {
 export const ROUTE_VIEWS = [
   "today",
   "plans",
+  "learn",
   "improve",
   "practice",
   "sessions",
@@ -21,6 +22,13 @@ export const ROUTE_VIEWS = [
   "library",
   "records",
   "settings",
+];
+export const LEARN_STEPS = [
+  "recognize",
+  "reason",
+  "trace",
+  "template",
+  "practice",
 ];
 export const COMMUNITY_TABS = ["recent", "records", "daily", "profile"];
 export const RECORDS_SECTIONS = [
@@ -63,6 +71,14 @@ function cleanHandle(value) {
 function cleanAssessmentId(value) {
   const normalized = typeof value === "string" ? value.trim() : "";
   return /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(normalized)
+    ? normalized
+    : undefined;
+}
+
+function cleanPatternId(value) {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return normalized.length <= 64 &&
+    /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(normalized)
     ? normalized
     : undefined;
 }
@@ -234,6 +250,14 @@ export function parseRoute(input) {
         : undefined;
   const weaknessCaseId =
     view === "improve" ? cleanWeaknessCaseId(params.get("case")) : undefined;
+  const patternId =
+    view === "learn" ? cleanPatternId(params.get("pattern")) : undefined;
+  const lessonStep =
+    view === "learn" && LEARN_STEPS.includes(params.get("lessonStep"))
+      ? params.get("lessonStep")
+      : view === "learn" && patternId
+        ? "recognize"
+        : undefined;
   return {
     view,
     language,
@@ -244,6 +268,12 @@ export function parseRoute(input) {
     communityTab,
     profile,
     assessment,
+    ...(view === "learn"
+      ? {
+          ...(patternId ? { patternId } : {}),
+          ...(lessonStep ? { lessonStep } : {}),
+        }
+      : {}),
     ...(contestSection
       ? {
           contestSection,
@@ -440,6 +470,17 @@ export function serializeRoute(
       url.searchParams.set("inbox", weaknessFilter);
     if (weaknessLane !== "all") url.searchParams.set("lane", weaknessLane);
     if (weaknessCaseId) url.searchParams.set("case", weaknessCaseId);
+  }
+  if (view === "learn") {
+    const patternId = cleanPatternId(route?.patternId);
+    if (patternId) url.searchParams.set("pattern", patternId);
+    const lessonStep = LEARN_STEPS.includes(route?.lessonStep)
+      ? route.lessonStep
+      : patternId
+        ? "recognize"
+        : undefined;
+    if (lessonStep && lessonStep !== "recognize")
+      url.searchParams.set("lessonStep", lessonStep);
   }
   const assessment =
     view === "assessments" ? cleanAssessmentId(route?.assessment) : undefined;

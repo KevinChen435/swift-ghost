@@ -55,6 +55,12 @@ import { CustomChallengeDialog } from "./CustomChallengeDialog";
 import { SubmissionWorkLog } from "./SubmissionWorkLog";
 import { SolutionReviewWorkspace } from "./SolutionReviewWorkspace";
 import { WeaknessLab } from "./WeaknessLab";
+import { PatternAcademy } from "./PatternAcademy";
+import {
+  PATTERN_LESSONS,
+  type PatternLesson,
+  type PatternLessonStep,
+} from "../data/pattern-lessons";
 import { getSolutionGuide } from "../data/solution-guides";
 import {
   InterviewStudioPanel,
@@ -243,6 +249,11 @@ import {
   type LearningEvent,
 } from "../lib/learning-state.mjs";
 import {
+  commitPatternResponse,
+  gradePatternCheck,
+  revealPatternAnswer,
+} from "../lib/pattern-learning.mjs";
+import {
   activateStudyPlan,
   appendStudyCollectionItems,
   STUDY_PLAN_LIMITS,
@@ -412,6 +423,7 @@ const THEMES: { id: Theme; label: string; colors: string[] }[] = [
 ];
 
 const NAV: { id: View; label: string; icon: string }[] = [
+  { id: "learn", label: "Learn", icon: "◎" },
   { id: "today", label: "Today", icon: "◉" },
   { id: "plans", label: "Plans", icon: "◎" },
   { id: "improve", label: "Improve", icon: "◈" },
@@ -762,6 +774,9 @@ export default function SwiftGhostApp() {
   const volatileScopeStateRef = useRef(new Map<PersistenceScope, AppState>());
   const [guestDataAvailable, setGuestDataAvailable] = useState(false);
   const [view, setView] = useState<View>("today");
+  const [patternRouteId, setPatternRouteId] = useState<string>();
+  const [patternLessonStep, setPatternLessonStep] =
+    useState<PatternLessonStep>("recognize");
   const [catalogQuery, setCatalogQuery] = useState<CatalogQuery>(() =>
     normalizeCatalogQuery(DEFAULT_CATALOG_QUERY),
   );
@@ -878,6 +893,8 @@ export default function SwiftGhostApp() {
       stateRef.current = hydratedState;
       setState(hydratedState);
       setView(route.view);
+      setPatternRouteId(route.patternId);
+      setPatternLessonStep(route.lessonStep ?? "recognize");
       setCatalogQuery(
         normalizeCatalogQuery(route.catalog ?? DEFAULT_CATALOG_QUERY),
       );
@@ -922,6 +939,19 @@ export default function SwiftGhostApp() {
             weaknessFilter: route.weaknessFilter,
             weaknessLane: route.weaknessLane,
             weaknessCaseId: route.weaknessCaseId,
+          },
+          window.location.href,
+        );
+        const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        if (canonicalHref !== currentHref)
+          window.history.replaceState({}, "", canonicalHref);
+      }
+      if (route.view === "learn") {
+        const canonicalHref = serializeRoute(
+          {
+            view: "learn",
+            patternId: route.patternId,
+            lessonStep: route.lessonStep,
           },
           window.location.href,
         );
@@ -1035,6 +1065,8 @@ export default function SwiftGhostApp() {
         }));
       }
       setView(route.view);
+      setPatternRouteId(route.patternId);
+      setPatternLessonStep(route.lessonStep ?? "recognize");
       setCatalogQuery(
         normalizeCatalogQuery(route.catalog ?? DEFAULT_CATALOG_QUERY),
       );
@@ -1262,6 +1294,8 @@ export default function SwiftGhostApp() {
             : "typing",
         );
         setAssessmentRouteId(undefined);
+        setPatternRouteId(undefined);
+        setPatternLessonStep("recognize");
         setSelectedSessionId(undefined);
         setReviewAttemptId(undefined);
         setTransferRecordVariantId(undefined);
@@ -2026,6 +2060,10 @@ export default function SwiftGhostApp() {
     setAssessmentRouteId(undefined);
     setSelectedSessionId(undefined);
     setResult(null);
+    if (nextView !== "learn") {
+      setPatternRouteId(undefined);
+      setPatternLessonStep("recognize");
+    }
     if (nextView === "improve") {
       setWeaknessFilter("priority");
       setWeaknessLane("all");
@@ -2099,6 +2137,97 @@ export default function SwiftGhostApp() {
         studyCollectionIds: record.studyCollectionIds,
       },
       entries,
+    );
+  }
+
+  function openPatternLesson(
+    patternId?: string,
+    lessonStep: PatternLessonStep = "recognize",
+    replace = false,
+  ) {
+    if (blockVirtualRoundNavigation()) return;
+    setView("learn");
+    setPatternRouteId(patternId);
+    setPatternLessonStep(patternId ? lessonStep : "recognize");
+    writeRoute(
+      {
+        view: "learn",
+        patternId,
+        lessonStep: patternId ? lessonStep : undefined,
+      },
+      replace,
+    );
+  }
+
+  function commitAcademyResponse(
+    lesson: PatternLesson,
+    checkId: string,
+    response: string,
+  ) {
+    mutateState((current) => ({
+      ...current,
+      patternLearning: commitPatternResponse(
+        current.patternLearning,
+        lesson,
+        checkId,
+        response,
+        { now: new Date().toISOString() },
+      ),
+    }));
+  }
+
+  function revealAcademyAnswer(lesson: PatternLesson, checkId: string) {
+    mutateState((current) => ({
+      ...current,
+      patternLearning: revealPatternAnswer(
+        current.patternLearning,
+        lesson,
+        checkId,
+        { now: new Date().toISOString() },
+      ),
+    }));
+  }
+
+  function gradeAcademyCheck(
+    lesson: PatternLesson,
+    checkId: string,
+    grade: "again" | "hard" | "good" | "easy",
+  ) {
+    mutateState((current) => ({
+      ...current,
+      patternLearning: gradePatternCheck(
+        current.patternLearning,
+        lesson,
+        checkId,
+        grade,
+        { now: new Date().toISOString() },
+      ),
+    }));
+  }
+
+  function startAcademyPractice(
+    next: PracticeItem,
+    nextStage: number,
+    nextPracticeKind: PracticeKind,
+  ) {
+    openItem(next, nextStage, undefined, undefined, nextPracticeKind);
+    setToast(
+      nextPracticeKind === "solving"
+        ? "Blank local solve opened · lesson exposure remains separate"
+        : nextStage === 1
+          ? "Full ghost opened · guided exposure, not independent evidence"
+          : "Reconstruction opened · assisted practice evidence",
+    );
+  }
+
+  function browseAcademyPattern(lesson: PatternLesson) {
+    updateCatalogRoute(
+      normalizeCatalogQuery({
+        ...DEFAULT_CATALOG_QUERY,
+        lanes: ["python", "swift"],
+        patterns: [lesson.pattern],
+      }),
+      "push",
     );
   }
 
@@ -6301,6 +6430,24 @@ export default function SwiftGhostApp() {
           onStartFocusBlock={startStudyFocusBlock}
           onResumeActiveSession={resumeSession}
           onStartCapstone={startStudyCapstone}
+        />
+      )}
+      {view === "learn" && (
+        <PatternAcademy
+          lessons={PATTERN_LESSONS}
+          items={BUILTIN_ITEMS}
+          attempts={state.attempts}
+          workspace={state.patternLearning}
+          draftBoundary={`${persistenceScope ?? "loading"}:${practiceEpoch}`}
+          selectedPatternId={patternRouteId}
+          lessonStep={patternLessonStep}
+          onSelectPattern={openPatternLesson}
+          onCommitResponse={commitAcademyResponse}
+          onRevealAnswer={revealAcademyAnswer}
+          onGradeCheck={gradeAcademyCheck}
+          onStartPractice={startAcademyPractice}
+          onBrowsePattern={browseAcademyPattern}
+          onOpenTransferLab={openTransferLab}
         />
       )}
       {view === "improve" && (
@@ -10790,8 +10937,8 @@ function SettingsView({
             attempt summaries when you explicitly turn sharing on.
           </p>
           <p>
-            Exports use a portable v27 backup envelope and imports accept
-            supported v2-v27 backups. Account-bound sharing consent and upload
+            Exports use a portable v28 backup envelope and imports accept
+            supported v2-v28 backups. Account-bound sharing consent and upload
             receipts are never carried into another profile.
           </p>
         </div>

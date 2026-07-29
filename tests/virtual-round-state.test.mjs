@@ -7,14 +7,14 @@ test("state v23 preserves virtual rounds after the complete v22 fallback", async
     new URL("../app/lib/product.ts", import.meta.url),
     "utf8",
   );
-  assert.match(product, /export type AppState = \{\s+version: 27;/);
+  assert.match(product, /export type AppState = \{\s+version: 28;/);
   assert.match(product, /virtualRoundWorkspace: VirtualRoundWorkspace/);
-  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v27"/);
+  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v28"/);
   assert.match(product, /TWENTY_SECOND_STORAGE_KEY = "swift-ghost-state-v22"/);
   assert.match(product, /TWENTY_FIRST_STORAGE_KEY = "swift-ghost-state-v21"/);
   assert.match(
     product,
-    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_SIXTH_STORAGE_KEY,\s+TWENTY_FIFTH_STORAGE_KEY,\s+TWENTY_FOURTH_STORAGE_KEY,\s+TWENTY_THIRD_STORAGE_KEY,\s+TWENTY_SECOND_STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY/,
+    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_SEVENTH_STORAGE_KEY,\s+TWENTY_SIXTH_STORAGE_KEY,\s+TWENTY_FIFTH_STORAGE_KEY,\s+TWENTY_FOURTH_STORAGE_KEY,\s+TWENTY_THIRD_STORAGE_KEY,\s+TWENTY_SECOND_STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY/,
   );
   assert.match(product, /virtualRoundWorkspace: createVirtualRoundWorkspace\(\)/);
   assert.match(
@@ -150,7 +150,7 @@ test("the locked round workspace keeps switching, flags, and finishing reachable
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.practice-layout\.is-solving\.is-virtual-round \.problem-rail \{\s+display: none/);
 });
 
-test("backup copy advertises the v27 envelope and all older supported imports", async () => {
+test("backup copy advertises the v28 envelope and all older supported imports", async () => {
   const app = await readFile(
     new URL("../app/components/SwiftGhostApp.tsx", import.meta.url),
     "utf8",
@@ -159,7 +159,7 @@ test("backup copy advertises the v27 envelope and all older supported imports", 
     new URL("../app/lib/backup.mjs", import.meta.url),
     "utf8",
   );
-  assert.match(app, /portable v27 backup envelope/);
-  assert.match(app, /supported v2-v27 backups/);
+  assert.match(app, /portable v28 backup envelope/);
+  assert.match(app, /supported v2-v28 backups/);
   assert.match(backup, /virtualRoundWorkspace/);
 });

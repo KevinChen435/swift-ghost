@@ -4,6 +4,7 @@ import type { PracticeKind } from "./product";
 import type { CatalogQuery } from "./catalog-discovery.mjs";
 import type { SubmissionWorkLogQuery } from "./submission-work-log.mjs";
 import type { WeaknessFilter, WeaknessLane } from "./weakness-lab.mjs";
+import type { PatternLessonStep } from "../data/pattern-lessons";
 
 export type CommunityTab = "recent" | "records" | "daily" | "profile";
 export type RecordsSection =
@@ -40,6 +41,8 @@ export type AppRoute = {
   weaknessFilter?: WeaknessFilter;
   weaknessLane?: WeaknessLane;
   weaknessCaseId?: string;
+  patternId?: string;
+  lessonStep?: PatternLessonStep;
 };
 
 export const ROUTE_VIEWS: View[];
@@ -47,6 +50,7 @@ export const COMMUNITY_TABS: CommunityTab[];
 export const RECORDS_SECTIONS: RecordsSection[];
 export const CONTEST_SECTIONS: ContestSection[];
 export const ROUTE_LANGUAGES: CodeLanguage[];
+export const LEARN_STEPS: PatternLessonStep[];
 export function parseRoute(input: string | URL | URLSearchParams): AppRoute;
 export function itemRouteToken(item: PracticeItem): string;
 export function resolveRouteItem(
