@@ -202,6 +202,11 @@ import {
   type TimelineSample,
 } from "../lib/analytics.mjs";
 import {
+  deleteProblemNote,
+  saveProblemNote,
+  type ProblemNote,
+} from "../lib/problem-notes.mjs";
+import {
   activityKindFor,
   upsertLearningEvent,
   type LearningEvent,
@@ -381,7 +386,7 @@ const NAV: { id: View; label: string; icon: string }[] = [
   { id: "practice", label: "Practice", icon: "⌨" },
   { id: "sessions", label: "Studio", icon: "≡" },
   { id: "assessments", label: "Assess", icon: "◇" },
-  { id: "library", label: "Library", icon: "▦" },
+  { id: "library", label: "Problems", icon: "▦" },
   { id: "records", label: "Records", icon: "↗" },
   { id: "settings", label: "Settings", icon: "⚙" },
 ];
@@ -3965,6 +3970,43 @@ export default function SwiftGhostApp() {
     setToast("Saved view deleted");
   }
 
+  function persistProblemNote(note: Omit<ProblemNote, "updatedAt">) {
+    const noteItems = [...BUILTIN_ITEMS, ...stateRef.current.customItems];
+    const validItemIds = new Set(noteItems.map((candidate) => candidate.itemId));
+    try {
+      commitStateImmediately((current) => ({
+        ...current,
+        problemNotes: saveProblemNote(current.problemNotes, note, {
+          validItemIds,
+          now: new Date().toISOString(),
+        }),
+      }), { requirePersistence: true });
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Problem note could not be saved locally");
+      return false;
+    }
+    setToast("Problem note saved on this device");
+    return true;
+  }
+
+  function removeProblemNote(itemId: ItemId) {
+    const noteItems = [...BUILTIN_ITEMS, ...stateRef.current.customItems];
+    const validItemIds = new Set(noteItems.map((candidate) => candidate.itemId));
+    try {
+      commitStateImmediately((current) => ({
+        ...current,
+        problemNotes: deleteProblemNote(current.problemNotes, itemId, {
+          validItemIds,
+        }),
+      }), { requirePersistence: true });
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Problem note could not be deleted locally");
+      return false;
+    }
+    setToast("Problem note deleted");
+    return true;
+  }
+
   function editStudyCollection(
     collectionId: string,
     changes: Partial<StudyCollectionInput>,
@@ -5572,6 +5614,8 @@ export default function SwiftGhostApp() {
           onSaveView={saveCatalogSavedView}
           onUpdateView={updateCatalogSavedView}
           onDeleteView={deleteCatalogSavedView}
+          onSaveProblemNote={persistProblemNote}
+          onDeleteProblemNote={removeProblemNote}
           onAppendToCollection={appendCatalogSelectionToCollection}
           onCreateCollection={createCatalogSelectionCollection}
         />
@@ -9693,12 +9737,12 @@ function SettingsView({
           <small>Your data</small>
           <h2>Local profile</h2>
           <p>
-            Export a portable v25 JSON backup with Python, Swift, iOS, assessments, plans, sessions,
+            Export a portable v26 JSON backup with Python, Swift, iOS, assessments, plans, sessions,
             learning debriefs, revisioned snippets, local pacing and weak-line
             analytics, community preferences, structured custom testcases, and
             local submission snapshots, mock notebooks and debriefs, Interview
             Studio transcripts and criteria, transfer evidence, authored local
-            challenges, virtual-round reports, or restore any v2-v24 backup.
+            challenges, virtual-round reports, per-problem notes, or restore any v2-v25 backup.
           </p>
         </div>
         <div className="data-actions">

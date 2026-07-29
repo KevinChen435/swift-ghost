@@ -91,6 +91,10 @@ import {
   normalizeSolutionReviews,
   type SolutionReviewRecord,
 } from "./solution-review.mjs";
+import {
+  normalizeProblemNotes,
+  type ProblemNotes,
+} from "./problem-notes.mjs";
 
 export { analyzeEdit, correctPositionCount } from "./typing-engine.mjs";
 
@@ -297,12 +301,13 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 25;
+  version: 26;
   attempts: AttemptRecord[];
   submissionLog: SubmissionLog;
   submissionAnnotations: SubmissionAnnotations;
   learningEvents: LearningEvent[];
   solutionReviews: SolutionReviewRecord[];
+  problemNotes: ProblemNotes;
   favorites: ItemId[];
   customItems: PracticeItem[];
   customCaseInputs: Partial<Record<ItemId, string>>;
@@ -322,7 +327,8 @@ export type AppState = {
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v25";
+export const STORAGE_KEY = "swift-ghost-state-v26";
+export const TWENTY_FIFTH_STORAGE_KEY = "swift-ghost-state-v25";
 export const TWENTY_FOURTH_STORAGE_KEY = "swift-ghost-state-v24";
 export const TWENTY_THIRD_STORAGE_KEY = "swift-ghost-state-v23";
 export const TWENTY_SECOND_STORAGE_KEY = "swift-ghost-state-v22";
@@ -347,10 +353,11 @@ export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
-  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
 ];
 export const STATE_STORAGE_KEYS = [
   STORAGE_KEY,
+  TWENTY_FIFTH_STORAGE_KEY,
   TWENTY_FOURTH_STORAGE_KEY,
   TWENTY_THIRD_STORAGE_KEY,
   TWENTY_SECOND_STORAGE_KEY,
@@ -390,12 +397,13 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 25,
+  version: 26,
   attempts: [],
   submissionLog: createSubmissionLog(),
   submissionAnnotations: {},
   learningEvents: [],
   solutionReviews: [],
+  problemNotes: {},
   favorites: [],
   customItems: [],
   customCaseInputs: {},
@@ -1614,7 +1622,7 @@ export function normalizeState(value: unknown): AppState {
       .map((attempt) => attempt.id),
   );
   return {
-    version: 25,
+    version: 26,
     attempts,
     submissionLog,
     submissionAnnotations,
@@ -1632,6 +1640,13 @@ export function normalizeState(value: unknown): AppState {
         ),
         submissionsById,
         timedAttemptIds,
+      },
+    ),
+    problemNotes: normalizeProblemNotes(
+      Number(value.version) >= 26 ? value.problemNotes : undefined,
+      {
+        validItemIds: validIds,
+        now: "1970-01-01T00:00:00.000Z",
       },
     ),
     favorites,
