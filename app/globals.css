@@ -8930,11 +8930,310 @@ kbd {
   grid-template-columns: 1fr auto;
 }
 
+.trusted-assessment {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--success) 38%, var(--border));
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--success) 7%, transparent), transparent 42%),
+    var(--panel);
+  box-shadow: var(--shadow-soft);
+}
+.trusted-assessment-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(270px, 0.34fr);
+  align-items: end;
+  gap: 28px;
+  padding: 26px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.trusted-assessment-hero h2 {
+  margin: 7px 0;
+  font-size: clamp(1.35rem, 3vw, 2rem);
+}
+.trusted-assessment-hero p,
+.trusted-assessment-unavailable p,
+.trusted-assessment-empty p,
+.trusted-assignment-main header p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.65;
+}
+.trusted-assessment-boundary {
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--bg) 76%, transparent);
+}
+.trusted-assessment-boundary span {
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.trusted-assessment-boundary span.online {
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
+}
+.trusted-assessment-boundary span.offline {
+  background: color-mix(in srgb, var(--warning) 14%, transparent);
+  color: var(--warning);
+}
+.trusted-assessment-boundary small {
+  color: var(--muted);
+}
+.trusted-assessment-unavailable,
+.trusted-assessment-empty,
+.trusted-assessment-status {
+  margin: 0;
+  padding: 24px 26px;
+}
+.trusted-assessment-unavailable {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+}
+.trusted-assessment-unavailable > div {
+  display: grid;
+  gap: 6px;
+  max-width: 76ch;
+}
+.trusted-assessment-unavailable > span {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.trusted-assessment-empty {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  max-width: 760px;
+}
+.trusted-assessment-empty h3 {
+  margin: 0;
+}
+.trusted-assessment-workspace {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.27fr) minmax(0, 1fr);
+  min-height: 720px;
+}
+.trusted-assignment-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 18px;
+  border-right: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+}
+.trusted-assignment-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.trusted-assignment-list > div button {
+  min-height: 34px;
+  padding: 7px 10px;
+}
+.trusted-assignment-list > button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.trusted-assignment-list > button:hover,
+.trusted-assignment-list > button.selected {
+  border-color: color-mix(in srgb, var(--success) 36%, var(--border));
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+}
+.trusted-assignment-list > button > span:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.trusted-assignment-list > button strong,
+.trusted-assignment-list > button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trusted-assignment-list > button small {
+  color: var(--muted);
+}
+.trusted-status {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+.trusted-status.accepted { color: var(--success); }
+.trusted-status.expired { color: var(--warning); }
+.trusted-assignment-main {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  min-width: 0;
+  padding: 24px;
+}
+.trusted-assignment-main header > div,
+.trusted-editor-toolbar,
+.trusted-assessment-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+.trusted-assignment-main header > div {
+  justify-content: flex-start;
+}
+.trusted-assignment-main header > div span {
+  padding: 5px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  color: var(--muted);
+  font: 700 0.72rem var(--font-code);
+}
+.trusted-assignment-main header h3 {
+  margin: 12px 0 7px;
+  font-size: clamp(1.4rem, 3vw, 2.1rem);
+}
+.trusted-constraints {
+  padding: 16px 18px;
+  border: 1px solid var(--border-soft);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--accent) 4%, var(--bg));
+}
+.trusted-constraints ul {
+  display: grid;
+  gap: 5px;
+  margin: 10px 0 0;
+  padding-left: 20px;
+  color: var(--muted);
+}
+.trusted-samples {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.trusted-samples article {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: var(--bg);
+}
+.trusted-samples code {
+  overflow: auto;
+  color: var(--muted);
+  font-size: 0.74rem;
+  white-space: nowrap;
+}
+.trusted-editor-shell {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg);
+}
+.trusted-editor-toolbar {
+  min-height: 42px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+.trusted-editor-shell .solve-code-editor,
+.trusted-editor-shell .solve-code-editor-mount,
+.trusted-editor-shell .solve-code-editor .cm-editor,
+.trusted-editor-shell .solve-code-editor .cm-scroller {
+  min-height: 390px;
+}
+.trusted-result {
+  display: grid;
+  gap: 7px;
+  padding: 15px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--warning);
+  border-radius: 11px;
+  background: var(--bg);
+}
+.trusted-result.accepted {
+  border-left-color: var(--success);
+}
+.trusted-result.failed,
+.trusted-result.wrong-answer,
+.trusted-result.runtime-error,
+.trusted-result.time-limit,
+.trusted-result.judge-error {
+  border-left-color: var(--danger);
+}
+.trusted-result > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.trusted-result p,
+.trusted-result small,
+.trusted-result > span {
+  margin: 0;
+  color: var(--muted);
+}
+.verified-badge {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success) 15%, transparent);
+  color: var(--success);
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.trusted-assessment-message {
+  margin: 0;
+  color: var(--muted);
+}
+.trusted-assessment-actions {
+  justify-content: flex-end;
+}
+
 @media (max-width: 980px) {
   .assessment-program-grid,
   .assessment-briefing,
-  .assessment-next-steps {
+  .assessment-next-steps,
+  .trusted-assessment-hero,
+  .trusted-assessment-workspace {
     grid-template-columns: 1fr;
+  }
+  .trusted-assignment-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    border-right: 0;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .trusted-assignment-list > div {
+    grid-column: 1 / -1;
   }
   .assessment-rubric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -8994,6 +9293,24 @@ kbd {
   }
   .assessment-records-summary > div:nth-child(2) {
     text-align: left;
+  }
+  .trusted-assessment-hero,
+  .trusted-assignment-main {
+    padding: 18px;
+  }
+  .trusted-assessment-unavailable {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .trusted-assessment-unavailable > span {
+    width: fit-content;
+  }
+  .trusted-assignment-list,
+  .trusted-samples {
+    grid-template-columns: 1fr;
+  }
+  .trusted-assessment-actions > button {
+    width: 100%;
   }
 }
 

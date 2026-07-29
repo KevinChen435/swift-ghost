@@ -28,6 +28,7 @@ export type CloudCapabilities = {
   studySync: boolean;
   community: boolean;
   leaderboards: boolean;
+  trustedAssessments: boolean;
   auth: "none" | "anonymous" | "session";
   maxAttemptBatch: number;
   privacy: {
@@ -183,6 +184,71 @@ export type CloudDailyChallenge = {
   mode: "strict";
 };
 
+export type CloudTrustedJudgeVerdict =
+  | "accepted"
+  | "wrong-answer"
+  | "runtime-error"
+  | "time-limit"
+  | "judge-error";
+
+export type CloudTrustedChallenge = {
+  key: string;
+  contentRevision: number;
+  judgeRevision: number;
+  title: string;
+  difficulty: "Easy" | "Medium";
+  estimatedMinutes: number;
+  summary: string;
+  prompt: string;
+  constraints: string[];
+  tags: string[];
+  starterCode: string;
+  entrypoint: { kind: "function"; name: string };
+  samples: Array<{ id: string; name: string; args: unknown[]; expected: unknown }>;
+};
+
+export type CloudTrustedSubmission = {
+  id: string;
+  status: "pending" | "settled";
+  verdict: CloudTrustedJudgeVerdict | null;
+  submittedAt: string;
+  settledAt: string | null;
+  result: null | {
+    passed: number;
+    total: number;
+    authority: "server-isolated-python";
+    contentRevision: number;
+    judgeRevision: number;
+  };
+};
+
+export type CloudTrustedAssignment = {
+  id: string;
+  program: {
+    id: string;
+    revision: number;
+    title: string;
+    evidenceLabel: string;
+  };
+  challenge: CloudTrustedChallenge;
+  status: "active" | "accepted" | "expired";
+  assignedAt: string;
+  expiresAt: string;
+  latestSubmission: CloudTrustedSubmission | null;
+};
+
+export type CloudTrustedAssignmentList = {
+  program: {
+    id: string;
+    revision: number;
+    title: string;
+    description: string;
+    evidenceLabel: string;
+    language: "python";
+  };
+  entries: CloudTrustedAssignment[];
+};
+
 export type CloudList<T> = { entries: T[]; nextCursor?: string };
 export type CloudItemLeaderboard = CloudList<CloudItemLeaderboardEntry> & {
   itemId: string;
@@ -223,6 +289,18 @@ export type CloudClient = {
     workspace: CloudStudyWorkspace,
     options: CloudRequestOptions & { baseRevision: number },
   ): Promise<CloudResult<CloudStudyWorkspace>>;
+  trustedAssignments(
+    options?: CloudListOptions,
+  ): Promise<CloudResult<CloudTrustedAssignmentList>>;
+  issueTrustedAssignment(
+    clientRequestId: string,
+    options?: CloudRequestOptions,
+  ): Promise<CloudResult<CloudTrustedAssignment>>;
+  submitTrustedAssignment(
+    assignmentId: string,
+    submission: { clientSubmissionId: string; source: string },
+    options?: CloudRequestOptions,
+  ): Promise<CloudResult<CloudTrustedSubmission>>;
   patchProfile(
     patch: CloudProfilePatch | CloudProfile,
     options?: CloudRequestOptions,

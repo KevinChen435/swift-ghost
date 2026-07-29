@@ -1,0 +1,4 @@
+# Copy to .dev.vars for local development. Never commit real values.
+INGRESS_HMAC_SECRET=replace-with-at-least-32-random-bytes
+INGRESS_SERVICE_TOKEN=replace-with-at-least-32-random-bytes
+CALLBACK_HMAC_SECRET=replace-with-at-least-32-random-bytes

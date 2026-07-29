@@ -1,0 +1,54 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "swift-ghost-judge-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-28",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "SANDBOX_TRANSPORT": "rpc",
+    "MAX_REQUEST_BYTES": "120000",
+    "TEST_TIMEOUT_MS": "4000",
+    "OUTPUT_LIMIT_BYTES": "65536",
+    "CALLBACK_TIMEOUT_MS": "10000",
+    "CALLBACK_ALLOWED_ORIGINS": "https://REPLACE.example.com"
+  },
+  "containers": [
+    {
+      "class_name": "JudgeSandbox",
+      "image": "./Dockerfile",
+      "max_instances": 10
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "JUDGE_SANDBOX",
+        "class_name": "JudgeSandbox"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["JudgeSandbox"]
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "JUDGE_QUEUE",
+        "queue": "swift-ghost-judge-submissions"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "swift-ghost-judge-submissions",
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 8,
+        "dead_letter_queue": "swift-ghost-judge-dlq",
+        "max_concurrency": 10
+      }
+    ]
+  }
+}

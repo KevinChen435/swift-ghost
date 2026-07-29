@@ -179,6 +179,7 @@ test("capabilities uses a same-origin, abortable request and bounds its response
         studySync: true,
         community: true,
         leaderboards: true,
+        trustedAssessments: true,
         auth: "session",
         maxAttemptBatch: 5_000,
       },
@@ -195,6 +196,7 @@ test("capabilities uses a same-origin, abortable request and bounds its response
     studySync: true,
     community: true,
     leaderboards: true,
+    trustedAssessments: true,
     auth: "session",
     maxAttemptBatch: CLOUD_LIMITS.maxAttemptBatch,
     privacy: {
@@ -207,6 +209,128 @@ test("capabilities uses a same-origin, abortable request and bounds its response
   assert.equal(mock.calls[0].init.credentials, "same-origin");
   assert.equal(mock.calls[0].init.cache, "no-store");
   assert.equal(mock.calls[0].init.signal, controller.signal);
+});
+
+test("trusted assessment transport is bounded, fail-closed, and omits private fields", async () => {
+  const assignment = {
+    id: "trusted-abc12345",
+    program: {
+      id: "python-verified-baseline",
+      revision: 1,
+      title: "Verified Python checkpoint",
+      evidenceLabel: "Server-verified code evidence",
+    },
+    challenge: {
+      key: "stable-window",
+      contentRevision: 1,
+      judgeRevision: 2,
+      title: "Longest Stable Window",
+      difficulty: "Medium",
+      estimatedMinutes: 18,
+      summary: "Find a bounded window.",
+      prompt: "Implement longest_stable_window.",
+      constraints: ["n is bounded"],
+      tags: ["window"],
+      starterCode: "def longest_stable_window(nums, gap):\n    pass",
+      entrypoint: { kind: "function", name: "longest_stable_window" },
+      samples: [
+        { id: "sample-1", name: "sample", args: [[1, 2], 1], expected: 2 },
+      ],
+      hiddenCases: [{ expected: "must be dropped" }],
+    },
+    status: "active",
+    assignedAt: "2026-07-28T12:00:00.000Z",
+    expiresAt: "2026-07-28T14:00:00.000Z",
+    latestSubmission: null,
+  };
+  const program = {
+    id: "python-verified-baseline",
+    revision: 1,
+    title: "Verified Python checkpoint",
+    description: "Server-selected Python evidence.",
+    evidenceLabel: "Server-verified code evidence",
+    language: "python",
+  };
+  const settled = {
+    id: "verified-abc12345",
+    status: "settled",
+    verdict: "accepted",
+    submittedAt: "2026-07-28T12:05:00.000Z",
+    settledAt: "2026-07-28T12:05:01.000Z",
+    result: {
+      passed: 7,
+      total: 7,
+      durationMs: 83,
+      runtime: "sandbox-python-3.13",
+      authority: "server-isolated-python",
+      contentRevision: 1,
+      judgeRevision: 2,
+      privateCases: ["must be dropped"],
+    },
+  };
+  const mock = recorder((url, init, call) => {
+    if (call === 1) return json({ program, entries: [assignment] });
+    if (call === 2) {
+      assert.deepEqual(JSON.parse(init.body), {
+        clientRequestId: "assignment-request:abc12345",
+      });
+      return json({ assignment }, 201);
+    }
+    assert.deepEqual(JSON.parse(init.body), {
+      clientSubmissionId: "submission:abc12345",
+      source: "def longest_stable_window(nums, gap):\n    return len(nums)",
+    });
+    return json({ submission: settled }, 201);
+  });
+  const client = createCloudClient({
+    fetchImpl: mock.fetchImpl,
+    location: { hostname: "swift.test" },
+  });
+
+  const listed = await client.trustedAssignments({ limit: 500 });
+  assert.equal(listed.available, true);
+  assert.equal(listed.data.entries.length, 1);
+  assert.equal(Object.hasOwn(listed.data.entries[0].challenge, "hiddenCases"), false);
+  assert.equal(mock.calls[0].url, "/api/v1/trusted/assignments?limit=50");
+
+  const issued = await client.issueTrustedAssignment(
+    "assignment-request:abc12345",
+  );
+  assert.equal(issued.available, true);
+  assert.equal(mock.calls[1].init.method, "POST");
+
+  const submitted = await client.submitTrustedAssignment(
+    assignment.id,
+    {
+      clientSubmissionId: "submission:abc12345",
+      source: "def longest_stable_window(nums, gap):\r\n    return len(nums)",
+    },
+  );
+  assert.equal(submitted.available, true);
+  assert.equal(submitted.data.verdict, "accepted");
+  assert.equal(Object.hasOwn(submitted.data.result, "privateCases"), false);
+  assert.equal(Object.hasOwn(submitted.data.result, "durationMs"), false);
+  assert.equal(Object.hasOwn(submitted.data.result, "runtime"), false);
+  assert.equal(
+    mock.calls[2].url,
+    "/api/v1/trusted/assignments/trusted-abc12345/submissions",
+  );
+
+  assert.deepEqual(
+    await client.submitTrustedAssignment(assignment.id, {
+      clientSubmissionId: "submission:too-large",
+      source: "x".repeat(49 * 1024),
+    }),
+    { available: false, reason: "invalid-request" },
+  );
+  assert.deepEqual(
+    await client.submitTrustedAssignment(assignment.id, {
+      clientSubmissionId: `submission:${"a".repeat(128)}`,
+      source: "def solve():\n    return 1",
+    }),
+    { available: false, reason: "invalid-request" },
+  );
+  assert.equal(mock.calls.length, 3);
 });
 
 test("study workspace sync is network-quiet on static builds", async () => {
