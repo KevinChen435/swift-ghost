@@ -17,6 +17,7 @@ export type ConceptTransferSource =
   | "weakness";
 export type RecordsSection =
   | "overview"
+  | "activity"
   | "trends"
   | "transfer"
   | "submissions"

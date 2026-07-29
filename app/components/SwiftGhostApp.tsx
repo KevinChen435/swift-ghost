@@ -50,6 +50,7 @@ import { SolveWorkbench, type MobilePane } from "./SolveWorkbench";
 import { MockNotebook } from "./MockNotebook";
 import { MockDebriefDialog } from "./MockDebriefDialog";
 import { CatalogLibrary } from "./CatalogLibrary";
+import ChallengeSetActivity from "./ChallengeSetActivity";
 import { SessionRecap } from "./SessionRecap";
 import { CustomChallengeDialog } from "./CustomChallengeDialog";
 import { SubmissionWorkLog } from "./SubmissionWorkLog";
@@ -371,6 +372,17 @@ import {
   virtualRoundRemainingMs,
   type ActiveVirtualRoundRun,
 } from "../lib/virtual-rounds.mjs";
+import {
+  archiveRunManifest,
+  createRunManifest,
+  deriveRunManifestReport,
+  finishRunManifest,
+  resumeRunManifest,
+  startRunManifest,
+  type RunManifestMode,
+  type RunManifestExecution,
+  type RunManifestWorkspace,
+} from "../lib/run-manifests.mjs";
 import {
   MOCK_INTERVIEW_PROBLEM_COUNTS,
   MOCK_INTERVIEW_PRESETS,
@@ -715,6 +727,32 @@ function sessionHistoryRecord(
         }
       : {}),
   };
+}
+
+function finishLinkedRunManifest(
+  workspace: RunManifestWorkspace,
+  execution: { kind: "session" | "virtual-round"; id: string },
+  outcome: "completed" | "ended",
+  now: string,
+) {
+  const active = workspace.manifests.find(
+    (manifest) =>
+      manifest.status === "active" &&
+      manifest.execution?.kind === execution.kind &&
+      manifest.execution.id === execution.id,
+  );
+  return active
+    ? finishRunManifest(workspace, active.id, outcome, { now })
+    : workspace;
+}
+
+function endActiveRunManifest(workspace: RunManifestWorkspace, now: string) {
+  const active = workspace.manifests.find(
+    (manifest) => manifest.status === "active",
+  );
+  return active
+    ? finishRunManifest(workspace, active.id, "ended", { now })
+    : workspace;
 }
 
 function mockElapsedMs(session: TrainingSession, at = Date.now()) {
@@ -3159,6 +3197,8 @@ export default function SwiftGhostApp() {
           ? { view: "records", recordsSection: "reviews" }
           : nextSection === "closures"
             ? { view: "records", recordsSection: "closures" }
+          : nextSection === "activity"
+            ? { view: "records", recordsSection: "activity" }
           : nextSection === "trends"
             ? { view: "records", recordsSection: "trends" }
             : nextSection === "transfer"
@@ -3172,6 +3212,92 @@ export default function SwiftGhostApp() {
       "",
       href,
     );
+  }
+
+  function resumeChallengeSet(
+    manifestId: string,
+    execution: RunManifestExecution,
+  ) {
+    try {
+      const manifest = resumeRunManifest(
+        stateRef.current.runManifests,
+        manifestId,
+      );
+      if (
+        manifest.execution.kind !== execution.kind ||
+        manifest.execution.id !== execution.id
+      ) {
+        throw new Error("The Challenge Set execution link no longer matches");
+      }
+      if (execution.kind === "virtual-round") {
+        resumeVirtualRound(execution.id);
+        return;
+      }
+      const session = stateRef.current.activeSession;
+      if (!session || session.id !== execution.id) {
+        throw new Error("The linked practice session is no longer active");
+      }
+      const entry = session.entries[session.currentIndex];
+      const snapshot = manifest.entries.find(
+        (candidate) => candidate.itemId === entry?.itemId,
+      );
+      const item = curriculumItems.find(
+        (candidate) =>
+          candidate.itemId === entry?.itemId &&
+          candidate.contentRevision === snapshot?.contentRevision &&
+          (snapshot?.judgeRevision === undefined
+            ? !candidate.verification
+            : Boolean(candidate.verification) &&
+              (candidate.verification?.revision ?? 1) ===
+                snapshot.judgeRevision),
+      );
+      if (!entry || !item) {
+        throw new Error(
+          "The frozen problem revision is unavailable in this build",
+        );
+      }
+      openItem(
+        item,
+        entry.stage,
+        undefined,
+        session.id,
+        entry.practiceKind ?? "typing",
+      );
+    } catch (error) {
+      setToast(
+        error instanceof Error
+          ? error.message
+          : "That Challenge Set cannot resume",
+      );
+    }
+  }
+
+  function openChallengeSetExecution(execution: RunManifestExecution) {
+    if (execution.kind === "virtual-round") {
+      openVirtualRoundReport(execution.id);
+      return;
+    }
+    openSessionRecap(execution.id);
+  }
+
+  function archiveChallengeSet(manifestId: string) {
+    try {
+      commitStateImmediately((current) => ({
+        ...current,
+        runManifests: archiveRunManifest(
+          current.runManifests,
+          manifestId,
+          { now: new Date().toISOString() },
+        ),
+      }));
+      setToast("Challenge Set activity archived");
+    } catch (error) {
+      setToast(
+        error instanceof Error
+          ? error.message
+          : "That Challenge Set could not be archived",
+      );
+    }
   }
 
   function openTransferRecords(variantId?: string, attemptId?: string) {
@@ -4463,6 +4589,12 @@ export default function SwiftGhostApp() {
             ...projected.sessionHistory,
             sessionHistoryRecord(completedSession, entries, "completed"),
           ].slice(-25),
+          runManifests: finishLinkedRunManifest(
+            projected.runManifests,
+            { kind: "session", id: completedSession.id },
+            "completed",
+            attempt.completedAt,
+          ),
         };
       }
     }
@@ -4563,6 +4695,17 @@ export default function SwiftGhostApp() {
                       ),
                     ].slice(-25),
               };
+        if (nextIndex < 0) {
+          committed = {
+            ...committed,
+            runManifests: finishLinkedRunManifest(
+              committed.runManifests,
+              { kind: "session", id: completedSession.id },
+              "completed",
+              attempt.completedAt,
+            ),
+          };
+        }
       }
       return committed;
     });
@@ -5118,31 +5261,292 @@ export default function SwiftGhostApp() {
     );
   }
 
+  function startChallengeSet(itemIds: ItemId[], mode: RunManifestMode) {
+    const current = stateRef.current;
+    const selected = itemIds.flatMap((itemId) => {
+      const candidate = curriculumItems.find(
+        (item) => item.itemId === itemId,
+      );
+      return candidate &&
+        candidate.source === "builtin" &&
+        !candidate.transfer &&
+        !candidate.archivedAt
+        ? [candidate]
+        : [];
+    });
+    if (
+      selected.length !== itemIds.length ||
+      selected.length < 2 ||
+      selected.length > 12 ||
+      new Set(selected.map((item) => item.itemId)).size !== selected.length
+    ) {
+      setToast("Choose 2–12 current built-in problems for a Challenge Set");
+      return;
+    }
+    const activeRound = current.virtualRoundWorkspace.active;
+    if (activeRound) {
+      setToast("Finish the active timed round before starting a Challenge Set");
+      openVirtualRoundItem(activeRound.id, activeRound.currentProblemId);
+      return;
+    }
+    if (
+      mode === "timed" &&
+      (selected.length > 4 ||
+        selected.some(
+          (item) =>
+            item.track !== "interview" ||
+            item.language !== "python" ||
+            !item.verification,
+        ))
+    ) {
+      setToast("Timed Challenge Sets require 2–4 runnable Python problems");
+      return;
+    }
+    const activeManifest = current.runManifests.manifests.find(
+      (manifest) => manifest.status === "active",
+    );
+    if (
+      (current.activeSession || current.interviewStudio.active || activeManifest) &&
+      !window.confirm(
+        "Replace the active learning run with this Challenge Set? Completed work stays in Records, and the previous run will be marked ended.",
+      )
+    ) {
+      return;
+    }
+
+    const runId = `challenge-set-${makeId()}`;
+    const startedAt = new Date().toISOString();
+    const title = `Challenge Set · ${selected.length} problems`;
+
+    try {
+      if (mode === "practice") {
+        const entries: SessionQueueEntry[] = selected.map((item) => {
+          const practiceKind: PracticeKind =
+            item.language === "python" && item.verification
+              ? "solving"
+              : supportsConceptPractice(item)
+                ? "concept"
+                : "typing";
+          return {
+            itemId: item.itemId,
+            itemRevision: item.contentRevision,
+            stage:
+              practiceKind === "typing"
+                ? recommendedStage(current, item)
+                : 5,
+            status: "pending",
+            practiceKind,
+            estimatedMinutes: item.estimatedMinutes,
+            rationale:
+              "Exact catalog selection · prompt and judge revisions frozen at launch.",
+            lane:
+              item.track === "ios"
+                ? "ios"
+                : item.language === "python"
+                  ? "python"
+                  : "interview",
+          };
+        });
+        const session: TrainingSession = {
+          id: runId,
+          name: title,
+          kind: "practice",
+          source: "mixed",
+          track: "all",
+          language: "all",
+          stageMode: "recommended",
+          createdAt: startedAt,
+          entries,
+          currentIndex: 0,
+        };
+        commitStateImmediately((latest) => {
+          const base = recordAbandon(latest);
+          const previous = base.activeSession;
+          let runManifests = endActiveRunManifest(
+            base.runManifests,
+            startedAt,
+          );
+          runManifests = createRunManifest(
+            runManifests,
+            {
+              id: runId,
+              title,
+              source: "catalog",
+              mode: "practice",
+              durationMinutes: null,
+              itemIds: selected.map((item) => item.itemId),
+              execution: { kind: "session", id: runId },
+            },
+            curriculumItems,
+            { now: startedAt },
+          );
+          runManifests = startRunManifest(runManifests, runId, {
+            now: startedAt,
+            execution: { kind: "session", id: runId },
+          });
+          return {
+            ...base,
+            activeSession: session,
+            sessionHistory: previous
+              ? [
+                  ...base.sessionHistory,
+                  sessionHistoryRecord(
+                    previous,
+                    previous.entries,
+                    "ended",
+                    startedAt,
+                  ),
+                ].slice(-25)
+              : base.sessionHistory,
+            interviewStudio: archiveActiveInterviewStudio(
+              base.interviewStudio,
+              startedAt,
+              "ended",
+            ),
+            runManifests,
+            draft: null,
+          };
+        });
+        openItem(
+          selected[0],
+          entries[0].stage,
+          undefined,
+          runId,
+          entries[0].practiceKind ?? "typing",
+        );
+        setToast(`${selected.length}-problem Challenge Set started · untimed`);
+        return;
+      }
+
+      const presetId =
+        selected.length === 2
+          ? "sprint"
+          : selected.length === 3
+            ? "standard"
+            : "endurance";
+      const durationMinutes =
+        selected.length === 2 ? 45 : selected.length === 3 ? 75 : 105;
+      const preset = VIRTUAL_ROUND_PRESETS.find(
+        (candidate) => candidate.id === presetId,
+      );
+      if (!preset) throw new Error("The matching timed format is unavailable");
+      if (
+        !window.confirm(
+          `Start this exact ${selected.length}-problem timed Challenge Set?\n\n${durationMinutes} minutes · one continuous browser clock · prompt and judge revisions frozen now.`,
+        )
+      ) {
+        return;
+      }
+      const snapshots = selected.map((item) => ({
+        itemId: item.itemId,
+        itemRevision: item.contentRevision,
+        verificationRevision: item.verification?.revision ?? 1,
+        title: item.title,
+        pattern: item.pattern,
+        difficulty: item.difficulty,
+        starterSource: item.starterCode ?? "",
+        source: item.starterCode ?? "",
+      }));
+      const next = commitStateImmediately((latest) => {
+        const base = recordAbandon(latest);
+        const previous = base.activeSession;
+        let runManifests = endActiveRunManifest(
+          base.runManifests,
+          startedAt,
+        );
+        runManifests = createRunManifest(
+          runManifests,
+          {
+            id: runId,
+            title,
+            source: "catalog",
+            mode: "timed",
+            durationMinutes,
+            itemIds: selected.map((item) => item.itemId),
+            execution: { kind: "virtual-round", id: runId },
+          },
+          curriculumItems,
+          { now: startedAt },
+        );
+        runManifests = startRunManifest(runManifests, runId, {
+          now: startedAt,
+          execution: { kind: "virtual-round", id: runId },
+        });
+        return {
+          ...base,
+          activeSession: null,
+          sessionHistory: previous
+            ? [
+                ...base.sessionHistory,
+                sessionHistoryRecord(
+                  previous,
+                  previous.entries,
+                  "ended",
+                  startedAt,
+                ),
+              ].slice(-25)
+            : base.sessionHistory,
+          interviewStudio: archiveActiveInterviewStudio(
+            base.interviewStudio,
+            startedAt,
+            "ended",
+          ),
+          virtualRoundWorkspace: startVirtualRound(
+            base.virtualRoundWorkspace,
+            preset.id,
+            snapshots,
+            { id: runId, now: startedAt },
+          ),
+          runManifests,
+          draft: null,
+        };
+      });
+      const active = next.virtualRoundWorkspace.active;
+      if (active) openVirtualRoundItem(active.id, active.currentProblemId);
+      setToast(
+        `${selected.length}-problem Challenge Set started · ${durationMinutes} minutes`,
+      );
+    } catch (error) {
+      setToast(
+        error instanceof Error
+          ? error.message
+          : "That Challenge Set could not start",
+      );
+    }
+  }
+
   function startVirtualRoundPreset(presetId: string) {
     const preset = VIRTUAL_ROUND_PRESETS.find((entry) => entry.id === presetId);
     if (!preset) {
       setToast("That round format is unavailable");
       return;
     }
-    const existing = stateRef.current.virtualRoundWorkspace.active;
+    const current = stateRef.current;
+    const existing = current.virtualRoundWorkspace.active;
     if (existing) {
       setToast("Finish the active round before starting another");
       openVirtualRoundItem(existing.id, existing.currentProblemId);
       return;
     }
+    const activeManifest = current.runManifests.manifests.find(
+      (manifest) => manifest.status === "active",
+    );
+    const replacesLearningRun = Boolean(
+      current.activeSession || current.interviewStudio.active || activeManifest,
+    );
     if (
       !window.confirm(
-        `Start ${preset.title}?\n\n${preset.problemCount} problems · ${preset.durationMinutes} minutes · one continuous browser clock. Problem identities reveal as you open them, and a finished score cannot be changed.`,
+        `Start ${preset.title}?\n\n${preset.problemCount} problems · ${preset.durationMinutes} minutes · one continuous browser clock. Problem identities reveal as you open them, and a finished score cannot be changed.${replacesLearningRun ? "\n\nThis replaces the active learning run. Completed work stays in Records, and that run will be marked ended." : ""}`,
       )
     )
       return;
     const candidates = virtualRoundEligibleItems.map((candidate) => {
-      const itemAttempts = stateRef.current.attempts.filter(
+      const itemAttempts = current.attempts.filter(
         (attempt) =>
           attempt.itemId === candidate.itemId &&
           attempt.itemRevision === candidate.contentRevision,
       );
-      const roundAppearances = stateRef.current.virtualRoundWorkspace.history.filter(
+      const roundAppearances = current.virtualRoundWorkspace.history.filter(
         (round) =>
           round.problems.some((problem) => problem.itemId === candidate.itemId),
       );
@@ -5183,15 +5587,33 @@ export default function SwiftGhostApp() {
       starterSource: candidate.starterCode ?? "",
       source: candidate.starterCode ?? "",
     }));
-    const next = commitStateImmediately((current) => ({
-      ...current,
-      virtualRoundWorkspace: startVirtualRound(
-        current.virtualRoundWorkspace,
-        presetId,
-        snapshots,
-        { id: runId, now: startedAt },
-      ),
-    }));
+    const next = commitStateImmediately((latest) => {
+      const base = recordAbandon(latest);
+      const previous = base.activeSession;
+      return {
+        ...base,
+        activeSession: null,
+        sessionHistory: previous
+          ? [
+              ...base.sessionHistory,
+              sessionHistoryRecord(previous, previous.entries, "ended"),
+            ].slice(-25)
+          : base.sessionHistory,
+        interviewStudio: archiveActiveInterviewStudio(
+          base.interviewStudio,
+          startedAt,
+          "ended",
+        ),
+        runManifests: endActiveRunManifest(base.runManifests, startedAt),
+        virtualRoundWorkspace: startVirtualRound(
+          base.virtualRoundWorkspace,
+          presetId,
+          snapshots,
+          { id: runId, now: startedAt },
+        ),
+        draft: null,
+      };
+    });
     const active = next.virtualRoundWorkspace.active;
     if (active) openVirtualRoundItem(active.id, active.currentProblemId);
     setToast(`${preset.title} started · ${preset.durationMinutes} minutes on one local clock`);
@@ -5234,15 +5656,24 @@ export default function SwiftGhostApp() {
       )
         return;
     }
+    const finishedAt = new Date().toISOString();
     const next = commitStateImmediately((current) => {
       const virtualRoundWorkspace = finishVirtualRound(
         current.virtualRoundWorkspace,
         roundId,
-        { now: new Date().toISOString(), outcome },
+        { now: finishedAt, outcome },
       );
       return {
         ...current,
         virtualRoundWorkspace,
+        runManifests: !virtualRoundWorkspace.active
+          ? finishLinkedRunManifest(
+              current.runManifests,
+              { kind: "virtual-round", id: roundId },
+              outcome === "expired" ? "ended" : "completed",
+              finishedAt,
+            )
+          : current.runManifests,
         draft:
           !virtualRoundWorkspace.active && current.draft?.virtualRoundId === roundId
             ? null
@@ -5260,14 +5691,23 @@ export default function SwiftGhostApp() {
   function expireActiveVirtualRound(roundId: string) {
     const active = stateRef.current.virtualRoundWorkspace.active;
     if (!active || active.id !== roundId) return;
+    const expiredAt = new Date().toISOString();
     const next = commitStateImmediately((current) => {
       const virtualRoundWorkspace = expireVirtualRound(
         current.virtualRoundWorkspace,
-        { now: new Date().toISOString() },
+        { now: expiredAt },
       );
       return {
         ...current,
         virtualRoundWorkspace,
+        runManifests: !virtualRoundWorkspace.active
+          ? finishLinkedRunManifest(
+              current.runManifests,
+              { kind: "virtual-round", id: roundId },
+              "ended",
+              expiredAt,
+            )
+          : current.runManifests,
         draft:
           !virtualRoundWorkspace.active && current.draft?.virtualRoundId === roundId
             ? null
@@ -5349,9 +5789,20 @@ export default function SwiftGhostApp() {
             : {}),
         },
       );
+      const finishedRound = !virtualRoundWorkspace.active
+        ? virtualRoundWorkspace.history.find((round) => round.id === roundId)
+        : undefined;
       return withReconciledAttemptClosures({
         ...withPrunedSubmissionAnnotations(current, submissionLog),
         virtualRoundWorkspace,
+        runManifests: finishedRound
+          ? finishLinkedRunManifest(
+              current.runManifests,
+              { kind: "virtual-round", id: roundId },
+              finishedRound.outcome === "expired" ? "ended" : "completed",
+              settledAt,
+            )
+          : current.runManifests,
         draft:
           !virtualRoundWorkspace.active && current.draft?.virtualRoundId === roundId
             ? null
@@ -6102,6 +6553,14 @@ export default function SwiftGhostApp() {
         ...base,
         activeSession: session,
         sessionHistory,
+        runManifests: previous
+          ? finishLinkedRunManifest(
+              base.runManifests,
+              { kind: "session", id: previous.id },
+              "ended",
+              session.createdAt,
+            )
+          : base.runManifests,
         studyWorkspace: linkPlanSession(
           base.studyWorkspace,
           options.studyPlanId,
@@ -6217,6 +6676,14 @@ export default function SwiftGhostApp() {
               sessionHistoryRecord(previous, previous.entries, "ended"),
             ].slice(-25)
           : base.sessionHistory,
+        runManifests: previous
+          ? finishLinkedRunManifest(
+              base.runManifests,
+              { kind: "session", id: previous.id },
+              "ended",
+              startedAt,
+            )
+          : base.runManifests,
         draft: null,
       };
     });
@@ -6367,6 +6834,14 @@ export default function SwiftGhostApp() {
                 sessionHistoryRecord(previous, previous.entries, "ended"),
               ].slice(-25)
             : base.sessionHistory,
+          runManifests: previous
+            ? finishLinkedRunManifest(
+                base.runManifests,
+                { kind: "session", id: previous.id },
+                "ended",
+                startedAt,
+              )
+            : base.runManifests,
           interviewStudio: replaceActiveInterviewStudio(
             base.interviewStudio,
             studio,
@@ -6401,6 +6876,14 @@ export default function SwiftGhostApp() {
               sessionHistoryRecord(previous, previous.entries, "ended"),
             ].slice(-25)
           : base.sessionHistory,
+        runManifests: previous
+          ? finishLinkedRunManifest(
+              base.runManifests,
+              { kind: "session", id: previous.id },
+              "ended",
+              startedAt,
+            )
+          : base.runManifests,
         interviewStudio: replaceActiveInterviewStudio(
           base.interviewStudio,
           studio,
@@ -6573,6 +7056,7 @@ export default function SwiftGhostApp() {
   function expireMockInterview(sessionId: string) {
     const session = state.activeSession;
     if (!session || session.id !== sessionId || session.kind !== "mock") return;
+    const expiredAt = new Date().toISOString();
     mutateState((current) => {
       const active = current.activeSession;
       if (!active || active.id !== sessionId || active.kind !== "mock")
@@ -6591,14 +7075,20 @@ export default function SwiftGhostApp() {
         activeSession: null,
         interviewStudio: archiveActiveInterviewStudio(
           base.interviewStudio,
-          new Date().toISOString(),
+          expiredAt,
           "expired",
           sessionId,
         ),
         sessionHistory: [
           ...base.sessionHistory,
-          sessionHistoryRecord(archived, archived.entries, "expired"),
+          sessionHistoryRecord(archived, archived.entries, "expired", expiredAt),
         ].slice(-25),
+        runManifests: finishLinkedRunManifest(
+          base.runManifests,
+          { kind: "session", id: sessionId },
+          "ended",
+          expiredAt,
+        ),
       };
     });
     setResult(null);
@@ -6642,6 +7132,7 @@ export default function SwiftGhostApp() {
         index > session.currentIndex && entry.status === "pending",
     );
     if (nextIndex < 0) {
+      const endedAt = new Date().toISOString();
       mutateState((current) => {
         const base =
           current.draft?.sessionId === session.id
@@ -6659,8 +7150,19 @@ export default function SwiftGhostApp() {
           activeSession: null,
           sessionHistory: [
             ...base.sessionHistory,
-            sessionHistoryRecord(archivedSession, archivedEntries, "ended"),
+            sessionHistoryRecord(
+              archivedSession,
+              archivedEntries,
+              "ended",
+              endedAt,
+            ),
           ].slice(-25),
+          runManifests: finishLinkedRunManifest(
+            base.runManifests,
+            { kind: "session", id: archivedSession.id },
+            "ended",
+            endedAt,
+          ),
         };
       });
       setResult(null);
@@ -6712,6 +7214,7 @@ export default function SwiftGhostApp() {
       )
     )
       return;
+    const endedAt = new Date().toISOString();
     mutateState((current) => {
       const base =
         current.draft?.sessionId === session.id
@@ -6724,14 +7227,20 @@ export default function SwiftGhostApp() {
         activeSession: null,
         interviewStudio: archiveActiveInterviewStudio(
           base.interviewStudio,
-          new Date().toISOString(),
+          endedAt,
           "ended",
           session.id,
         ),
         sessionHistory: [
           ...base.sessionHistory,
-          sessionHistoryRecord(archived, archived.entries, "ended"),
+          sessionHistoryRecord(archived, archived.entries, "ended", endedAt),
         ].slice(-25),
+        runManifests: finishLinkedRunManifest(
+          base.runManifests,
+          { kind: "session", id: archived.id },
+          "ended",
+          endedAt,
+        ),
       };
     });
     setResult(null);
@@ -6962,7 +7471,7 @@ export default function SwiftGhostApp() {
         : "";
       if (
         !window.confirm(
-          `Replace ${profileLabel} with this backup${exportedLabel}?\n\nIt contains ${inventory.attempts} attempts, ${inventory.submissions} submissions, ${inventory.attemptClosures} attempt closures, ${inventory.sessions} sessions, ${inventory.customItems} custom items, ${inventory.typingProgressRecords} typing progress records, ${inventory.plans} study plans, ${inventory.testDesignAttempts} Test Design attempts, ${inventory.testDesignDrafts} Test Design drafts, ${inventory.activeTestDesignSprints} active Test Design lab, ${inventory.conceptTransferAttempts} Cold Reconstruction attempts, ${inventory.conceptTransferDrafts} Cold Reconstruction drafts, and ${inventory.activeConceptTransferAttempts} active Cold Reconstruction attempt. Community sharing stays off. Hosted Study Plans are preserved and merged after import.`,
+          `Replace ${profileLabel} with this backup${exportedLabel}?\n\nIt contains ${inventory.attempts} attempts, ${inventory.submissions} submissions, ${inventory.attemptClosures} attempt closures, ${inventory.challengeSets} Challenge Sets, ${inventory.sessions} sessions, ${inventory.customItems} custom items, ${inventory.typingProgressRecords} typing progress records, ${inventory.plans} study plans, ${inventory.testDesignAttempts} Test Design attempts, ${inventory.testDesignDrafts} Test Design drafts, ${inventory.activeTestDesignSprints} active Test Design lab, ${inventory.conceptTransferAttempts} Cold Reconstruction attempts, ${inventory.conceptTransferDrafts} Cold Reconstruction drafts, and ${inventory.activeConceptTransferAttempts} active Cold Reconstruction attempt. Community sharing stays off. Hosted Study Plans are preserved and merged after import.`,
         )
       ) {
         event.target.value = "";
@@ -7060,7 +7569,7 @@ export default function SwiftGhostApp() {
     const inventory = backupInventory(guestState);
     if (
       !window.confirm(
-        `Copy guest progress into ${cloud.session?.user?.displayName ?? "this account"}?\n\nThis replaces browser-only account data with ${inventory.attempts} attempts, ${inventory.attemptClosures} attempt closures, ${inventory.sessions} sessions, ${inventory.customItems} custom items, ${inventory.typingProgressRecords} typing progress records, ${inventory.testDesignAttempts} Test Design attempts, ${inventory.testDesignDrafts} Test Design drafts, ${inventory.activeTestDesignSprints} active Test Design lab, ${inventory.conceptTransferAttempts} Cold Reconstruction attempts, ${inventory.conceptTransferDrafts} Cold Reconstruction drafts, and ${inventory.activeConceptTransferAttempts} active Cold Reconstruction attempt. Account Study Plans are merged, community sharing stays off, and the guest copy remains available.`,
+        `Copy guest progress into ${cloud.session?.user?.displayName ?? "this account"}?\n\nThis replaces browser-only account data with ${inventory.attempts} attempts, ${inventory.attemptClosures} attempt closures, ${inventory.challengeSets} Challenge Sets, ${inventory.sessions} sessions, ${inventory.customItems} custom items, ${inventory.typingProgressRecords} typing progress records, ${inventory.testDesignAttempts} Test Design attempts, ${inventory.testDesignDrafts} Test Design drafts, ${inventory.activeTestDesignSprints} active Test Design lab, ${inventory.conceptTransferAttempts} Cold Reconstruction attempts, ${inventory.conceptTransferDrafts} Cold Reconstruction drafts, and ${inventory.activeConceptTransferAttempts} active Cold Reconstruction attempt. Account Study Plans are merged, community sharing stays off, and the guest copy remains available.`,
       )
     )
       return;
@@ -7792,6 +8301,7 @@ export default function SwiftGhostApp() {
           onDeleteProblemNote={removeProblemNote}
           onAppendToCollection={appendCatalogSelectionToCollection}
           onCreateCollection={createCatalogSelectionCollection}
+          onStartChallengeSet={startChallengeSet}
         />
       )}
       {view === "records" && (
@@ -7823,6 +8333,9 @@ export default function SwiftGhostApp() {
           onSectionChange={(nextSection) =>
             updateRecordsRoute(nextSection, submissionLogQuery, "push")
           }
+          onResumeChallengeSet={resumeChallengeSet}
+          onOpenChallengeSetExecution={openChallengeSetExecution}
+          onArchiveChallengeSet={archiveChallengeSet}
           onSelectAttemptClosure={openAttemptClosure}
           onSaveAttemptClosure={saveAttemptClosureDraft}
           onCompleteAttemptClosure={finishAttemptClosure}
@@ -11142,6 +11655,7 @@ function SessionsView({
 
 const RECORDS_SECTION_LABELS: Record<RecordsSection, string> = {
   overview: "Overview",
+  activity: "Activity",
   trends: "Trends",
   transfer: "Transfer",
   submissions: "Submissions",
@@ -11194,6 +11708,9 @@ function RecordsView({
   onToggleUploads,
   onCloudRefresh,
   onSectionChange,
+  onResumeChallengeSet,
+  onOpenChallengeSetExecution,
+  onArchiveChallengeSet,
   onSelectAttemptClosure,
   onSaveAttemptClosure,
   onCompleteAttemptClosure,
@@ -11235,6 +11752,12 @@ function RecordsView({
   onToggleUploads: (enabled: boolean) => void;
   onCloudRefresh: () => void;
   onSectionChange: (section: RecordsSection) => void;
+  onResumeChallengeSet: (
+    manifestId: string,
+    execution: RunManifestExecution,
+  ) => void;
+  onOpenChallengeSetExecution: (execution: RunManifestExecution) => void;
+  onArchiveChallengeSet: (manifestId: string) => void;
   onSelectAttemptClosure: (closureId?: string) => void;
   onSaveAttemptClosure: (
     closureId: string,
@@ -11278,6 +11801,40 @@ function RecordsView({
   onRetrySolutionReview: (attemptId: string) => void;
 }) {
   const curriculumRecordItems = items.filter((item) => !item.transfer);
+  if (section === "activity") {
+    const reports = state.runManifests.manifests.flatMap((manifest) => {
+      const report = deriveRunManifestReport(
+        manifest,
+        {
+          attempts: state.attempts,
+          submissions: state.submissionLog.receipts,
+        },
+        BUILTIN_ITEMS,
+      );
+      return report ? [report] : [];
+    });
+    return (
+      <main
+        id="main-content"
+        tabIndex={-1}
+        className="page-container challenge-set-activity-page"
+      >
+        <PageHeading
+          eyebrow="Private run ledger"
+          title="Every selected problem set, in one place."
+          copy="Reopen the exact catalog snapshot, see attempts and judge receipts tied to its execution, and keep current-revision acceptance separate from mastery or interview readiness."
+        />
+        <RecordsSectionSwitch section="activity" onChange={onSectionChange} />
+        <ChallengeSetActivity
+          workspace={state.runManifests}
+          reports={reports}
+          onResume={onResumeChallengeSet}
+          onOpenExecution={onOpenChallengeSetExecution}
+          onArchive={onArchiveChallengeSet}
+        />
+      </main>
+    );
+  }
   if (section === "trends") {
     return (
       <main id="main-content" tabIndex={-1} className="page-container">
@@ -12301,8 +12858,8 @@ function SettingsView({
             attempt summaries when you explicitly turn sharing on.
           </p>
           <p>
-            Exports use a portable v33 backup envelope and imports accept
-            supported v2-v33 backups, including typing progress, Cold
+            Exports use a portable v34 backup envelope and imports accept
+            supported v2-v34 backups, including Challenge Sets, typing progress, Cold
             Reconstruction work, and attempt-closure drafts. Account-bound
             sharing consent and upload receipts are never carried into another
             profile.

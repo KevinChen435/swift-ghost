@@ -128,6 +128,10 @@ export type CatalogLibraryProps = {
   onDeleteProblemNote: (id: ItemId) => boolean;
   onAppendToCollection: (collectionId: string, itemIds: ItemId[]) => void;
   onCreateCollection: (name: string, itemIds: ItemId[]) => void;
+  onStartChallengeSet: (
+    itemIds: ItemId[],
+    mode: "practice" | "timed",
+  ) => void;
 };
 
 function latestIso(values: Array<string | null | undefined>) {
@@ -326,6 +330,7 @@ export function CatalogLibrary({
   onDeleteProblemNote,
   onAppendToCollection,
   onCreateCollection,
+  onStartChallengeSet,
 }: CatalogLibraryProps) {
   const [selectedIds, setSelectedIds] = useState<Set<ItemId>>(() => new Set());
   const [selectionMessage, setSelectionMessage] = useState("");
@@ -477,6 +482,30 @@ export function CatalogLibrary({
     ).total;
   }, [activeSelectedIds, query, records]);
   const selected = [...activeSelectedIds];
+  const selectedItems = selected.flatMap((itemId) => {
+    const candidate = items.find((item) => item.itemId === itemId);
+    return candidate ? [candidate] : [];
+  });
+  const challengeSetSizeIsValid =
+    selectedItems.length >= 2 &&
+    selectedItems.length <= 12 &&
+    selectedItems.every(
+      (candidate) =>
+        candidate.source === "builtin" &&
+        !candidate.transfer &&
+        !candidate.archivedAt,
+    );
+  const timedSetIsValid =
+    selectedItems.length >= 2 &&
+    selectedItems.length <= 4 &&
+    selectedItems.every(
+      (candidate) =>
+        !candidate.transfer &&
+        candidate.source === "builtin" &&
+        candidate.track === "interview" &&
+        candidate.language === "python" &&
+        Boolean(candidate.verification),
+    );
   const selectedOutsideResults = activeSelectedIds.size - selectedResultCount;
   const pageIds = result.items.map((record) => record.item.itemId);
   const selectedOnPage = pageIds.filter((itemId) => activeSelectedIds.has(itemId)).length;
@@ -1021,8 +1050,41 @@ export function CatalogLibrary({
 
       {activeSelectedIds.size ? (
         <aside className="catalog-bulk-panel" aria-labelledby="catalog-bulk-title">
-          <h2 id="catalog-bulk-title">Collect {activeSelectedIds.size} selected {activeSelectedIds.size === 1 ? "item" : "items"}</h2>
-          <p>This selection is a snapshot. Future search matches are not auto-added.</p>
+          <h2 id="catalog-bulk-title">Use {activeSelectedIds.size} selected {activeSelectedIds.size === 1 ? "item" : "items"}</h2>
+          <p>This selection is an ordered snapshot. Future search matches are not auto-added.</p>
+          <section className="catalog-challenge-set-launch" aria-labelledby="catalog-challenge-set-title">
+            <div>
+              <span className="eyebrow">Challenge Set</span>
+              <h3 id="catalog-challenge-set-title">Launch this exact problem set</h3>
+              <p>
+                Freeze prompt and judge revisions now, then carry attempts,
+                submissions, and the final activity ledger under one run.
+              </p>
+            </div>
+            <div className="catalog-challenge-set-actions">
+              <button
+                type="button"
+                className="primary-button"
+                disabled={!challengeSetSizeIsValid}
+                onClick={() => onStartChallengeSet(selected, "practice")}
+              >
+                Start untimed practice
+              </button>
+              <button
+                type="button"
+                className="outline-button"
+                disabled={!timedSetIsValid}
+                onClick={() => onStartChallengeSet(selected, "timed")}
+              >
+                Start timed round
+              </button>
+            </div>
+            <small>
+              Practice sets support 2–12 current built-in problems. Timed sets
+              support 2–4 runnable Python problems and use the matching
+              45/75/105-minute round clock.
+            </small>
+          </section>
           <form onSubmit={addToCollection}>
             <label htmlFor="catalog-bulk-collection">Add to an existing live collection</label>
             <select id="catalog-bulk-collection" value={bulkCollectionId} onChange={(event) => setBulkCollectionId(event.target.value)}>

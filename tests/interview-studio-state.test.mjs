@@ -8,9 +8,9 @@ test("state v21 persists Interview Studio and migrates all older state versions"
     "utf8",
   );
 
-  assert.match(product, /export type AppState = \{\s+version: 33;/);
+  assert.match(product, /export type AppState = \{\s+version: 34;/);
   assert.match(product, /interviewStudio: InterviewStudioState/);
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v33"/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v34"/);
   assert.match(product, /THIRTY_SECOND_STORAGE_KEY = "swift-ghost-state-v32"/);
   assert.match(product, /THIRTY_FIRST_STORAGE_KEY = "swift-ghost-state-v31"/);
   assert.match(product, /THIRTIETH_STORAGE_KEY = "swift-ghost-state-v30"/);
@@ -31,6 +31,6 @@ test("state v21 persists Interview Studio and migrates all older state versions"
   assert.match(product, /interviewStudio: \{ active: null, history: \[\] \}/);
   assert.match(
     product,
-    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+THIRTY_SECOND_STORAGE_KEY,\s+THIRTY_FIRST_STORAGE_KEY,\s+THIRTIETH_STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY,\s+TWENTY_EIGHTH_STORAGE_KEY,\s+TWENTY_SEVENTH_STORAGE_KEY,\s+TWENTY_SIXTH_STORAGE_KEY,\s+TWENTY_FIFTH_STORAGE_KEY,\s+TWENTY_FOURTH_STORAGE_KEY,\s+TWENTY_THIRD_STORAGE_KEY,\s+TWENTY_SECOND_STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY,\s+TWENTIETH_STORAGE_KEY,\s+NINETEENTH_STORAGE_KEY,\s+EIGHTEENTH_STORAGE_KEY,\s+SEVENTEENTH_STORAGE_KEY,\s+SIXTEENTH_STORAGE_KEY,\s+FIFTEENTH_STORAGE_KEY/,
+    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+THIRTY_THIRD_STORAGE_KEY,\s+THIRTY_SECOND_STORAGE_KEY,\s+THIRTY_FIRST_STORAGE_KEY,\s+THIRTIETH_STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY,\s+TWENTY_EIGHTH_STORAGE_KEY,\s+TWENTY_SEVENTH_STORAGE_KEY,\s+TWENTY_SIXTH_STORAGE_KEY,\s+TWENTY_FIFTH_STORAGE_KEY,\s+TWENTY_FOURTH_STORAGE_KEY,\s+TWENTY_THIRD_STORAGE_KEY,\s+TWENTY_SECOND_STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY,\s+TWENTIETH_STORAGE_KEY,\s+NINETEENTH_STORAGE_KEY,\s+EIGHTEENTH_STORAGE_KEY,\s+SEVENTEENTH_STORAGE_KEY,\s+SIXTEENTH_STORAGE_KEY,\s+FIFTEENTH_STORAGE_KEY/,
   );
 });

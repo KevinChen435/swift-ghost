@@ -269,6 +269,16 @@ test("attempt closures have a bounded reload-safe Records route", () => {
   );
 });
 
+test("Challenge Set activity has a canonical reload-safe Records route", () => {
+  assert.ok(RECORDS_SECTIONS.includes("activity"));
+  const route = parseRoute("/?view=records&section=activity");
+  assert.equal(route.recordsSection, "activity");
+  assert.equal(
+    serializeRoute(route, "https://example.test/swift-ghost/?stale=1"),
+    "/swift-ghost/?view=records&section=activity",
+  );
+});
+
 test("practice-session recaps have a bounded reload-safe route", () => {
   const route = parseRoute("/?view=sessions&session=session_01-recap:2");
   assert.equal(route.view, "sessions");
