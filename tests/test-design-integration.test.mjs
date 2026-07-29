@@ -5,13 +5,14 @@ import { TEST_DESIGN_PROBES } from "../app/data/test-design-probes.ts";
 import { backupInventory } from "../app/lib/backup.mjs";
 import { buildWeaknessLab } from "../app/lib/weakness-lab.mjs";
 
-test("v31 extends Test Design while preserving the exact v30 workspace fallback", async () => {
+test("v32 adds reconstruction state while preserving the exact v31 and v30 fallbacks", async () => {
   const product = await readFile(new URL("../app/lib/product.ts", import.meta.url), "utf8");
-  assert.match(product, /version: 31;/);
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v31"/);
+  assert.match(product, /version: 32;/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v32"/);
+  assert.match(product, /THIRTY_FIRST_STORAGE_KEY = "swift-ghost-state-v31"/);
   assert.match(product, /THIRTIETH_STORAGE_KEY = "swift-ghost-state-v30"/);
   assert.match(product, /TWENTY_NINTH_STORAGE_KEY = "swift-ghost-state-v29"/);
-  assert.match(product, /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+THIRTIETH_STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY,\s+TWENTY_EIGHTH_STORAGE_KEY/);
+  assert.match(product, /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+THIRTY_FIRST_STORAGE_KEY,\s+THIRTIETH_STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY,\s+TWENTY_EIGHTH_STORAGE_KEY/);
   assert.match(product, /testDesign: TestDesignWorkspace/);
   assert.match(product, /testDesign: createTestDesignWorkspace\(\)/);
   assert.match(product, /Number\(value\.version\) >= 30 \? value\.testDesign : undefined/);
@@ -126,21 +127,37 @@ test("only current lane-matched Test Design failures feed multi-lane Weakness ev
   }
 });
 
-test("backup inventory and user confirmation copy include attempts, drafts, and active labs", async () => {
+test("backup inventory and user confirmation copy include typing and both active lab families", async () => {
   const inventory = backupInventory({
+    typingProgress: {
+      records: [{ itemId: "swift:value-a", itemRevision: 2 }],
+    },
     testDesign: {
       attempts: [{}, {}],
       drafts: [{}],
       activeSprint: { id: "active", status: "active" },
     },
+    conceptTransfer: {
+      attempts: [{ id: "cold-1" }],
+      drafts: [{ attemptId: "cold-1" }],
+      activeAttemptId: "cold-1",
+    },
   });
+  assert.equal(inventory.typingProgressRecords, 1);
   assert.equal(inventory.testDesignAttempts, 2);
   assert.equal(inventory.testDesignDrafts, 1);
   assert.equal(inventory.activeTestDesignSprints, 1);
+  assert.equal(inventory.conceptTransferAttempts, 1);
+  assert.equal(inventory.conceptTransferDrafts, 1);
+  assert.equal(inventory.activeConceptTransferAttempts, 1);
   const app = await readFile(new URL("../app/components/SwiftGhostApp.tsx", import.meta.url), "utf8");
+  assert.match(app, /inventory\.typingProgressRecords/);
   assert.match(app, /inventory\.testDesignAttempts/);
   assert.match(app, /inventory\.testDesignDrafts/);
   assert.match(app, /inventory\.activeTestDesignSprints/);
-  assert.match(app, /portable v31 backup envelope/);
-  assert.match(app, /supported v2-v31 backups/);
+  assert.match(app, /inventory\.conceptTransferAttempts/);
+  assert.match(app, /inventory\.conceptTransferDrafts/);
+  assert.match(app, /inventory\.activeConceptTransferAttempts/);
+  assert.match(app, /portable v32 backup envelope/);
+  assert.match(app, /supported v2-v32 backups/);
 });

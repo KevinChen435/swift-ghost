@@ -1,4 +1,8 @@
 import { supportsConceptPractice } from "./concept-practice.mjs";
+import {
+  deriveTypingProgression,
+  rebuildTypingProgression,
+} from "./typing-progression.mjs";
 
 export const SESSION_REPLAY_MODES = ["all", "weak"];
 
@@ -64,7 +68,7 @@ export function normalizeSessionHistoryEntries(value) {
     .slice(0, 20);
 }
 
-function isStrongAttempt(attempt) {
+function isStrongAttempt(attempt, typingProgression) {
   if (!attempt || attempt.outcome !== "completed" || attempt.peeks > 0)
     return false;
   if (attempt.practiceKind === "solving")
@@ -75,7 +79,17 @@ function isStrongAttempt(attempt) {
     );
   if (attempt.practiceKind === "concept")
     return attempt.conceptGrade === "good" || attempt.conceptGrade === "easy";
-  return attempt.accuracy >= 95;
+  const cleanRecall = (
+    attempt.stage === 5 &&
+    attempt.qualification === "independent" &&
+    attempt.accuracy >= 95
+  );
+  if (!cleanRecall || !typingProgression) return cleanRecall;
+  return (
+    typingProgression.owned &&
+    typingProgression.attemptIds.includes(attempt.id) &&
+    !typingProgression.bypassAttemptIds.includes(attempt.id)
+  );
 }
 
 function compatibleAttempt(record, entry, attemptsById) {
@@ -92,7 +106,7 @@ function compatibleAttempt(record, entry, attemptsById) {
   return attempt.practiceKind === expectedKind ? attempt : undefined;
 }
 
-function entryEvidence(entry, attempt) {
+function entryEvidence(entry, attempt, diagnosticBypass = false) {
   if (entry.status === "skipped")
     return attempt && attempt.outcome !== "completed"
       ? "Skipped after starting · ended before completion"
@@ -110,11 +124,31 @@ function entryEvidence(entry, attempt) {
     const grade = attempt.conceptGrade ?? "ungraded";
     return `${grade} self-grade${attempt.peeks ? " · revealed" : " · answer first"}`;
   }
-  return `${attempt.wpm} WPM · ${attempt.accuracy}% accuracy${attempt.peeks ? " · peeked" : ""}`;
+  return `${diagnosticBypass ? "Diagnostic only · " : ""}${attempt.wpm} WPM · ${attempt.accuracy}% accuracy${attempt.peeks ? " · peeked" : ""}`;
 }
 
-export function buildSessionRecap(record, attempts = [], items = []) {
+export function buildSessionRecap(
+  record,
+  attempts = [],
+  items = [],
+  typingProgress,
+) {
   const snapshotEntries = Array.isArray(record?.entries) ? record.entries : [];
+  const effectiveTypingProgress = typingProgress ?? rebuildTypingProgression(
+    attempts,
+    {
+      revisions: new Map(
+        items
+          .filter(
+            (item) =>
+              item &&
+              typeof item.itemId === "string" &&
+              Number.isInteger(Number(item.contentRevision)),
+          )
+          .map((item) => [item.itemId, Number(item.contentRevision)]),
+      ),
+    },
+  );
   const attemptsById = new Map(
     attempts
       .filter((attempt) => attempt && typeof attempt.id === "string")
@@ -128,7 +162,19 @@ export function buildSessionRecap(record, attempts = [], items = []) {
   const entries = snapshotEntries.map((entry, index) => {
     const item = itemsById.get(entry.itemId);
     const attempt = compatibleAttempt(record, entry, attemptsById);
-    const strong = isStrongAttempt(attempt);
+    const typingProgression =
+      attempt?.practiceKind === "typing"
+        ? deriveTypingProgression(
+            effectiveTypingProgress,
+            entry.itemId,
+            entry.itemRevision,
+            attempt.completedAt,
+          )
+        : undefined;
+    const diagnosticBypass = Boolean(
+      attempt && typingProgression?.bypassAttemptIds.includes(attempt.id),
+    );
+    const strong = isStrongAttempt(attempt, typingProgression);
     const available = Boolean(item && !item.transfer);
     const superseded = Boolean(
       item && Number(item.contentRevision) !== Number(entry.itemRevision),
@@ -142,8 +188,9 @@ export function buildSessionRecap(record, attempts = [], items = []) {
       available,
       superseded,
       strong,
+      diagnosticBypass,
       needsRetry: entry.status !== "completed" || !strong,
-      evidence: entryEvidence(entry, attempt),
+      evidence: entryEvidence(entry, attempt, diagnosticBypass),
     };
   });
   const linkedAttempts = entries
@@ -204,9 +251,10 @@ export function buildSessionReplayQueue(
   attempts = [],
   items = [],
   mode = "all",
+  typingProgress,
 ) {
   const selectedMode = SESSION_REPLAY_MODES.includes(mode) ? mode : "all";
-  const recap = buildSessionRecap(record, attempts, items);
+  const recap = buildSessionRecap(record, attempts, items, typingProgress);
   return recap.entries
     .filter(
       (entry) =>

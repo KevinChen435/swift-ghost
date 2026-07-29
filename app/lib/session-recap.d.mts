@@ -1,6 +1,7 @@
 import type { PracticeItem } from "./items";
 import type { AttemptRecord, SessionHistoryRecord } from "./product";
 import type { SessionQueueEntry } from "./sessions.mjs";
+import type { TypingProgressionWorkspace } from "./typing-progression.mjs";
 
 export type SessionReplayMode = "all" | "weak";
 export type SessionRecapEntry = SessionQueueEntry & {
@@ -11,6 +12,7 @@ export type SessionRecapEntry = SessionQueueEntry & {
   available: boolean;
   superseded: boolean;
   strong: boolean;
+  diagnosticBypass: boolean;
   needsRetry: boolean;
   evidence: string;
 };
@@ -34,10 +36,12 @@ export function buildSessionRecap(
   record: SessionHistoryRecord,
   attempts?: AttemptRecord[],
   items?: PracticeItem[],
+  typingProgress?: TypingProgressionWorkspace,
 ): SessionRecapModel;
 export function buildSessionReplayQueue(
   record: SessionHistoryRecord,
   attempts?: AttemptRecord[],
   items?: PracticeItem[],
   mode?: SessionReplayMode,
+  typingProgress?: TypingProgressionWorkspace,
 ): SessionQueueEntry[];

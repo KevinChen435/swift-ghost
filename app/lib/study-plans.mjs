@@ -1,4 +1,8 @@
 import { buildDailyPlan } from "./planner.mjs";
+import {
+  deriveTypingProgression,
+  rebuildTypingProgression,
+} from "./typing-progression.mjs";
 
 const DAY_MS = 86_400_000;
 const REVIEW_DAYS = [1, 3, 7, 14, 30];
@@ -105,7 +109,11 @@ function cleanId(value, fallback = "") {
 }
 
 function iso(value, fallback = ISO_EPOCH) {
-  const time = Date.parse(value ?? "");
+  const time = value instanceof Date
+    ? value.getTime()
+    : typeof value === "number"
+      ? value
+      : Date.parse(value ?? "");
   return Number.isFinite(time) ? new Date(time).toISOString() : fallback;
 }
 
@@ -528,36 +536,57 @@ function successfulAttempt(attempt, item) {
   if (!attempt || attempt.outcome !== "completed" || attempt.itemRevision !== item.contentRevision || Number(attempt.peeks ?? 0) > 0) return false;
   if (attempt.practiceKind === "solving") return Boolean(attempt.verification?.total > 0 && attempt.verification.passed === attempt.verification.total);
   if (attempt.practiceKind === "concept") return attempt.conceptGrade === "good" || attempt.conceptGrade === "easy";
-  return attempt.stage === 5 && Number(attempt.accuracy ?? 0) >= 95;
+  return false;
 }
 
-function itemEvidence(item, attempts, now) {
+function currentTypingProgress(evidence, items, now) {
+  if (evidence.typingProgress) return evidence.typingProgress;
+  const currentRevisions = new Map(
+    items.map((item) => [item.itemId, item.contentRevision ?? 1]),
+  );
+  return rebuildTypingProgression(evidence.attempts ?? [], {
+    now: iso(now),
+    validItemIds: [...currentRevisions.keys()],
+    revisions: currentRevisions,
+  });
+}
+
+function itemEvidence(item, attempts, now, typingProgress) {
   const all = attempts.filter((attempt) => attempt.itemId === item.itemId).sort((a, b) => Date.parse(a.completedAt ?? "") - Date.parse(b.completedAt ?? ""));
   const current = all.filter((attempt) => attempt.itemRevision === item.contentRevision);
   const successes = current.filter((attempt) => successfulAttempt(attempt, item));
+  const typing = deriveTypingProgression(
+    typingProgress,
+    item.itemId,
+    item.contentRevision ?? 1,
+    iso(now),
+  );
   const last = current.at(-1);
   const lastSuccess = successes.at(-1);
   const interval = REVIEW_DAYS[Math.min(Math.max(0, successes.length - 1), REVIEW_DAYS.length - 1)];
   const dueAt = lastSuccess ? Date.parse(lastSuccess.completedAt) + interval * DAY_MS : null;
-  const due = Number.isFinite(dueAt) && dueAt <= now;
+  const due = typing.due || (Number.isFinite(dueAt) && dueAt <= now);
+  const independent = successes.length > 0 || typing.owned;
+  const attempted = current.length > 0 || typing.attemptCount > 0;
   return {
-    independent: successes.length > 0,
-    assisted: current.length > 0 && !successes.length,
-    attempted: current.length > 0,
+    independent,
+    assisted: attempted && !independent,
+    attempted,
     outdated: all.some((attempt) => attempt.itemRevision !== item.contentRevision),
     due,
-    retained: successes.length > 0 && !due,
+    retained: independent && !due,
     last,
   };
 }
 
 export function deriveStudyCollectionProgress(collection, evidence = {}) {
   const itemsById = new Map((evidence.items ?? []).map((item) => [item.itemId, item]));
-  const now = Date.parse(evidence.now ?? new Date().toISOString());
+  const now = Date.parse(iso(evidence.now ?? new Date().toISOString()));
+  const typingProgress = currentTypingProgress(evidence, [...itemsById.values()], now);
   const statuses = collection.itemIds.map((id) => {
     const item = itemsById.get(id);
     if (!item) return { itemId: id, unavailable: true, independent: false, assisted: false, due: false, retained: false, outdated: true };
-    return { itemId: id, ...itemEvidence(item, evidence.attempts ?? [], now) };
+    return { itemId: id, ...itemEvidence(item, evidence.attempts ?? [], now, typingProgress) };
   });
   return {
     totalItems: statuses.length,
@@ -654,12 +683,14 @@ export function buildNextFocusBlock(plan, workspace, evidence = {}, options = {}
       ? currentProgress.currentModule.itemIds
       : snapshot.itemIds,
   );
-  const now = Date.parse(options.now ?? evidence.now ?? new Date().toISOString());
-  const items = (evidence.items ?? []).filter(
+  const now = Date.parse(iso(options.now ?? evidence.now ?? new Date().toISOString()));
+  const evidenceItems = evidence.items ?? [];
+  const typingProgress = currentTypingProgress(evidence, evidenceItems, now);
+  const items = evidenceItems.filter(
     (item) =>
       allowed.has(item.itemId) &&
       (currentModuleIds.has(item.itemId) ||
-        itemEvidence(item, evidence.attempts ?? [], now).due),
+        itemEvidence(item, evidence.attempts ?? [], now, typingProgress).due),
   );
   const recentLaneMinutes = (evidence.sessionHistory ?? [])
     .filter((session) => plan.sessionIds?.includes(session.id) && session.laneMinutes)
@@ -669,6 +700,7 @@ export function buildNextFocusBlock(plan, workspace, evidence = {}, options = {}
     items,
     attempts: evidence.attempts ?? [],
     learningEvents: evidence.learningEvents ?? [],
+    typingProgress,
     profile: { preferredLanguage: "python", dailyGoalMinutes: plan.paceMinutes, pythonShare: 0.6, reviewShare: 0.2, iosShare: 0.2 },
     recentLaneMinutes,
   }, {

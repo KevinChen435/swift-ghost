@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { PracticeItem } from "../lib/items";
 import type { TestDesignLane } from "../data/test-design-probes";
+import type { ConceptTransferLane } from "../data/concept-transfer-variants";
 import { TrustedAssessmentPanel } from "./TrustedAssessmentPanel";
 import {
   ASSESSMENT_BLOCKERS,
@@ -272,8 +273,10 @@ export function AssessmentCenter({
   onOpenVirtualRounds,
   onOpenPatternReview,
   onOpenTestDesign,
+  onOpenConceptTransfer,
   patternDecisionSummary,
   testDesignSummaries,
+  conceptTransferSummaries,
 }: {
   workspace: AssessmentWorkspace;
   items: PracticeItem[];
@@ -309,6 +312,7 @@ export function AssessmentCenter({
   onOpenVirtualRounds: () => void;
   onOpenPatternReview: () => void;
   onOpenTestDesign: (lane: TestDesignLane) => void;
+  onOpenConceptTransfer: (lane: ConceptTransferLane) => void;
   patternDecisionSummary: {
     newCount: number;
     dueCount: number;
@@ -316,6 +320,10 @@ export function AssessmentCenter({
     totalPatterns: number;
   };
   testDesignSummaries: Record<TestDesignLane, { newCount: number; dueCount: number; retainedCount: number; totalSkills: number }>;
+  conceptTransferSummaries: Record<
+    ConceptTransferLane,
+    { newCount: number; dueCount: number; coldSelfAssessedCount: number }
+  >;
 }) {
   const selectedRun = useMemo(
     () => workspace.runs.find((run) => run.id === selectedAssessment) ?? null,
@@ -398,6 +406,39 @@ export function AssessmentCenter({
             })}
           </div>
           <small className="assessment-program-disclaimer">Cases are not executed here. Novel oracles remain unverified rather than being marked wrong.</small>
+        </article>
+        <article className="assessment-concept-transfer-card">
+          <div className="assessment-program-topline">
+            <span>Swift typing transfer</span>
+            <small>Private · 7–10 minutes</small>
+          </div>
+          <h2>Cold Reconstruction Lab</h2>
+          <p>
+            Type a small Swift or iOS boundary from a neutral scenario before
+            its topic name and project-authored reference are revealed.
+          </p>
+          <div className="assessment-concept-transfer-lanes">
+            {(["swift", "ios"] as ConceptTransferLane[]).map((lane) => {
+              const summary = conceptTransferSummaries[lane];
+              return (
+                <button
+                  key={lane}
+                  className="secondary-button"
+                  type="button"
+                  onClick={() => onOpenConceptTransfer(lane)}
+                >
+                  <strong>{lane === "ios" ? "iOS" : "Swift"}</strong>
+                  <span>
+                    {summary.newCount} new · {summary.dueCount} due · {summary.coldSelfAssessedCount} cold
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <small className="assessment-program-disclaimer">
+            The result is self-assessed syntax comparison, never a compiled or
+            verified Swift solve.
+          </small>
         </article>
         <article className="assessment-virtual-round-card">
           <div className="assessment-program-topline">

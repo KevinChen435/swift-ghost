@@ -18,6 +18,10 @@ import {
   updateStudyCollection,
   updateStudyPlan,
 } from "../app/lib/study-plans.mjs";
+import {
+  applyTypingAttempt,
+  createTypingProgression,
+} from "../app/lib/typing-progression.mjs";
 
 const items = [
   { itemId: "python:10001", contentRevision: 1, source: "builtin", title: "Loop warm-up", language: "python", track: "interview", pattern: "Python Fluency", difficulty: "Easy", estimatedMinutes: 4 },
@@ -42,6 +46,30 @@ function attempt(overrides = {}) {
     verification: { total: 4, passed: 4 },
     ...overrides,
   };
+}
+
+function typingAttempt(stage, completedAt, overrides = {}) {
+  return {
+    id: `typing-${stage}`,
+    itemId: "python:10001",
+    itemRevision: 1,
+    practiceKind: "typing",
+    stage,
+    outcome: "completed",
+    qualification: stage === 5 ? "independent" : stage === 1 ? "syntax" : "guided",
+    accuracy: 100,
+    corrections: 0,
+    peeks: 0,
+    completedAt,
+    ...overrides,
+  };
+}
+
+function typingProgression(attempts) {
+  return attempts.reduce(
+    (workspace, entry) => applyTypingAttempt(workspace, entry),
+    createTypingProgression(at),
+  );
 }
 
 function fixedPlan() {
@@ -93,6 +121,77 @@ test("guided typing is exposure and cannot satisfy independent plan evidence", (
   assert.equal(progress.curriculumComplete, false);
 });
 
+test("a direct clean Stage 5 diagnostic cannot complete a module or unlock its capstone", () => {
+  const workspace = instantiateStudyPlanTemplate(
+    createStudyWorkspace(at),
+    "python-reentry",
+    [items[0]],
+    { collectionId: "collection:typing-diagnostic", planId: "plan:typing-diagnostic", now: at },
+  );
+  const diagnostic = typingAttempt(5, "2026-07-28T09:00:00.000Z");
+  const typingProgress = typingProgression([diagnostic]);
+  const evidence = {
+    items: [items[0]],
+    attempts: [diagnostic],
+    typingProgress,
+    interviewStudioHistory: [],
+    sessionHistory: [],
+    now: at,
+  };
+
+  const progress = deriveStudyPlanProgress(workspace.plans[0], workspace, evidence);
+  assert.equal(progress.evidence.independent, 0);
+  assert.equal(progress.evidence.assisted, 1);
+  assert.equal(progress.modules[0].evidenceMet, false);
+  assert.equal(progress.capstoneReady, false);
+  assert.equal(progress.curriculumComplete, false);
+  const rebuiltProgress = deriveStudyPlanProgress(workspace.plans[0], workspace, {
+    ...evidence,
+    typingProgress: undefined,
+  });
+  assert.equal(rebuiltProgress.evidence.independent, 0);
+  assert.equal(rebuiltProgress.modules[0].evidenceMet, false);
+
+  const block = buildNextFocusBlock(workspace.plans[0], workspace, evidence, { now: at, budgetMinutes: 15 });
+  assert.equal(block.entries[0].practiceKind, "typing");
+  assert.equal(block.entries[0].stage, 1);
+});
+
+test("ordered worked to faded to blank recall earns canonical typing ownership", () => {
+  const workspace = instantiateStudyPlanTemplate(
+    createStudyWorkspace(at),
+    "python-reentry",
+    [items[0]],
+    { collectionId: "collection:typing-owned", planId: "plan:typing-owned", now: at },
+  );
+  const sequence = [
+    typingAttempt(1, "2026-07-28T09:00:00.000Z"),
+    typingAttempt(3, "2026-07-28T10:00:00.000Z"),
+    typingAttempt(5, "2026-07-28T11:00:00.000Z"),
+  ];
+  const evidence = {
+    items: [items[0]],
+    attempts: sequence,
+    typingProgress: typingProgression(sequence),
+    interviewStudioHistory: [],
+    sessionHistory: [],
+    now: at,
+  };
+  const progress = deriveStudyPlanProgress(workspace.plans[0], workspace, evidence);
+
+  assert.equal(progress.evidence.independent, 1);
+  assert.equal(progress.evidence.assisted, 0);
+  assert.equal(progress.modules[0].evidenceMet, true);
+  assert.equal(progress.capstoneReady, true);
+  assert.equal(progress.curriculumComplete, false);
+  const rebuiltProgress = deriveStudyPlanProgress(workspace.plans[0], workspace, {
+    ...evidence,
+    typingProgress: undefined,
+  });
+  assert.equal(rebuiltProgress.evidence.independent, 1);
+  assert.equal(rebuiltProgress.capstoneReady, true);
+});
+
 test("verified Python and committed Good iOS concept attempts count in separate honest evidence", () => {
   const workspace = fixedPlan();
   const progress = deriveStudyPlanProgress(workspace.plans[0], workspace, {
@@ -120,6 +219,26 @@ test("stale revisions are preserved as outdated but do not satisfy current evide
   });
   assert.equal(progress.evidence.outdated, 1);
   assert.equal(progress.evidence.independent, 0);
+});
+
+test("malformed study-plan timestamps are normalized before typing evidence and focus derivation", () => {
+  const workspace = fixedPlan();
+  const evidence = {
+    items,
+    attempts: [],
+    learningEvents: [],
+    interviewStudioHistory: [],
+    sessionHistory: [],
+    now: "not-a-timestamp",
+  };
+
+  const progress = deriveStudyPlanProgress(workspace.plans[0], workspace, evidence);
+  assert.equal(progress.evidence.independent, 0);
+  const block = buildNextFocusBlock(workspace.plans[0], workspace, evidence, {
+    now: "still-not-a-timestamp",
+    budgetMinutes: 15,
+  });
+  assert.ok(Array.isArray(block.entries));
 });
 
 test("coach Studio never satisfies a mock capstone while a hint-free passing mock does", () => {

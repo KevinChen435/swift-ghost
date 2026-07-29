@@ -7,6 +7,9 @@ import {
 import { PATTERN_DECISION_PROBES } from "../app/data/pattern-decision-probes.ts";
 import { PATTERN_LESSONS } from "../app/data/pattern-lessons.ts";
 import { TEST_DESIGN_PROBES } from "../app/data/test-design-probes.ts";
+import {
+  rebuildTypingProgression,
+} from "../app/lib/typing-progression.mjs";
 
 const items = [
   {
@@ -110,6 +113,24 @@ function attempt(overrides = {}) {
     completedAt: "2026-07-10T12:00:00.000Z",
     verification: { revision: 2, passed: 4, total: 4 },
     submissionId: "submission-1",
+    ...overrides,
+  };
+}
+
+function typingAttempt(id, itemId, completedAt, stage, overrides = {}) {
+  const item = items.find((candidate) => candidate.itemId === itemId);
+  return {
+    id,
+    itemId,
+    itemRevision: item.contentRevision,
+    stage,
+    practiceKind: "typing",
+    outcome: "completed",
+    qualification: stage === 5 ? "independent" : stage === 1 ? "syntax" : "guided",
+    accuracy: 100,
+    corrections: 0,
+    peeks: 0,
+    completedAt,
     ...overrides,
   };
 }
@@ -366,6 +387,134 @@ test("one independent success stabilizes and a delayed pair plus transfer resolv
   assert.equal(resolved.cases[0].transferRequired, false);
 });
 
+test("typing success requires canonical ownership and permanently excludes diagnostic bypasses", () => {
+  const learningEvent = {
+    id: "swift-typing-evidence",
+    attemptId: "swift-typing-old",
+    itemId: "swift:value-a",
+    itemRevision: 2,
+    friction: "syntax",
+    grade: "again",
+    createdAt: "2026-07-01T12:00:00.000Z",
+  };
+  const bypass = typingAttempt(
+    "typing-bypass",
+    "swift:value-a",
+    "2026-07-10T12:00:00.000Z",
+    5,
+  );
+  const diagnosticProgress = rebuildTypingProgression([bypass], {
+    revisions: { "swift:value-a": 2 },
+  });
+  const diagnostic = buildWeaknessLab({
+    items,
+    attempts: [bypass],
+    typingProgress: diagnosticProgress,
+    learningEvents: [learningEvent],
+    now: "2026-07-20T12:00:00.000Z",
+  }).cases.find((entry) => entry.lane === "swift");
+  assert.equal(diagnostic.status, "due");
+  assert.deepEqual(diagnostic.successes, []);
+
+  const worked = typingAttempt(
+    "typing-worked",
+    "swift:value-a",
+    "2026-07-11T12:00:00.000Z",
+    1,
+  );
+  const faded = typingAttempt(
+    "typing-faded",
+    "swift:value-a",
+    "2026-07-11T13:00:00.000Z",
+    3,
+  );
+  const recall = typingAttempt(
+    "typing-owned",
+    "swift:value-a",
+    "2026-07-12T12:00:00.000Z",
+    5,
+  );
+  const ownedProgress = rebuildTypingProgression(
+    [bypass, worked, faded, recall],
+    { revisions: { "swift:value-a": 2 } },
+  );
+  const owned = buildWeaknessLab({
+    items,
+    attempts: [bypass, worked, faded, recall],
+    typingProgress: ownedProgress,
+    learningEvents: [learningEvent],
+    now: "2026-07-20T12:00:00.000Z",
+  }).cases.find((entry) => entry.lane === "swift");
+  assert.equal(owned.status, "stabilizing");
+  assert.deepEqual(owned.successes.map((entry) => entry.id), [
+    "attempt:typing-owned",
+  ]);
+});
+
+test("ordered canonical typing ownership can resolve Swift cases across distinct items", () => {
+  const learningEvent = {
+    id: "swift-typing-resolution-evidence",
+    attemptId: "swift-typing-resolution-old",
+    itemId: "swift:value-a",
+    itemRevision: 2,
+    friction: "syntax",
+    grade: "again",
+    createdAt: "2026-07-01T12:00:00.000Z",
+  };
+  const chain = (itemId, prefix, day) => [
+    typingAttempt(`${prefix}-worked`, itemId, `2026-07-${day}T08:00:00.000Z`, 1),
+    typingAttempt(`${prefix}-faded`, itemId, `2026-07-${day}T09:00:00.000Z`, 2),
+    typingAttempt(`${prefix}-owned`, itemId, `2026-07-${day}T10:00:00.000Z`, 5),
+  ];
+  const attempts = [
+    ...chain("swift:value-a", "typing-a", "10"),
+    ...chain("swift:value-b", "typing-b", "12"),
+  ];
+  const model = buildWeaknessLab({
+    items,
+    attempts,
+    typingProgress: rebuildTypingProgression(attempts, {
+      revisions: { "swift:value-a": 2, "swift:value-b": 2 },
+    }),
+    learningEvents: [learningEvent],
+    now: "2026-07-20T12:00:00.000Z",
+  });
+  const evidenceCase = model.cases.find((entry) => entry.lane === "swift");
+  assert.equal(evidenceCase.status, "resolved");
+  assert.deepEqual(evidenceCase.successes.map((entry) => entry.itemId), [
+    "swift:value-a",
+    "swift:value-b",
+  ]);
+});
+
+test("canonical typing ownership from a stale item revision cannot stabilize a case", () => {
+  const staleAttempts = [
+    typingAttempt("stale-worked", "swift:value-a", "2026-07-10T08:00:00.000Z", 1, { itemRevision: 1 }),
+    typingAttempt("stale-faded", "swift:value-a", "2026-07-10T09:00:00.000Z", 2, { itemRevision: 1 }),
+    typingAttempt("stale-owned", "swift:value-a", "2026-07-10T10:00:00.000Z", 5, { itemRevision: 1 }),
+  ];
+  const model = buildWeaknessLab({
+    items,
+    attempts: staleAttempts,
+    typingProgress: rebuildTypingProgression(staleAttempts, {
+      revisions: { "swift:value-a": 1 },
+    }),
+    learningEvents: [{
+      id: "swift-current-revision-evidence",
+      attemptId: "swift-current-revision-old",
+      itemId: "swift:value-a",
+      itemRevision: 2,
+      friction: "syntax",
+      grade: "again",
+      createdAt: "2026-07-01T12:00:00.000Z",
+    }],
+    now: "2026-07-20T12:00:00.000Z",
+  });
+  const evidenceCase = model.cases.find((entry) => entry.lane === "swift");
+  assert.equal(evidenceCase.status, "due");
+  assert.deepEqual(evidenceCase.successes, []);
+});
+
 test("Swift and iOS cases resolve with a delayed pair on distinct non-transfer concepts", () => {
   for (const scenario of [
     {
@@ -434,6 +583,122 @@ test("Swift and iOS cases resolve with a delayed pair on distinct non-transfer c
     assert.equal(resolved.status, "resolved", scenario.lane);
     assert.equal(resolved.successes.length, 2, scenario.lane);
   }
+});
+
+test("cold self-assessed reconstruction can resolve Swift and iOS cases only across distinct variants", () => {
+  for (const scenario of [
+    {
+      lane: "swift",
+      itemId: "swift:value-a",
+      family: "Swift Semantics",
+      variantIds: ["concept-transfer:ct-01", "concept-transfer:ct-07"],
+    },
+    {
+      lane: "ios",
+      itemId: "ios:reuse-a",
+      family: "UIKit",
+      variantIds: ["concept-transfer:ct-08", "concept-transfer:ct-09"],
+    },
+  ]) {
+    const learningEvent = {
+      id: `${scenario.lane}-reconstruction-event`,
+      attemptId: `${scenario.lane}-old`,
+      itemId: scenario.itemId,
+      itemRevision: 2,
+      friction: "implementation",
+      grade: "again",
+      createdAt: "2026-07-01T12:00:00.000Z",
+    };
+    const reconstruction = (id, variantId, finishedAt, overrides = {}) => ({
+      id,
+      variantId,
+      variantRevision: 1,
+      lane: scenario.lane,
+      family: scenario.family,
+      qualification: "cold-self-assessed",
+      finishedAt,
+      ...overrides,
+    });
+    const conceptTransferVariants = scenario.variantIds.map((id) => ({
+      id,
+      revision: 1,
+      lane: scenario.lane,
+      family: scenario.family,
+    }));
+
+    const sameVariantTwice = buildWeaknessLab({
+      items,
+      learningEvents: [learningEvent],
+      conceptTransferAttempts: [
+        reconstruction(`${scenario.lane}-cold-one`, scenario.variantIds[0], "2026-07-10T12:00:00.000Z"),
+        reconstruction(`${scenario.lane}-cold-repeat`, scenario.variantIds[0], "2026-07-12T12:00:00.000Z"),
+      ],
+      conceptTransferVariants,
+      now: "2026-07-20T12:00:00.000Z",
+    }).cases.find((entry) => entry.lane === scenario.lane);
+    assert.equal(sameVariantTwice.status, "stabilizing", `${scenario.lane} needs distinct contexts`);
+
+    const resolved = buildWeaknessLab({
+      items,
+      learningEvents: [learningEvent],
+      conceptTransferAttempts: [
+        reconstruction(`${scenario.lane}-cold-one`, scenario.variantIds[0], "2026-07-10T12:00:00.000Z"),
+        reconstruction(`${scenario.lane}-cold-two`, scenario.variantIds[1], "2026-07-12T12:00:00.000Z"),
+      ],
+      conceptTransferVariants,
+      now: "2026-07-20T12:00:00.000Z",
+    }).cases.find((entry) => entry.lane === scenario.lane);
+    assert.equal(resolved.status, "resolved", scenario.lane);
+    assert.equal(resolved.successes.length, 2, scenario.lane);
+    assert.equal(resolved.successes.every((entry) => entry.selfAssessed), true, scenario.lane);
+  }
+});
+
+test("assisted, stale, mismatched, and pre-evidence reconstruction attempts never stabilize a weakness", () => {
+  const learningEvent = {
+    id: "swift-filter-event",
+    attemptId: "swift-old",
+    itemId: "swift:value-a",
+    itemRevision: 2,
+    friction: "implementation",
+    grade: "again",
+    createdAt: "2026-07-05T12:00:00.000Z",
+  };
+  const base = {
+    id: "ignored-concept-transfer",
+    variantId: "concept-transfer:ct-01",
+    variantRevision: 1,
+    lane: "swift",
+    family: "Swift Semantics",
+    qualification: "cold-self-assessed",
+    finishedAt: "2026-07-10T12:00:00.000Z",
+  };
+  const ignoredAttempts = [
+    { ...base, id: "assisted", qualification: "assisted" },
+    { ...base, id: "reference", qualification: "reference-reconstruction" },
+    { ...base, id: "retired", retired: true },
+    { ...base, id: "before", finishedAt: "2026-07-04T12:00:00.000Z" },
+    { ...base, id: "wrong-lane", lane: "ios" },
+    { ...base, id: "wrong-family", family: "Memory Management" },
+    { ...base, id: "stale-revision", variantRevision: 2 },
+  ];
+  const model = buildWeaknessLab({
+    items,
+    learningEvents: [learningEvent],
+    conceptTransferAttempts: ignoredAttempts,
+    conceptTransferVariants: [
+      {
+        id: base.variantId,
+        revision: 1,
+        lane: "swift",
+        family: "Swift Semantics",
+      },
+    ],
+    now: "2026-07-20T12:00:00.000Z",
+  });
+  const evidenceCase = model.cases.find((entry) => entry.lane === "swift");
+  assert.equal(evidenceCase.status, "due");
+  assert.equal(evidenceCase.successes.length, 0);
 });
 
 test("Test Design evidence requires current probe, item, and structural lane identity", () => {

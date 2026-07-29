@@ -113,11 +113,27 @@ import {
 import { PATTERN_LESSONS } from "../data/pattern-lessons";
 import { PATTERN_DECISION_PROBES } from "../data/pattern-decision-probes";
 import { TEST_DESIGN_PROBES } from "../data/test-design-probes";
+import { CONCEPT_TRANSFER_VARIANTS } from "../data/concept-transfer-variants";
 import {
   createTestDesignWorkspace,
   normalizeTestDesignWorkspace,
   type TestDesignWorkspace,
 } from "./test-design.mjs";
+import {
+  applyTypingAttempt,
+  createTypingProgression,
+  deriveTypingProgression,
+  normalizeTypingProgression,
+  rebuildTypingProgression,
+  recommendedTypingStage,
+  typingReviewStatus,
+  type TypingProgressionWorkspace,
+} from "./typing-progression.mjs";
+import {
+  createConceptTransferWorkspace,
+  normalizeConceptTransferWorkspace,
+  type ConceptTransferWorkspace,
+} from "./concept-transfer.mjs";
 
 export { analyzeEdit, correctPositionCount } from "./typing-engine.mjs";
 
@@ -327,8 +343,9 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 31;
+  version: 32;
   attempts: AttemptRecord[];
+  typingProgress: TypingProgressionWorkspace;
   submissionLog: SubmissionLog;
   submissionAnnotations: SubmissionAnnotations;
   learningEvents: LearningEvent[];
@@ -336,6 +353,7 @@ export type AppState = {
   problemNotes: ProblemNotes;
   patternLearning: PatternLearningWorkspace;
   testDesign: TestDesignWorkspace;
+  conceptTransfer: ConceptTransferWorkspace;
   favorites: ItemId[];
   customItems: PracticeItem[];
   customCaseInputs: Partial<Record<ItemId, string>>;
@@ -355,7 +373,8 @@ export type AppState = {
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v31";
+export const STORAGE_KEY = "swift-ghost-state-v32";
+export const THIRTY_FIRST_STORAGE_KEY = "swift-ghost-state-v31";
 export const THIRTIETH_STORAGE_KEY = "swift-ghost-state-v30";
 export const TWENTY_NINTH_STORAGE_KEY = "swift-ghost-state-v29";
 export const TWENTY_EIGHTH_STORAGE_KEY = "swift-ghost-state-v28";
@@ -386,10 +405,11 @@ export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
-  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
 ];
 export const STATE_STORAGE_KEYS = [
   STORAGE_KEY,
+  THIRTY_FIRST_STORAGE_KEY,
   THIRTIETH_STORAGE_KEY,
   TWENTY_NINTH_STORAGE_KEY,
   TWENTY_EIGHTH_STORAGE_KEY,
@@ -435,8 +455,9 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 31,
+  version: 32,
   attempts: [],
+  typingProgress: createTypingProgression(),
   submissionLog: createSubmissionLog(),
   submissionAnnotations: {},
   learningEvents: [],
@@ -444,6 +465,7 @@ export const EMPTY_STATE: AppState = {
   problemNotes: {},
   patternLearning: createPatternLearningWorkspace(),
   testDesign: createTestDesignWorkspace(),
+  conceptTransfer: createConceptTransferWorkspace(),
   favorites: [],
   customItems: [],
   customCaseInputs: {},
@@ -1694,9 +1716,36 @@ export function normalizeState(value: unknown): AppState {
       })
       .map((attempt) => attempt.id),
   );
+  const typingProgressOptions = {
+    validItemIds: validIds,
+    revisions,
+    now: "1970-01-01T00:00:00.000Z",
+  };
+  const hasCurrentTypingWorkspace =
+    Number(value.version) >= 32 &&
+    isRecord(value.typingProgress) &&
+    Number(value.typingProgress.version) === 1;
+  let typingProgress = hasCurrentTypingWorkspace
+    ? normalizeTypingProgression(value.typingProgress, typingProgressOptions)
+    : rebuildTypingProgression(attempts, typingProgressOptions);
+  if (hasCurrentTypingWorkspace) {
+    for (const attempt of attempts
+      .filter((candidate) => candidate.practiceKind === "typing")
+      .slice()
+      .sort((left, right) =>
+        left.completedAt.localeCompare(right.completedAt) ||
+        left.id.localeCompare(right.id),
+      )) {
+      typingProgress = applyTypingAttempt(typingProgress, attempt, {
+        ...typingProgressOptions,
+        now: attempt.completedAt,
+      });
+    }
+  }
   return {
-    version: 31,
+    version: 32,
     attempts,
+    typingProgress,
     submissionLog,
     submissionAnnotations,
     learningEvents: normalizeLearningEvents(value.learningEvents, {
@@ -1735,6 +1784,13 @@ export function normalizeState(value: unknown): AppState {
       {
         probes: TEST_DESIGN_PROBES,
         items: BUILTIN_ITEMS,
+        now: "1970-01-01T00:00:00.000Z",
+      },
+    ),
+    conceptTransfer: normalizeConceptTransferWorkspace(
+      Number(value.version) >= 32 ? value.conceptTransfer : undefined,
+      {
+        variants: CONCEPT_TRANSFER_VARIANTS,
         now: "1970-01-01T00:00:00.000Z",
       },
     ),
@@ -2010,7 +2066,9 @@ export function eligibleAttempt(attempt: AttemptRecord) {
 
 export function successfulLearningAttempt(attempt: AttemptRecord) {
   return (
-    eligibleAttempt(attempt) ||
+    (eligibleAttempt(attempt) &&
+      attempt.stage === 5 &&
+      attempt.qualification === "independent") ||
     (attempt.practiceKind === "concept" &&
       attempt.outcome === "completed" &&
       attempt.peeks === 0 &&
@@ -2035,6 +2093,11 @@ export function itemRevision(state: AppState, itemId: ItemId) {
 
 export function itemStats(state: AppState, itemId: ItemId) {
   const revision = itemRevision(state, itemId);
+  const typingProgress = deriveTypingProgression(
+    state.typingProgress,
+    itemId,
+    revision,
+  );
   const attempts = completedAttempts(state).filter(
     (attempt) => attempt.itemId === itemId && attempt.itemRevision === revision,
   );
@@ -2042,7 +2105,6 @@ export function itemStats(state: AppState, itemId: ItemId) {
     (attempt) => attempt.practiceKind === "typing",
   );
   const qualified = typingAttempts.filter(eligibleAttempt);
-  const independent = qualified.filter((attempt) => attempt.stage === 5);
   const verifiedSolves = attempts.filter(
     (attempt) =>
       attempt.practiceKind === "solving" && successfulLearningAttempt(attempt),
@@ -2058,18 +2120,23 @@ export function itemStats(state: AppState, itemId: ItemId) {
     conceptCompletions: conceptAttempts.length,
     strongConceptCompletions: strongConceptAttempts.length,
     qualifiedCompletions: qualified.length,
-    highestStage: qualified.reduce(
-      (highest, attempt) => Math.max(highest, attempt.stage),
-      0,
-    ),
+    highestStage: typingProgress.owned ? 5 : typingProgress.nextStage - 1,
     highestPracticedStage: typingAttempts.reduce(
       (highest, attempt) => Math.max(highest, attempt.stage),
       0,
     ),
     owned:
-      independent.length > 0 ||
+      typingProgress.owned ||
       verifiedSolves.length > 0 ||
       strongConceptAttempts.length > 0,
+    typingOwned: typingProgress.owned,
+    typingRetained: typingProgress.retained,
+    typingCompletedStages: typingProgress.completedStages,
+    typingPhase: typingProgress.phase,
+    typingNextStage: typingProgress.nextStage,
+    typingRecallLevel: typingProgress.recallLevel,
+    typingDueAt: typingProgress.dueAt,
+    typingDiagnosticOnly: typingProgress.diagnosticOnly,
     bestWpm: qualified.reduce(
       (best, attempt) => Math.max(best, attempt.wpm),
       0,
@@ -2094,7 +2161,7 @@ export function reviewStatus(state: AppState, itemId: ItemId) {
       (attempt) =>
         attempt.itemId === itemId &&
         attempt.itemRevision === revision &&
-        (!conceptItem || attempt.practiceKind === "concept"),
+        attempt.practiceKind === (conceptItem ? "concept" : "solving"),
     )
     .slice()
     .sort((a, b) => Date.parse(a.completedAt) - Date.parse(b.completedAt));
@@ -2121,7 +2188,7 @@ export function reviewStatus(state: AppState, itemId: ItemId) {
       (event) =>
         event.itemId === itemId &&
         event.itemRevision === revision &&
-        (!conceptItem || event.activityKind === "concept") &&
+        event.activityKind === (conceptItem ? "concept" : "solve") &&
         !Number.isNaN(Date.parse(event.createdAt)),
     )
     .slice()
@@ -2131,6 +2198,22 @@ export function reviewStatus(state: AppState, itemId: ItemId) {
     { level, dueAt, lastAttemptAt },
     lastDebrief,
   ));
+  if (!conceptItem) {
+    const typing = typingReviewStatus(
+      state.typingProgress,
+      itemId,
+      revision,
+      new Date().toISOString(),
+    );
+    const typingDueAt = typing.dueAt ? new Date(typing.dueAt) : null;
+    level = Math.max(level, typing.level);
+    if (
+      typing.owned &&
+      typingDueAt &&
+      (!dueAt || typingDueAt.getTime() < dueAt.getTime())
+    )
+      dueAt = typingDueAt;
+  }
   return { level, dueAt };
 }
 export function reviewDueAt(state: AppState, itemId: ItemId) {
@@ -2147,9 +2230,12 @@ export function localDayKey(date: Date) {
 export const dayKey = localDayKey;
 export function activeStreak(state: AppState) {
   const days = new Set(
-    completedAttempts(state).map((attempt) =>
-      localDayKey(new Date(attempt.completedAt)),
-    ),
+    [
+      ...completedAttempts(state).map((attempt) => attempt.completedAt),
+      ...state.conceptTransfer.attempts
+        .filter((attempt) => !attempt.retired && attempt.finishedAt)
+        .map((attempt) => attempt.finishedAt as string),
+    ].map((timestamp) => localDayKey(new Date(timestamp))),
   );
   let cursor = new Date();
   if (!days.has(localDayKey(cursor)))
@@ -2163,14 +2249,38 @@ export function activeStreak(state: AppState) {
 }
 export function practicedMinutesToday(state: AppState) {
   const today = localDayKey(new Date());
-  const ms = state.attempts
+  const attemptMs = state.attempts
     .filter((attempt) => localDayKey(new Date(attempt.startedAt)) === today)
     .reduce((sum, attempt) => sum + attempt.durationMs, 0);
-  return Math.round(ms / 60000);
+  const reconstructionMs = state.conceptTransfer.attempts
+    .filter(
+      (attempt) =>
+        !attempt.retired &&
+        attempt.finishedAt &&
+        localDayKey(new Date(attempt.startedAt)) === today,
+    )
+    .reduce(
+      (sum, attempt) =>
+        sum +
+        Math.min(
+          3 * 60 * 60 * 1000,
+          Math.max(
+            0,
+            Date.parse(attempt.finishedAt as string) -
+              Date.parse(attempt.startedAt),
+          ),
+        ),
+      0,
+    );
+  return Math.round((attemptMs + reconstructionMs) / 60000);
 }
 
 export function recommendedStage(state: AppState, item: PracticeItem) {
-  return Math.min(5, itemStats(state, item.itemId).highestStage + 1 || 1);
+  return recommendedTypingStage(
+    state.typingProgress,
+    item.itemId,
+    item.contentRevision,
+  );
 }
 
 export function dailyItem(items: PracticeItem[], date = new Date()) {
@@ -2224,8 +2334,17 @@ export function submissionEvidence(state: AppState) {
 }
 export function milestones(state: AppState): Milestone[] {
   const completed = completedAttempts(state);
-  const independent = completed.filter(
-    (attempt) => attempt.qualification === "independent",
+  const ownedTypingItemIds = new Set(
+    [...BUILTIN_ITEMS, ...state.customItems]
+      .filter((item) =>
+        deriveTypingProgression(
+          state.typingProgress,
+          item.itemId,
+          item.contentRevision,
+          new Date().toISOString(),
+        ).owned,
+      )
+      .map((item) => item.itemId),
   );
   const hasProvenTransfer = deriveTransferProgress({
     variants: BUILTIN_ITEMS.filter((item) => Boolean(item.transfer)),
@@ -2258,7 +2377,7 @@ export function milestones(state: AppState): Milestone[] {
       id: "first-recall",
       title: "Independent recall",
       note: "Own one solution from a blank editor.",
-      achieved: independent.length > 0,
+      achieved: ownedTypingItemIds.size > 0,
     },
     {
       id: "pattern-transfer",
@@ -2276,12 +2395,8 @@ export function milestones(state: AppState): Milestone[] {
       id: "custom-ownership",
       title: "Make it yours",
       note: "Independently recall a custom Python or Swift snippet.",
-      achieved: independent.some((attempt) =>
-        state.customItems.some(
-          (item) =>
-            item.itemId === attempt.itemId &&
-            item.contentRevision === attempt.itemRevision,
-        ),
+      achieved: state.customItems.some((item) =>
+        ownedTypingItemIds.has(item.itemId),
       ),
     },
   ];

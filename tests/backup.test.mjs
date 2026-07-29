@@ -33,6 +33,14 @@ const state = {
     drafts: [{ probeId: "test-design:two-sum-distinct-index" }],
     activeSprint: { id: "test-design-sprint", status: "active" },
   },
+  typingProgress: {
+    records: [{ itemId: "two-sum", itemRevision: 1 }],
+  },
+  conceptTransfer: {
+    attempts: [{ id: "concept-transfer-attempt" }],
+    drafts: [{ attemptId: "concept-transfer-attempt" }],
+    activeAttemptId: "concept-transfer-attempt",
+  },
 };
 
 test("round trips a versioned backup envelope", () => {
@@ -64,6 +72,10 @@ test("reports a human-checkable inventory", () => {
     testDesignAttempts: 1,
     testDesignDrafts: 1,
     activeTestDesignSprints: 1,
+    typingProgressRecords: 1,
+    conceptTransferAttempts: 1,
+    conceptTransferDrafts: 1,
+    activeConceptTransferAttempts: 1,
   });
   assert.equal(hasMeaningfulBackupState(state), true);
   assert.equal(hasMeaningfulBackupState({ version: 31 }), false);
@@ -96,6 +108,65 @@ test("reports a human-checkable inventory", () => {
     backupInventory({
       testDesign: { activeSprint: { id: "finished", status: "completed" } },
     }).activeTestDesignSprints,
+    0,
+  );
+  assert.equal(
+    hasMeaningfulBackupState({
+      version: 31,
+      typingProgress: { records: [{ itemId: "typing-only" }] },
+    }),
+    true,
+  );
+  assert.equal(
+    hasMeaningfulBackupState({
+      version: 31,
+      conceptTransfer: { attempts: [{ id: "attempt-only" }], drafts: [] },
+    }),
+    true,
+  );
+  assert.equal(
+    hasMeaningfulBackupState({
+      version: 31,
+      conceptTransfer: { attempts: [], drafts: [{ attemptId: "draft-only" }] },
+    }),
+    true,
+  );
+  assert.equal(
+    hasMeaningfulBackupState({
+      version: 31,
+      conceptTransfer: {
+        attempts: [{ id: "active-only" }],
+        drafts: [],
+        activeAttemptId: "active-only",
+      },
+    }),
+    true,
+  );
+  assert.equal(
+    backupInventory({
+      conceptTransfer: {
+        attempts: [{ id: "finished", finishedAt: "2026-07-28T12:00:00.000Z" }],
+        activeAttemptId: "finished",
+      },
+    }).activeConceptTransferAttempts,
+    0,
+  );
+  assert.equal(
+    backupInventory({
+      conceptTransfer: {
+        attempts: [{ id: "retired", retired: true }],
+        activeAttemptId: "retired",
+      },
+    }).activeConceptTransferAttempts,
+    0,
+  );
+  assert.equal(
+    backupInventory({
+      conceptTransfer: {
+        attempts: [{ id: "different" }],
+        activeAttemptId: "missing",
+      },
+    }).activeConceptTransferAttempts,
     0,
   );
 });

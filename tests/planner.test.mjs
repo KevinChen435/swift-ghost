@@ -68,6 +68,99 @@ test("typing success never substitutes for independent solve evidence", () => {
   assert.match(plan.entries[0].rationale, /No independent passing solve/i);
 });
 
+test("guided typing stays in the learning ladder and never becomes a due review", () => {
+  const guided = [
+    attempt({
+      id: "worked",
+      itemId: "builtin:1",
+      practiceKind: "typing",
+      verification: undefined,
+      stage: 1,
+      qualification: "syntax",
+      corrections: 0,
+    }),
+    attempt({
+      id: "skipped-fade",
+      itemId: "builtin:1",
+      practiceKind: "typing",
+      verification: undefined,
+      stage: 3,
+      qualification: "guided",
+      corrections: 0,
+      completedAt: "2026-07-20T13:00:00.000Z",
+    }),
+  ];
+  const plan = buildDailyPlan(
+    { items: [items[3]], attempts: guided },
+    { now, budgetMinutes: 15 },
+  );
+
+  assert.equal(plan.entries[0].stage, 4);
+  assert.doesNotMatch(plan.entries[0].rationale, /due|overdue/i);
+  assert.match(plan.entries[0].rationale, /clean learning step/i);
+});
+
+test("a direct blank-editor diagnostic is remediated without being mislabeled due", () => {
+  const diagnostic = attempt({
+    id: "diagnostic",
+    itemId: "builtin:1",
+    practiceKind: "typing",
+    verification: undefined,
+    stage: 5,
+    qualification: "independent",
+    corrections: 0,
+  });
+  const plan = buildDailyPlan(
+    { items: [items[3]], attempts: [diagnostic] },
+    { now, budgetMinutes: 15 },
+  );
+
+  assert.equal(plan.entries[0].stage, 1);
+  assert.doesNotMatch(plan.entries[0].rationale, /due|overdue/i);
+  assert.match(plan.entries[0].rationale, /diagnostic/i);
+});
+
+test("only an ordered blank recall establishes a due typing review", () => {
+  const ordered = [
+    attempt({
+      id: "worked",
+      itemId: "builtin:1",
+      practiceKind: "typing",
+      verification: undefined,
+      stage: 1,
+      qualification: "syntax",
+      corrections: 0,
+    }),
+    attempt({
+      id: "faded",
+      itemId: "builtin:1",
+      practiceKind: "typing",
+      verification: undefined,
+      stage: 2,
+      qualification: "guided",
+      corrections: 0,
+      completedAt: "2026-07-20T13:00:00.000Z",
+    }),
+    attempt({
+      id: "recall",
+      itemId: "builtin:1",
+      practiceKind: "typing",
+      verification: undefined,
+      stage: 5,
+      qualification: "independent",
+      corrections: 2,
+      completedAt: "2026-07-20T14:00:00.000Z",
+    }),
+  ];
+  const plan = buildDailyPlan(
+    { items: [items[3]], attempts: ordered },
+    { now, budgetMinutes: 15 },
+  );
+
+  assert.equal(plan.entries[0].stage, 5);
+  assert.match(plan.entries[0].rationale, /due|overdue/i);
+});
+
 test("current item revisions isolate stale evidence", () => {
   const revised = { ...items[1], contentRevision: 2 };
   const plan = buildDailyPlan(

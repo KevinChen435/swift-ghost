@@ -6,6 +6,7 @@ import {
   buildSessionReplayQueue,
   normalizeSessionHistoryEntries,
 } from "../app/lib/session-recap.mjs";
+import { rebuildTypingProgression } from "../app/lib/typing-progression.mjs";
 
 const items = [
   {
@@ -150,6 +151,206 @@ test("recaps bind evidence by immutable session, item, revision, kind, and attem
   assert.equal(recap.entries[3].available, false);
 });
 
+test("session recaps distinguish guided typing success from independent recall", () => {
+  const progressionRecord = {
+    ...record,
+    completed: 3,
+    total: 3,
+    entries: [
+      {
+        itemId: "swift:window",
+        itemRevision: 2,
+        stage: 1,
+        status: "completed",
+        practiceKind: "typing",
+        attemptId: "worked-typing",
+      },
+      {
+        itemId: "swift:window",
+        itemRevision: 2,
+        stage: 3,
+        status: "completed",
+        practiceKind: "typing",
+        attemptId: "guided-typing",
+      },
+      {
+        itemId: "swift:window",
+        itemRevision: 2,
+        stage: 5,
+        status: "completed",
+        practiceKind: "typing",
+        attemptId: "independent-recall",
+      },
+    ],
+  };
+  const recap = buildSessionRecap(
+    progressionRecord,
+    [
+      {
+        ...attempts[1],
+        id: "worked-typing",
+        stage: 1,
+        qualification: "syntax",
+        accuracy: 100,
+        corrections: 0,
+        completedAt: "2026-07-28T10:01:00.000Z",
+      },
+      {
+        ...attempts[1],
+        id: "guided-typing",
+        stage: 3,
+        qualification: "guided",
+        accuracy: 100,
+        corrections: 0,
+        completedAt: "2026-07-28T10:02:00.000Z",
+      },
+      {
+        ...attempts[1],
+        id: "independent-recall",
+        stage: 5,
+        qualification: "independent",
+        accuracy: 99,
+        corrections: 0,
+        completedAt: "2026-07-28T10:03:00.000Z",
+      },
+    ],
+    items,
+  );
+
+  assert.equal(recap.strongCount, 1);
+  assert.equal(recap.weakCount, 2);
+  assert.equal(recap.entries[0].needsRetry, true);
+  assert.equal(recap.entries[1].needsRetry, true);
+  assert.equal(recap.entries[2].needsRetry, false);
+});
+
+test("session recaps keep a direct Stage 5 diagnostic weak after ordered ownership", () => {
+  const typingAttempts = [
+    {
+      ...attempts[1],
+      id: "direct-stage-five",
+      stage: 5,
+      qualification: "independent",
+      accuracy: 100,
+      corrections: 0,
+      completedAt: "2026-07-28T10:01:00.000Z",
+    },
+    {
+      ...attempts[1],
+      id: "ordered-worked",
+      stage: 1,
+      qualification: "syntax",
+      accuracy: 100,
+      corrections: 0,
+      completedAt: "2026-07-28T10:02:00.000Z",
+    },
+    {
+      ...attempts[1],
+      id: "ordered-faded",
+      stage: 3,
+      qualification: "guided",
+      accuracy: 100,
+      corrections: 0,
+      completedAt: "2026-07-28T10:03:00.000Z",
+    },
+    {
+      ...attempts[1],
+      id: "ordered-owned-recall",
+      stage: 5,
+      qualification: "independent",
+      accuracy: 100,
+      corrections: 0,
+      completedAt: "2026-07-28T10:04:00.000Z",
+    },
+  ];
+  const progression = rebuildTypingProgression(typingAttempts, {
+    revisions: new Map([["swift:window", 2]]),
+  });
+  const progressionRecord = {
+    ...record,
+    completed: 2,
+    total: 2,
+    entries: [
+      {
+        itemId: "swift:window",
+        itemRevision: 2,
+        stage: 5,
+        status: "completed",
+        practiceKind: "typing",
+        attemptId: "direct-stage-five",
+      },
+      {
+        itemId: "swift:window",
+        itemRevision: 2,
+        stage: 5,
+        status: "completed",
+        practiceKind: "typing",
+        attemptId: "ordered-owned-recall",
+      },
+    ],
+  };
+
+  const recap = buildSessionRecap(
+    progressionRecord,
+    typingAttempts,
+    items,
+    progression,
+  );
+  assert.equal(recap.strongCount, 1);
+  assert.equal(recap.weakCount, 1);
+  assert.equal(recap.entries[0].diagnosticBypass, true);
+  assert.match(recap.entries[0].evidence, /^Diagnostic only/);
+  assert.equal(recap.entries[0].needsRetry, true);
+  assert.equal(recap.entries[1].diagnosticBypass, false);
+  assert.equal(recap.entries[1].needsRetry, false);
+
+  const mixedRecap = buildSessionRecap(record, attempts, items, progression);
+  assert.equal(mixedRecap.solving.accepted, 1);
+  assert.equal(mixedRecap.concept.strong, 1);
+
+  const weak = buildSessionReplayQueue(
+    progressionRecord,
+    typingAttempts,
+    items,
+    "weak",
+    progression,
+  );
+  assert.deepEqual(weak.map((entry) => entry.itemId), ["swift:window"]);
+});
+
+test("session recaps rebuild missing typing progression and fail closed on direct Stage 5", () => {
+  const directAttempt = {
+    ...attempts[1],
+    id: "direct-without-workspace",
+    stage: 5,
+    qualification: "independent",
+    accuracy: 100,
+    corrections: 0,
+    completedAt: "2026-07-28T10:01:00.000Z",
+  };
+  const directRecord = {
+    ...record,
+    completed: 1,
+    total: 1,
+    entries: [
+      {
+        itemId: "swift:window",
+        itemRevision: 2,
+        stage: 5,
+        status: "completed",
+        practiceKind: "typing",
+        attemptId: directAttempt.id,
+      },
+    ],
+  };
+
+  const recap = buildSessionRecap(directRecord, [directAttempt], items);
+  assert.equal(recap.strongCount, 0);
+  assert.equal(recap.weakCount, 1);
+  assert.equal(recap.entries[0].diagnosticBypass, true);
+  assert.equal(recap.entries[0].needsRetry, true);
+});
+
 test("a mismatched attempt id is disclosed instead of guessed from another record", () => {
   const mismatched = {
     ...record,
@@ -256,16 +457,19 @@ test("current state persists session snapshots while retaining the complete fall
   const product = await readFile(new URL("../app/lib/product.ts", import.meta.url), "utf8");
   const app = await readFile(new URL("../app/components/SwiftGhostApp.tsx", import.meta.url), "utf8");
   const recapUi = await readFile(new URL("../app/components/SessionRecap.tsx", import.meta.url), "utf8");
-  assert.match(product, /version: 31;/);
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v31"/);
+  assert.match(product, /version: 32;/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v32"/);
+  assert.match(product, /THIRTY_FIRST_STORAGE_KEY = "swift-ghost-state-v31"/);
   assert.match(product, /THIRTIETH_STORAGE_KEY = "swift-ghost-state-v30"/);
-  assert.match(product, /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+THIRTIETH_STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY/);
+  assert.match(product, /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+THIRTY_FIRST_STORAGE_KEY,\s+THIRTIETH_STORAGE_KEY,\s+TWENTY_NINTH_STORAGE_KEY/);
   assert.match(product, /TWENTY_SIXTH_STORAGE_KEY = "swift-ghost-state-v26"/);
   assert.match(product, /entries\?: SessionQueueEntry\[\]/);
   assert.match(product, /kind === "practice" && stateVersion >= 27[\s\S]*normalizeSessionHistoryEntries\(raw\.entries\)/);
   assert.match(app, /entries: entries\.slice\(0, 20\)\.map/);
   assert.match(app, /entry\.itemId === active\.itemId[\s\S]*attemptId: attempt\.id/);
   assert.match(app, /sessionHistoryRecord\(archivedSession, archivedEntries, "ended"\)/);
+  assert.match(app, /buildSessionReplayQueue\(\s*record,\s*current\.attempts,\s*curriculumItems,\s*mode,\s*current\.typingProgress,\s*\)/);
+  assert.match(recapUi, /buildSessionRecap\(record, state\.attempts, items, state\.typingProgress\)/);
   assert.match(recapUi, /Retry weak items/);
   assert.match(recapUi, /Replay available set/);
 });
