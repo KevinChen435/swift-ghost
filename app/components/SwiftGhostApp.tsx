@@ -50,6 +50,7 @@ import { SolveWorkbench, type MobilePane } from "./SolveWorkbench";
 import { MockNotebook } from "./MockNotebook";
 import { MockDebriefDialog } from "./MockDebriefDialog";
 import { CatalogLibrary } from "./CatalogLibrary";
+import { SessionRecap } from "./SessionRecap";
 import { CustomChallengeDialog } from "./CustomChallengeDialog";
 import { SubmissionWorkLog } from "./SubmissionWorkLog";
 import { SolutionReviewWorkspace } from "./SolutionReviewWorkspace";
@@ -91,6 +92,10 @@ import {
   type SessionStageMode,
   type SessionTrack,
 } from "../lib/sessions.mjs";
+import {
+  buildSessionReplayQueue,
+  type SessionReplayMode,
+} from "../lib/session-recap.mjs";
 import {
   parseRoute,
   resolveRouteItem,
@@ -570,13 +575,30 @@ function sessionHistoryRecord(
     completedAt,
     completed: entries.filter((entry) => entry.status === "completed").length,
     total: entries.length,
+    outcome,
+    ...(session.kind === "practice"
+      ? {
+          entries: entries.slice(0, 20).map((entry) => ({
+            itemId: entry.itemId,
+            itemRevision: entry.itemRevision,
+            stage: entry.stage,
+            status: entry.status,
+            practiceKind: entry.practiceKind ?? "typing",
+            ...(entry.attemptId ? { attemptId: entry.attemptId } : {}),
+            ...(entry.estimatedMinutes
+              ? { estimatedMinutes: entry.estimatedMinutes }
+              : {}),
+            ...(entry.rationale ? { rationale: entry.rationale } : {}),
+            ...(entry.lane ? { lane: entry.lane } : {}),
+          })),
+        }
+      : {}),
     studyPlanId: session.studyPlanId,
     studyCollectionIds: session.studyCollectionIds,
     laneMinutes,
     ...(session.kind === "mock"
       ? {
           durationMinutes: session.durationMinutes,
-          outcome,
           mockPreset: session.mockPreset,
           problemCount: session.problemCount,
           problems: session.mockProblems ?? [],
@@ -722,6 +744,7 @@ export default function SwiftGhostApp() {
       normalizeSubmissionWorkLogQuery(DEFAULT_SUBMISSION_WORK_LOG_QUERY),
     );
   const [assessmentRouteId, setAssessmentRouteId] = useState<string>();
+  const [selectedSessionId, setSelectedSessionId] = useState<string>();
   const [selectedId, setSelectedId] = useState<ItemId>(BUILTIN_ITEMS[0].itemId);
   const [stage, setStage] = useState(1);
   const [reveal, setReveal] = useState(false);
@@ -825,6 +848,7 @@ export default function SwiftGhostApp() {
         ),
       );
       setAssessmentRouteId(route.assessment);
+      setSelectedSessionId(route.sessionId);
       setSelectedId(initialItem.itemId);
       setStage(
         initialPracticeKind === "solving"
@@ -892,6 +916,15 @@ export default function SwiftGhostApp() {
         if (canonicalHref !== currentHref)
           window.history.replaceState({}, "", canonicalHref);
       }
+      if (route.view === "sessions") {
+        const canonicalHref = serializeRoute(
+          { view: "sessions", sessionId: route.sessionId },
+          window.location.href,
+        );
+        const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        if (canonicalHref !== currentHref)
+          window.history.replaceState({}, "", canonicalHref);
+      }
       setNow(Date.now());
       setReady(true);
     }, 0);
@@ -953,6 +986,7 @@ export default function SwiftGhostApp() {
         ),
       );
       setAssessmentRouteId(route.assessment);
+      setSelectedSessionId(route.sessionId);
       if (routed) setSelectedId(routed.itemId);
       if (nextPracticeKind === "solving") setStage(5);
       else if (nextPracticeKind === "concept") setStage(route.stage ?? 5);
@@ -1583,6 +1617,7 @@ export default function SwiftGhostApp() {
     if (blockVirtualRoundNavigation()) return;
     setView(nextView);
     setAssessmentRouteId(undefined);
+    setSelectedSessionId(undefined);
     setResult(null);
     if (nextView === "records") {
       setRecordsSection("overview");
@@ -1597,6 +1632,61 @@ export default function SwiftGhostApp() {
       nextView === "library"
         ? { view: "library", catalog: catalogQuery }
         : { view: nextView },
+    );
+  }
+
+  function openSessionRecap(sessionId: string, replace = false) {
+    if (blockVirtualRoundNavigation()) return;
+    setView("sessions");
+    setSelectedSessionId(sessionId);
+    writeRoute({ view: "sessions", sessionId }, replace);
+  }
+
+  function closeSessionRecap() {
+    setSelectedSessionId(undefined);
+    writeRoute({ view: "sessions" }, true);
+  }
+
+  function replayPracticeSession(
+    sessionId: string,
+    mode: SessionReplayMode,
+  ) {
+    const current = stateRef.current;
+    const record = current.sessionHistory.find(
+      (candidate) => candidate.id === sessionId && candidate.kind === "practice",
+    );
+    if (!record) {
+      setToast("That practice-session recap is no longer available");
+      return;
+    }
+    const entries = buildSessionReplayQueue(
+      record,
+      current.attempts,
+      curriculumItems,
+      mode,
+    );
+    if (!entries.length) {
+      setToast(
+        mode === "weak"
+          ? "No retry candidates are available in the current catalog"
+          : "No items from that session are available in the current catalog",
+      );
+      return;
+    }
+    startSession(
+      {
+        name: `${record.name} · ${mode === "weak" ? "Weak-item retry" : "Replay"}`,
+        count: entries.length,
+        source: "mixed",
+        track: "all",
+        language: "all",
+        pattern: "All",
+        difficulty: "All",
+        stageMode: "recommended",
+        studyPlanId: record.studyPlanId,
+        studyCollectionIds: record.studyCollectionIds,
+      },
+      entries,
     );
   }
 
@@ -2188,8 +2278,21 @@ export default function SwiftGhostApp() {
     );
     if (!activeItem) return { ...synchronized, draft: null };
     const attempt = createAttempt(active, activeItem, "abandoned", synchronized);
+    const currentSession = synchronized.activeSession;
+    let activeSession = currentSession;
+    if (currentSession && currentSession.id === active.sessionId) {
+      activeSession = {
+        ...currentSession,
+        entries: currentSession.entries.map((entry, index) =>
+          index === currentSession.currentIndex && entry.itemId === active.itemId
+            ? { ...entry, attemptId: attempt.id }
+            : entry,
+        ),
+      };
+    }
     return {
       ...synchronized,
+      activeSession,
       attempts: [...synchronized.attempts, attempt].slice(-1000),
       draft: null,
     };
@@ -4792,12 +4895,19 @@ export default function SwiftGhostApp() {
           current.draft?.sessionId === session.id
             ? recordAbandon(current)
             : current;
+        const archivedSession =
+          base.activeSession?.id === session.id ? base.activeSession : session;
+        const archivedEntries = archivedSession.entries.map((entry, index) =>
+          index === archivedSession.currentIndex
+            ? { ...entry, status: "skipped" as const }
+            : entry,
+        );
         return {
           ...base,
           activeSession: null,
           sessionHistory: [
             ...base.sessionHistory,
-            sessionHistoryRecord(session, entries, "ended"),
+            sessionHistoryRecord(archivedSession, archivedEntries, "ended"),
           ].slice(-25),
         };
       });
@@ -4806,8 +4916,26 @@ export default function SwiftGhostApp() {
       setToast("Session finished");
       return;
     }
-    const nextSession = { ...session, entries, currentIndex: nextIndex };
-    mutateState((current) => ({ ...current, activeSession: nextSession }));
+    mutateState((current) => {
+      const base =
+        current.draft?.sessionId === session.id
+          ? recordAbandon(current)
+          : current;
+      const activeSession =
+        base.activeSession?.id === session.id ? base.activeSession : session;
+      return {
+        ...base,
+        activeSession: {
+          ...activeSession,
+          entries: activeSession.entries.map((entry, index) =>
+            index === activeSession.currentIndex
+              ? { ...entry, status: "skipped" as const }
+              : entry,
+          ),
+          currentIndex: nextIndex,
+        },
+      };
+    });
     const next = allItems.find(
       (candidate) => candidate.itemId === entries[nextIndex].itemId,
     );
@@ -5135,8 +5263,11 @@ export default function SwiftGhostApp() {
       }
     }
     if (result.sessionComplete) {
+      const completedSessionId = result.sessionId;
       setResult(null);
-      navigateView("sessions");
+      if (completedSessionId && !result.mockInterview)
+        openSessionRecap(completedSessionId);
+      else navigateView("sessions");
       setToast(result.mockInterview ? "Mock verified and saved" : "Session complete");
       return;
     }
@@ -5520,6 +5651,7 @@ export default function SwiftGhostApp() {
         <SessionsView
           state={state}
           items={curriculumItems}
+          selectedSessionId={selectedSessionId}
           onStart={startSession}
           onStartMock={startMockInterview}
           onStartInterview={startInterviewStudio}
@@ -5532,6 +5664,18 @@ export default function SwiftGhostApp() {
           onSkip={skipSessionEntry}
           onEnd={endSession}
           onOpenMockDebrief={setMockReviewSessionId}
+          onOpenSessionRecap={openSessionRecap}
+          onCloseSessionRecap={closeSessionRecap}
+          onReplaySession={replayPracticeSession}
+          onOpenItem={(item, nextStage, nextPracticeKind) =>
+            openItem(
+              item,
+              nextStage,
+              undefined,
+              undefined,
+              nextPracticeKind,
+            )
+          }
         />
       )}
       {view === "assessments" && assessmentRouteId === "transfer-lab" && (
@@ -7968,6 +8112,7 @@ function PracticeView(props: PracticeProps) {
 function SessionsView({
   state,
   items,
+  selectedSessionId,
   onStart,
   onStartMock,
   onStartInterview,
@@ -7980,9 +8125,14 @@ function SessionsView({
   onSkip,
   onEnd,
   onOpenMockDebrief,
+  onOpenSessionRecap,
+  onCloseSessionRecap,
+  onReplaySession,
+  onOpenItem,
 }: {
   state: AppState;
   items: PracticeItem[];
+  selectedSessionId?: string;
   onStart: (
     options: SessionBuildOptions,
     entries?: SessionQueueEntry[],
@@ -8005,6 +8155,14 @@ function SessionsView({
   onSkip: () => void;
   onEnd: () => void;
   onOpenMockDebrief: (sessionId: string) => void;
+  onOpenSessionRecap: (sessionId: string) => void;
+  onCloseSessionRecap: () => void;
+  onReplaySession: (sessionId: string, mode: SessionReplayMode) => void;
+  onOpenItem: (
+    item: PracticeItem,
+    stage: number,
+    practiceKind?: PracticeKind,
+  ) => void;
 }) {
   const [name, setName] = useState("Focused interview set");
   const [count, setCount] = useState(5);
@@ -8068,6 +8226,38 @@ function SessionsView({
     active?.kind === "mock"
       ? (mockInterviewRemainingMs(active, now) ?? 0)
       : null;
+  const selectedSession = selectedSessionId
+    ? state.sessionHistory.find(
+        (session) =>
+          session.id === selectedSessionId && session.kind === "practice",
+      )
+    : undefined;
+  if (selectedSessionId) {
+    return (
+      <main id="main-content" tabIndex={-1} className="page-container sessions-page">
+        {selectedSession ? (
+          <SessionRecap
+            record={selectedSession}
+            state={state}
+            items={items}
+            onBack={onCloseSessionRecap}
+            onReplay={(mode) => onReplaySession(selectedSession.id, mode)}
+            onOpenItem={onOpenItem}
+          />
+        ) : (
+          <section className="session-recap session-recap-missing" role="status">
+            <button className="text-button" type="button" onClick={onCloseSessionRecap}>
+              ← All sessions
+            </button>
+            <h2>That session recap is unavailable.</h2>
+            <p>
+              The link may point to a record that was removed by the bounded local history or restored from another device.
+            </p>
+          </section>
+        )}
+      </main>
+    );
+  }
   return (
     <main id="main-content" tabIndex={-1} className="page-container sessions-page">
       <PageHeading
@@ -8656,6 +8846,17 @@ function SessionsView({
                         ? "Open debrief"
                         : "Debrief mock"}
                     </button>
+                  ) : session.kind === "practice" ? (
+                    <>
+                      <b>{`${session.completed}/${session.total}`}</b>
+                      <button
+                        className="outline-button"
+                        type="button"
+                        onClick={() => onOpenSessionRecap(session.id)}
+                      >
+                        {session.entries?.length ? "Open recap" : "View summary"}
+                      </button>
+                    </>
                   ) : (
                     <b>{`${session.completed}/${session.total}`}</b>
                   )}
@@ -9737,12 +9938,12 @@ function SettingsView({
           <small>Your data</small>
           <h2>Local profile</h2>
           <p>
-            Export a portable v26 JSON backup with Python, Swift, iOS, assessments, plans, sessions,
+            Export a portable v27 JSON backup with Python, Swift, iOS, assessments, plans, sessions,
             learning debriefs, revisioned snippets, local pacing and weak-line
             analytics, community preferences, structured custom testcases, and
             local submission snapshots, mock notebooks and debriefs, Interview
             Studio transcripts and criteria, transfer evidence, authored local
-            challenges, virtual-round reports, per-problem notes, or restore any v2-v25 backup.
+            challenges, virtual-round reports, per-problem notes, routeable session recaps, or restore any v2-v26 backup.
           </p>
         </div>
         <div className="data-actions">

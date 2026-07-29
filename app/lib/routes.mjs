@@ -73,6 +73,15 @@ function cleanTransferRecordId(value) {
     : undefined;
 }
 
+function cleanSessionId(value) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return /^[a-zA-Z0-9](?:[a-zA-Z0-9._:-]{0,158}[a-zA-Z0-9])?$/.test(
+    normalized,
+  )
+    ? normalized
+    : undefined;
+}
+
 function legacyCatalogLanes(params) {
   if (params.has("lane")) return [];
   if (params.get("track") === "ios") return ["ios"];
@@ -178,6 +187,8 @@ export function parseRoute(input) {
     recordsSection === "transfer" && transferVariantId
       ? cleanTransferRecordId(params.get("attempt"))
       : undefined;
+  const sessionId =
+    view === "sessions" ? cleanSessionId(params.get("session")) : undefined;
   return {
     view,
     language,
@@ -188,6 +199,7 @@ export function parseRoute(input) {
     communityTab,
     profile,
     assessment,
+    ...(sessionId ? { sessionId } : {}),
     ...(view === "library" ? { catalog: catalogQueryFromParams(params) } : {}),
     ...(recordsSection
       ? {
@@ -353,6 +365,10 @@ export function serializeRoute(
     if (transferVariantId) url.searchParams.set("variant", transferVariantId);
     if (transferVariantId && transferAttemptId)
       url.searchParams.set("attempt", transferAttemptId);
+  }
+  if (view === "sessions") {
+    const sessionId = cleanSessionId(route?.sessionId);
+    if (sessionId) url.searchParams.set("session", sessionId);
   }
   const assessment =
     view === "assessments" ? cleanAssessmentId(route?.assessment) : undefined;

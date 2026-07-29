@@ -18,6 +18,31 @@ test("study plans have a first-class reload-safe route", () => {
   );
 });
 
+test("practice-session recaps have a bounded reload-safe route", () => {
+  const route = parseRoute("/?view=sessions&session=session_01-recap:2");
+  assert.equal(route.view, "sessions");
+  assert.equal(route.sessionId, "session_01-recap:2");
+  assert.equal(
+    serializeRoute(route, "https://example.test/swift-ghost/?stale=1"),
+    "/swift-ghost/?view=sessions&session=session_01-recap%3A2",
+  );
+  assert.equal(
+    parseRoute("/?view=sessions&session=../../private").sessionId,
+    undefined,
+  );
+  assert.equal(
+    parseRoute("/?view=library&session=session-1").sessionId,
+    undefined,
+  );
+  assert.doesNotMatch(
+    serializeRoute(
+      { view: "library", sessionId: "session-1" },
+      "https://example.test/",
+    ),
+    /session=/,
+  );
+});
+
 test("assessments have reload-safe list and detail routes", () => {
   assert.deepEqual(parseRoute("/?view=assessments&assessment=python-reentry"), {
     view: "assessments",
