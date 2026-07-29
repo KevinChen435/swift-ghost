@@ -123,6 +123,38 @@ test("longitudinal readiness trends have a canonical Records route", () => {
   );
 });
 
+test("transfer evidence routes preserve only bounded variant and attempt identities", () => {
+  const route = parseRoute(
+    "/swift-ghost/?view=records&section=transfer&variant=transfer%3A20001&attempt=attempt_01-review%3A2&verdict=accepted",
+  );
+  assert.equal(route.view, "records");
+  assert.equal(route.recordsSection, "transfer");
+  assert.equal(route.transferVariantId, "transfer:20001");
+  assert.equal(route.transferAttemptId, "attempt_01-review:2");
+  assert.equal(route.reviewAttemptId, undefined);
+  assert.equal(route.submissions, undefined);
+  assert.equal(
+    serializeRoute(route, "https://example.test/swift-ghost/?stale=1"),
+    "/swift-ghost/?view=records&section=transfer&variant=transfer%3A20001&attempt=attempt_01-review%3A2",
+  );
+
+  const missingVariant = parseRoute(
+    "/?view=records&section=transfer&attempt=attempt-1",
+  );
+  assert.equal(missingVariant.transferVariantId, undefined);
+  assert.equal(missingVariant.transferAttemptId, undefined);
+  assert.equal(
+    parseRoute("/?view=records&section=transfer&variant=../../private")
+      .transferVariantId,
+    undefined,
+  );
+  assert.equal(
+    parseRoute("/?view=library&section=transfer&variant=transfer:20001")
+      .transferVariantId,
+    undefined,
+  );
+});
+
 const items = [
   {
     itemId: "builtin:1",

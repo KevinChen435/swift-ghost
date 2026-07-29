@@ -8,6 +8,7 @@ export type CommunityTab = "recent" | "records" | "daily" | "profile";
 export type RecordsSection =
   | "overview"
   | "trends"
+  | "transfer"
   | "submissions"
   | "reviews";
 export type AppRoute = {
@@ -24,6 +25,8 @@ export type AppRoute = {
   recordsSection?: RecordsSection;
   submissions?: SubmissionWorkLogQuery;
   reviewAttemptId?: string;
+  transferVariantId?: string;
+  transferAttemptId?: string;
 };
 
 export const ROUTE_VIEWS: View[];

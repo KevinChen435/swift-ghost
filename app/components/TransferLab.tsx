@@ -43,6 +43,7 @@ export interface TransferLabProps {
   recommendedVariantId?: string;
   totals: TransferTotals;
   onStart: (variantId: string) => void;
+  onReview: (variantId: string) => void;
   onBack: () => void;
 }
 
@@ -157,6 +158,7 @@ export function TransferLab({
   recommendedVariantId,
   totals,
   onStart,
+  onReview,
   onBack,
 }: TransferLabProps) {
   const recommended = variants.find((variant) => variant.id === recommendedVariantId);
@@ -301,9 +303,22 @@ export function TransferLab({
                   {variant.attemptedAtLabel ? <time>{variant.attemptedAtLabel}</time> : null}
                 </div>
                 <EvidenceList labels={variant.evidenceLabels} variantLabel={variant.displayLabel} />
-                <button className="text-button" type="button" onClick={() => onStart(variant.id)}>
-                  Review or retry <span aria-hidden="true">→</span>
-                </button>
+                <div className="transfer-history-actions">
+                  <button
+                    className="text-button"
+                    type="button"
+                    onClick={() => onReview(variant.id)}
+                  >
+                    Review evidence <span aria-hidden="true">→</span>
+                  </button>
+                  <button
+                    className="outline-button"
+                    type="button"
+                    onClick={() => onStart(variant.id)}
+                  >
+                    {variant.status === "due" ? "Start due recheck" : "Retry variant"}
+                  </button>
+                </div>
               </li>
             ))}
           </ul>

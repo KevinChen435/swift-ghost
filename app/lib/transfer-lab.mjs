@@ -383,6 +383,15 @@ function contaminatedBefore(exposure, solveAt) {
   );
 }
 
+function hintedBefore(exposure, solveAt) {
+  if (!exposure) return false;
+  const solveTime = timeMs(solveAt);
+  if (solveTime === null) return true;
+  const firstHintTime = timeMs(exposure.firstHintedAt);
+  if (exposure.maxHintLevel > 0 && firstHintTime === null) return true;
+  return firstHintTime !== null && firstHintTime <= solveTime;
+}
+
 function cappedCount(value) {
   return Math.min(MAX_EVIDENCE_COUNT, value);
 }
@@ -395,18 +404,77 @@ function latestIso(values) {
   return values.reduce((latest, value) => later(latest, value), null);
 }
 
-function spacedSolveSchedule(events) {
-  if (!events.length) return { spacedEvents: [], dueAt: null };
-  const spacedEvents = [events[0]];
-  let dueTime = Date.parse(events[0].at) + REVIEW_DAYS[0] * DAY_MS;
-  for (const event of events.slice(1)) {
-    const eventTime = Date.parse(event.at);
-    if (eventTime < dueTime) continue;
-    spacedEvents.push(event);
-    const interval = REVIEW_DAYS[Math.min(spacedEvents.length - 1, REVIEW_DAYS.length - 1)];
-    dueTime = eventTime + interval * DAY_MS;
+function classifiedSolveSchedule(events, exposure) {
+  const firstColdIndex = events.findIndex(
+    (event) => !contaminatedBefore(exposure, event.at),
+  );
+  if (firstColdIndex < 0) {
+    return {
+      evidenceEvents: events.map((event) => ({
+        ...event,
+        evidenceClass: "assisted-reconstruction",
+        advancesSchedule: false,
+        intervalIndex: null,
+        nextDueAt: null,
+      })),
+      spacedEvents: [],
+      dueAt: null,
+    };
   }
-  return { spacedEvents, dueAt: new Date(dueTime).toISOString() };
+
+  let spacedCount = 0;
+  let dueTime = null;
+  const spacedEvents = [];
+  const evidenceEvents = events.map((event, index) => {
+    const eventTime = Date.parse(event.at);
+    if (index < firstColdIndex || hintedBefore(exposure, event.at)) {
+      return {
+        ...event,
+        evidenceClass: "assisted-reconstruction",
+        advancesSchedule: false,
+        intervalIndex: null,
+        nextDueAt: dueTime === null ? null : new Date(dueTime).toISOString(),
+      };
+    }
+    if (index === firstColdIndex) {
+      spacedEvents.push(event);
+      dueTime = eventTime + REVIEW_DAYS[0] * DAY_MS;
+      return {
+        ...event,
+        evidenceClass: "cold-proof",
+        advancesSchedule: true,
+        intervalIndex: 0,
+        nextDueAt: new Date(dueTime).toISOString(),
+      };
+    }
+    if (dueTime !== null && eventTime >= dueTime) {
+      spacedCount += 1;
+      spacedEvents.push(event);
+      const interval = REVIEW_DAYS[
+        Math.min(spacedCount, REVIEW_DAYS.length - 1)
+      ];
+      dueTime = eventTime + interval * DAY_MS;
+      return {
+        ...event,
+        evidenceClass: "spaced-recheck",
+        advancesSchedule: true,
+        intervalIndex: spacedCount,
+        nextDueAt: new Date(dueTime).toISOString(),
+      };
+    }
+    return {
+      ...event,
+      evidenceClass: "early-reconstruction",
+      advancesSchedule: false,
+      intervalIndex: null,
+      nextDueAt: dueTime === null ? null : new Date(dueTime).toISOString(),
+    };
+  });
+  return {
+    evidenceEvents,
+    spacedEvents,
+    dueAt: dueTime === null ? null : new Date(dueTime).toISOString(),
+  };
 }
 
 function eligibleVariant(variant, eligibleVariantIds) {
@@ -483,7 +551,21 @@ export function deriveTransferProgress(input = {}) {
         : deduplicatedSolveEvents
             .slice(initialSolveIndex)
             .filter((event) => !contaminatedBefore(exposure, event.at));
-    const { spacedEvents, dueAt } = spacedSolveSchedule(independentSolveEvents);
+    // A debrief reveal permanently means later work is not another cold solve,
+    // but it must not make spaced retrieval impossible. Once a genuine cold
+    // proof exists, later attempt-specific clean solves can advance the review
+    // cadence. A recorded hint still blocks later evidence because the
+    // aggregate exposure model cannot safely prove which subsequent attempt it
+    // influenced.
+    const { evidenceEvents, spacedEvents, dueAt } = classifiedSolveSchedule(
+      deduplicatedSolveEvents,
+      exposure,
+    );
+    const unassistedRetestEvents = evidenceEvents.filter(
+      (event) =>
+        event.evidenceClass === "spaced-recheck" ||
+        event.evidenceClass === "early-reconstruction",
+    );
     const isProven = spacedEvents.length > 0;
     const isDue = Boolean(isProven && dueAt && Date.parse(dueAt) <= nowTime);
     const hasAnyEvidence = allAttempts.length > 0 || allSubmissions.length > 0;
@@ -544,7 +626,9 @@ export function deriveTransferProgress(input = {}) {
       submissionCount: cappedCount(currentSubmissions.length),
       failedSubmissionCount: cappedCount(failedSubmissionCount),
       independentSolveCount: cappedCount(independentSolveEvents.length),
+      unassistedRetestCount: cappedCount(unassistedRetestEvents.length),
       spacedSolveCount: cappedCount(spacedEvents.length),
+      solveEvidenceEvents: evidenceEvents,
       firstProvenAt: spacedEvents[0]?.at ?? null,
       lastProvenAt: spacedEvents.at(-1)?.at ?? null,
       dueAt,
