@@ -24,6 +24,7 @@ import {
 import { correctPositionCount } from "./typing-engine.mjs";
 import { supportsConceptPractice } from "./concept-practice.mjs";
 import { resolveSessionCurrentIndex } from "./sessions.mjs";
+import { normalizeSessionHistoryEntries } from "./session-recap.mjs";
 import {
   applyDebriefToReviewState,
   normalizeLearningEvents,
@@ -283,6 +284,7 @@ export type SessionHistoryRecord = {
   completedAt: string;
   completed: number;
   total: number;
+  entries?: SessionQueueEntry[];
   durationMinutes?: number;
   outcome?: "completed" | "ended" | "expired";
   mockPreset?: "screen" | "standard" | "stretch";
@@ -301,7 +303,7 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 26;
+  version: 27;
   attempts: AttemptRecord[];
   submissionLog: SubmissionLog;
   submissionAnnotations: SubmissionAnnotations;
@@ -327,7 +329,8 @@ export type AppState = {
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v26";
+export const STORAGE_KEY = "swift-ghost-state-v27";
+export const TWENTY_SIXTH_STORAGE_KEY = "swift-ghost-state-v26";
 export const TWENTY_FIFTH_STORAGE_KEY = "swift-ghost-state-v25";
 export const TWENTY_FOURTH_STORAGE_KEY = "swift-ghost-state-v24";
 export const TWENTY_THIRD_STORAGE_KEY = "swift-ghost-state-v23";
@@ -353,10 +356,11 @@ export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
-  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
 ];
 export const STATE_STORAGE_KEYS = [
   STORAGE_KEY,
+  TWENTY_SIXTH_STORAGE_KEY,
   TWENTY_FIFTH_STORAGE_KEY,
   TWENTY_FOURTH_STORAGE_KEY,
   TWENTY_THIRD_STORAGE_KEY,
@@ -397,7 +401,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 26,
+  version: 27,
   attempts: [],
   submissionLog: createSubmissionLog(),
   submissionAnnotations: {},
@@ -938,11 +942,17 @@ const MOCK_HISTORY_PAYLOAD_BYTE_LIMIT = 1024 * 1024;
 function normalizeSessionHistory(
   value: unknown,
   validIds: Set<ItemId>,
+  stateVersion: number,
 ): SessionHistoryRecord[] {
   if (!Array.isArray(value)) return [];
   const records = value
     .flatMap((raw): SessionHistoryRecord[] => {
-      if (!isRecord(raw) || typeof raw.id !== "string") return [];
+      if (
+        !isRecord(raw) ||
+        typeof raw.id !== "string" ||
+        !/^[a-zA-Z0-9](?:[a-zA-Z0-9._:-]{0,158}[a-zA-Z0-9])?$/.test(raw.id)
+      )
+        return [];
       const kind = raw.kind === "mock" ? "mock" : "practice";
       const rawTotal = Math.round(
         finiteNumber(raw.total, 1, 1, kind === "mock" ? 2 : 20),
@@ -955,8 +965,15 @@ function normalizeSessionHistory(
       // Mock history has one authoritative queue size. Keeping total and
       // problemCount aligned prevents a malformed import from claiming that a
       // two-problem debrief belongs to a one-problem session (or vice versa).
-      const total = kind === "mock" ? problemCount : rawTotal;
-      const completed = Math.round(finiteNumber(raw.completed, 0, 0, total));
+      const entries =
+        kind === "practice" && stateVersion >= 27
+          ? normalizeSessionHistoryEntries(raw.entries)
+          : [];
+      const total =
+        kind === "mock" ? problemCount : entries.length || rawTotal;
+      const completed = entries.length
+        ? entries.filter((entry) => entry.status === "completed").length
+        : Math.round(finiteNumber(raw.completed, 0, 0, total));
       const problems =
         kind === "mock"
           ? normalizeMockProblemWorkspaces(raw.problems, {
@@ -991,6 +1008,7 @@ function normalizeSessionHistory(
               : new Date(0).toISOString(),
           completed,
           total,
+          ...(entries.length ? { entries } : {}),
           studyPlanId:
             typeof raw.studyPlanId === "string" &&
             /^[\w:.-]{1,120}$/.test(raw.studyPlanId)
@@ -1043,7 +1061,15 @@ function normalizeSessionHistory(
                 problems,
                 ...(debrief ? { debrief } : {}),
               }
-            : {}),
+            : {
+                outcome: (["completed", "ended"] as const).includes(
+                  raw.outcome as "completed" | "ended",
+                )
+                  ? (raw.outcome as "completed" | "ended")
+                  : completed === total
+                    ? "completed"
+                    : "ended",
+              }),
         },
       ];
     })
@@ -1594,7 +1620,11 @@ export function normalizeState(value: unknown): AppState {
     Number(value.version) >= 23 ? value.submissionAnnotations : undefined,
     new Set(submissionLog.receipts.map((receipt) => receipt.id)),
   );
-  const sessionHistory = normalizeSessionHistory(value.sessionHistory, validIds);
+  const sessionHistory = normalizeSessionHistory(
+    value.sessionHistory,
+    validIds,
+    Number(value.version),
+  );
   const submissionsById = new Map(
     submissionLog.receipts.map((receipt) => [receipt.id, receipt]),
   );
@@ -1622,7 +1652,7 @@ export function normalizeState(value: unknown): AppState {
       .map((attempt) => attempt.id),
   );
   return {
-    version: 26,
+    version: 27,
     attempts,
     submissionLog,
     submissionAnnotations,

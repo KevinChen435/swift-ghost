@@ -7,14 +7,14 @@ test("state v23 preserves virtual rounds after the complete v22 fallback", async
     new URL("../app/lib/product.ts", import.meta.url),
     "utf8",
   );
-  assert.match(product, /export type AppState = \{\s+version: 26;/);
+  assert.match(product, /export type AppState = \{\s+version: 27;/);
   assert.match(product, /virtualRoundWorkspace: VirtualRoundWorkspace/);
-  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v26"/);
+  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v27"/);
   assert.match(product, /TWENTY_SECOND_STORAGE_KEY = "swift-ghost-state-v22"/);
   assert.match(product, /TWENTY_FIRST_STORAGE_KEY = "swift-ghost-state-v21"/);
   assert.match(
     product,
-    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_FIFTH_STORAGE_KEY,\s+TWENTY_FOURTH_STORAGE_KEY,\s+TWENTY_THIRD_STORAGE_KEY,\s+TWENTY_SECOND_STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY/,
+    /STATE_STORAGE_KEYS = \[\s+STORAGE_KEY,\s+TWENTY_SIXTH_STORAGE_KEY,\s+TWENTY_FIFTH_STORAGE_KEY,\s+TWENTY_FOURTH_STORAGE_KEY,\s+TWENTY_THIRD_STORAGE_KEY,\s+TWENTY_SECOND_STORAGE_KEY,\s+TWENTY_FIRST_STORAGE_KEY/,
   );
   assert.match(product, /virtualRoundWorkspace: createVirtualRoundWorkspace\(\)/);
   assert.match(
@@ -126,7 +126,7 @@ test("backup copy advertises the v23 schema and all older supported imports", as
     new URL("../app/components/SwiftGhostApp.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(app, /Export a portable v26 JSON backup/);
-  assert.match(app, /restore any v2-v25 backup/);
+  assert.match(app, /Export a portable v27 JSON backup/);
+  assert.match(app, /restore any v2-v26 backup/);
   assert.match(app, /virtual-round reports/);
 });

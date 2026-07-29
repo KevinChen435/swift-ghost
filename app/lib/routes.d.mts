@@ -27,6 +27,7 @@ export type AppRoute = {
   reviewAttemptId?: string;
   transferVariantId?: string;
   transferAttemptId?: string;
+  sessionId?: string;
 };
 
 export const ROUTE_VIEWS: View[];

@@ -35,6 +35,7 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - Spaced review at 1, 3, 7, 14, and 30 days, with lapses returning tomorrow
 - Device-local custom Python or Swift snippets with safe content revisions and learning milestones
 - Persistent multi-problem sessions with independent track, source, category, difficulty, count, and recall-policy controls, plus mixed typing, concept-recall, and verified-solve tasks from the Daily Coach
+- Routeable practice-session recaps with frozen queue order, attempt-ID-bound per-item evidence, honest legacy-history disclosure, current-revision replay, and targeted weak-item retries
 - Reload-safe 30-, 45-, and 60-minute mock interviews with an exact one- or two-problem format, one absolute deadline, direct problem-to-problem advancement, and no interim coaching or reference-solution reveal; published prompt examples remain visible
 - A private interview notebook for clarifications, approach, invariant, complexity, edge cases, and final explanation, plus first-write checkpoints for prompt, approach, coding, testing, completion, and explanation
 - History-backed post-mock debriefs for completed, ended, and expired interviews, with both problem workspaces, bounded source snapshots, a five-dimension 0–2 rubric, mistake tags, and reflection prompts

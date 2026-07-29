@@ -12,8 +12,8 @@ test("state v17 preserves multi-problem mock notebooks and debriefs", async () =
     "utf8",
   );
 
-  assert.match(product, /export type AppState = \{\s+version: 26;/);
-  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v26"/);
+  assert.match(product, /export type AppState = \{\s+version: 27;/);
+  assert.match(product, /export const STORAGE_KEY = "swift-ghost-state-v27"/);
   assert.match(product, /TWENTY_FIRST_STORAGE_KEY = "swift-ghost-state-v21"/);
   assert.match(product, /TWENTIETH_STORAGE_KEY = "swift-ghost-state-v20"/);
   assert.match(product, /NINETEENTH_STORAGE_KEY = "swift-ghost-state-v19"/);
@@ -39,7 +39,7 @@ test("state v17 preserves multi-problem mock notebooks and debriefs", async () =
   assert.match(product, /normalizeMockProblemWorkspace/);
   assert.match(product, /normalizeMockProblemWorkspaces/);
   assert.match(product, /normalizeMockDebrief/);
-  assert.match(product, /const total = kind === "mock" \? problemCount : rawTotal/);
+  assert.match(product, /kind === "mock" \? problemCount : entries\.length \|\| rawTotal/);
   assert.match(product, /MOCK_HISTORY_PAYLOAD_BYTE_LIMIT = 1024 \* 1024/);
   assert.match(product, /customCaseInput:/);
   assert.match(product, /customCaseInputs: Partial<Record<ItemId, string>>/);
