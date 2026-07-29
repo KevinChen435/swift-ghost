@@ -17,6 +17,7 @@ import {
   normalizePersistenceScope,
   persistScopedJson,
   readStoredJson,
+  removeStoredKeys,
   scopedStateKey,
   type PersistenceScope,
 } from "./account-storage.mjs";
@@ -1757,7 +1758,10 @@ function migrateLegacyStateToGuest(storage: Storage) {
     guestKeys,
     SUPPORTED_STATE_VERSIONS,
   );
-  if (existingGuest.found) return existingGuest;
+  if (existingGuest.found) {
+    removeStoredKeys(storage, STATE_STORAGE_KEYS);
+    return existingGuest;
+  }
   const legacy = readStoredJson(
     storage,
     STATE_STORAGE_KEYS,
@@ -1765,12 +1769,13 @@ function migrateLegacyStateToGuest(storage: Storage) {
   );
   if (!legacy.found) return legacy;
   const normalized = normalizeState(legacy.value);
-  persistScopedJson(
+  const migrated = persistScopedJson(
     storage,
     STORAGE_KEY,
     GUEST_PERSISTENCE_SCOPE,
     normalized,
   );
+  if (migrated) removeStoredKeys(storage, STATE_STORAGE_KEYS);
   return { found: true as const, value: normalized, key: legacy.key };
 }
 
@@ -1827,6 +1832,26 @@ export function saveStateForScope(
       normalizedScope,
       state,
     );
+  } catch {
+    return false;
+  }
+}
+
+export function clearStateFallbacksForScope(scope: PersistenceScope) {
+  if (typeof window === "undefined") return false;
+  const normalizedScope = normalizePersistenceScope(scope);
+  if (!normalizedScope) return false;
+  try {
+    const scopedFallbacks = STATE_STORAGE_KEYS.slice(1).flatMap((key) => {
+      const scoped = scopedStateKey(key, normalizedScope);
+      return scoped ? [scoped] : [];
+    });
+    const legacyKeys =
+      normalizedScope === GUEST_PERSISTENCE_SCOPE ? STATE_STORAGE_KEYS : [];
+    return removeStoredKeys(window.localStorage, [
+      ...scopedFallbacks,
+      ...legacyKeys,
+    ]);
   } catch {
     return false;
   }

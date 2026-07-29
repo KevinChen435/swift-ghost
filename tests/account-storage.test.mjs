@@ -7,6 +7,7 @@ import {
   normalizePersistenceScope,
   persistScopedJson,
   readStoredJson,
+  removeStoredKeys,
   resolvePersistenceScope,
   scopeMatchesAuthenticatedUser,
   scopedStateKey,
@@ -102,6 +103,25 @@ test("skips corrupt, unsupported, and inaccessible storage entries", () => {
       ["state"],
       [27],
     ).found,
+    false,
+  );
+});
+
+test("removes obsolete keys without letting one blocked key stop cleanup", () => {
+  const storage = memoryStorage({ old: "1", older: "2" });
+  storage.removeItem = (key) => storage.values.delete(key);
+  assert.equal(removeStoredKeys(storage, ["old", "older", "old"]), true);
+  assert.deepEqual([...storage.values.keys()], []);
+
+  assert.equal(
+    removeStoredKeys(
+      {
+        removeItem(key) {
+          if (key === "blocked") throw new Error("blocked");
+        },
+      },
+      ["blocked", "reachable"],
+    ),
     false,
   );
 });

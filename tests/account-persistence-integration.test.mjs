@@ -43,6 +43,13 @@ test("import and reset persist to the active scope before swapping visible state
   assert.doesNotMatch(app, /localStorage\.removeItem/);
   assert.match(app, /Hosted Study Plans stay intact/);
   assert.match(app, /communityEnabled: false, uploadedAttemptIds: \[\]/);
+  assert.match(app, /clearStateFallbacksForScope\(activeScope\)/);
+  assert.match(product, /STATE_STORAGE_KEYS\.slice\(1\)/);
+  assert.match(product, /normalizedScope === GUEST_PERSISTENCE_SCOPE \? STATE_STORAGE_KEYS/);
+  assert.match(
+    product,
+    /if \(existingGuest\.found\) \{[\s\S]*removeStoredKeys\(storage, STATE_STORAGE_KEYS\)/,
+  );
 });
 
 test("offers an explicit, non-destructive guest-to-account copy", () => {
@@ -65,5 +72,12 @@ test("scope resolution preserves sealed-transfer exposure and unsaved prior stat
   assert.match(
     app,
     /!previousScope[\s\S]*route\.view === "practice" && initialItem\.transfer[\s\S]*recordTransferOpened/,
+  );
+});
+
+test("cancelled imports can select the same file again", () => {
+  assert.match(
+    app,
+    /!window\.confirm\([\s\S]*event\.target\.value = "";[\s\S]*return;/,
   );
 });

@@ -34,3 +34,7 @@ export function persistScopedJson(
   scope: PersistenceScope,
   value: unknown,
 ): boolean;
+export function removeStoredKeys(
+  storage: Pick<Storage, "removeItem">,
+  keys: readonly string[],
+): boolean;

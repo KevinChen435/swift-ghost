@@ -73,3 +73,15 @@ export function persistScopedJson(storage, stateKey, scope, value) {
   const key = scopedStateKey(stateKey, scope);
   return Boolean(key && persistJson(storage, key, value));
 }
+
+export function removeStoredKeys(storage, keys) {
+  let removed = true;
+  for (const key of new Set(keys)) {
+    try {
+      storage.removeItem(key);
+    } catch {
+      removed = false;
+    }
+  }
+  return removed;
+}
