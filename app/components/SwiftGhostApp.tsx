@@ -50,6 +50,7 @@ import { SolveWorkbench, type MobilePane } from "./SolveWorkbench";
 import { MockNotebook } from "./MockNotebook";
 import { MockDebriefDialog } from "./MockDebriefDialog";
 import { CatalogLibrary } from "./CatalogLibrary";
+import { CustomChallengeDialog } from "./CustomChallengeDialog";
 import { SubmissionWorkLog } from "./SubmissionWorkLog";
 import { SolutionReviewWorkspace } from "./SolutionReviewWorkspace";
 import { getSolutionGuide } from "../data/solution-guides";
@@ -4845,63 +4846,102 @@ export default function SwiftGhostApp() {
         codeChanged &&
         activeDraft &&
         !window.confirm(
-          "The code changed. Save this edit and close the current draft? The old draft will be kept as an abandoned attempt.",
+          "The practice content changed. Save this revision and close the current draft? The old draft will be kept as an abandoned attempt.",
         )
       )
         return;
-      mutateState((current) => {
-        const base =
-          codeChanged && current.draft?.itemId === customEditor.itemId
-            ? recordAbandon(current)
-            : current;
-        const activeSession = base.activeSession
-          ? {
-              ...base.activeSession,
-              entries: base.activeSession.entries.map((entry) =>
-                entry.itemId === updated.itemId && entry.status === "pending"
-                  ? { ...entry, itemRevision: updated.contentRevision }
-                  : entry,
-              ),
-            }
-          : null;
-        return {
-          ...base,
-          customItems: base.customItems.map((item) =>
-            item.itemId === updated.itemId ? updated : item,
-          ),
-          draft:
-            codeChanged && base.draft?.itemId === updated.itemId
-              ? null
-              : base.draft,
-          activeSession,
-        };
-      });
+      try {
+        commitStateImmediately((current) => {
+          const base =
+            codeChanged && current.draft?.itemId === customEditor.itemId
+              ? recordAbandon(current)
+              : current;
+          const activeSession = base.activeSession
+            ? {
+                ...base.activeSession,
+                entries: base.activeSession.entries.map((entry) =>
+                  entry.itemId === updated.itemId && entry.status === "pending"
+                    ? { ...entry, itemRevision: updated.contentRevision }
+                    : entry,
+                ),
+              }
+            : null;
+          const customTestcases = { ...base.customTestcases };
+          const customCaseInputs = { ...base.customCaseInputs };
+          if (codeChanged) {
+            delete customTestcases[updated.itemId];
+            delete customCaseInputs[updated.itemId];
+          }
+          return {
+            ...base,
+            customItems: base.customItems.map((item) =>
+              item.itemId === updated.itemId ? updated : item,
+            ),
+            draft:
+              codeChanged && base.draft?.itemId === updated.itemId
+                ? null
+                : base.draft,
+            activeSession,
+            customTestcases,
+            customCaseInputs,
+          };
+        }, { requirePersistence: true });
+      } catch (error) {
+        setToast(
+          error instanceof Error
+            ? error.message
+            : "This practice item could not be saved locally",
+        );
+        return;
+      }
       setCustomEditor(null);
       setResult(null);
       setReveal(false);
       if (codeChanged) setStage(1);
       setToast(
         codeChanged
-          ? "Snippet updated · mastery restarted for revision"
-          : "Snippet details updated",
+          ? "Practice item updated · mastery restarted for revision"
+          : "Practice item details updated",
       );
       return;
     }
     const custom = makeCustomItem(input);
-    mutateState((current) => ({
-      ...current,
-      customItems: [...current.customItems, custom],
-      lastItemId: custom.itemId,
-    }));
+    try {
+      commitStateImmediately(
+        (current) => ({
+          ...current,
+          customItems: [...current.customItems, custom],
+          lastItemId: custom.itemId,
+        }),
+        { requirePersistence: true },
+      );
+    } catch (error) {
+      setToast(
+        error instanceof Error
+          ? error.message
+          : "This practice item could not be saved locally",
+      );
+      return;
+    }
     setCustomEditor(null);
-    setToast("Custom snippet saved on this device");
-    openItem(custom, 1);
+    setToast(
+      custom.verification
+        ? "Runnable challenge saved on this device"
+        : "Custom snippet saved on this device",
+    );
+    openItem(
+      custom,
+      custom.verification ? 5 : 1,
+      undefined,
+      undefined,
+      custom.verification ? "solving" : undefined,
+    );
   }
 
   function archiveCustom(itemId: ItemId) {
     if (
       !window.confirm(
-        "Archive this custom snippet? Its attempt history will stay in Records.",
+        "Archive this custom practice item? Its attempt and submission history will stay in Records.",
       )
     )
       return;
@@ -5019,7 +5059,7 @@ export default function SwiftGhostApp() {
   function resetAllData() {
     if (
       !window.confirm(
-        "Delete all Swift Ghost progress, custom snippets, and settings from this device?",
+        "Delete all Swift Ghost progress, custom practice items, and settings from this device?",
       )
     )
       return;
@@ -5639,7 +5679,7 @@ export default function SwiftGhostApp() {
         />
       )}
       {customEditor && (
-        <CustomSnippetDialog
+        <CustomChallengeDialog
           item={customEditor === "new" ? undefined : customEditor}
           onClose={() => setCustomEditor(null)}
           onSave={saveCustom}
@@ -6380,30 +6420,16 @@ function PracticeView(props: PracticeProps) {
         sourceToVerify,
         challengeVerificationForPurpose(props.item.verification, purpose),
       );
-      if (disposed.current || runId !== verificationRunId.current) return;
+      if (disposed.current) return;
       if (result.kind !== "verification")
         throw new Error("Python runner returned an unexpected result");
-      setVerificationState({
-        itemId: props.item.itemId,
-        status: result.ok ? "passed" : "failed",
-        purpose,
-        result,
-        source: sourceToVerify,
-        runs,
-      });
       const passedCount = result.cases.filter(
         (testCase) => testCase.passed,
       ).length;
-      if (activeStudio) {
-        props.onInterviewRunnerEvidence(
-          activeStudio.id,
-          result.ok ? "passed" : "failed",
-          sourceToVerify,
-          passedCount,
-          result.cases.length,
-        );
-      }
-      if (submissionRequest) {
+      if (
+        submissionRequest &&
+        activeSubmissionRequest.current?.id === submissionRequest.id
+      ) {
         const settledSubmission = compatibleSubmissionRecord(submissionRequest, {
           status: classifySubmissionResult(result),
           durationMs: result.durationMs,
@@ -6414,6 +6440,24 @@ function PracticeView(props: PracticeProps) {
         if (isVirtualRound)
           props.onVirtualRoundSubmissionSettled(settledSubmission);
         else props.onSubmissionSettled(settledSubmission);
+      }
+      if (runId !== verificationRunId.current) return;
+      setVerificationState({
+        itemId: props.item.itemId,
+        status: result.ok ? "passed" : "failed",
+        purpose,
+        result,
+        source: sourceToVerify,
+        runs,
+      });
+      if (activeStudio) {
+        props.onInterviewRunnerEvidence(
+          activeStudio.id,
+          result.ok ? "passed" : "failed",
+          sourceToVerify,
+          passedCount,
+          result.cases.length,
+        );
       }
       if (
         isRecordableChallengeResult(result, purpose, isMock) &&
@@ -6430,8 +6474,11 @@ function PracticeView(props: PracticeProps) {
         );
       }
     } catch (error) {
-      if (disposed.current || runId !== verificationRunId.current) return;
-      if (submissionRequest) {
+      if (disposed.current) return;
+      if (
+        submissionRequest &&
+        activeSubmissionRequest.current?.id === submissionRequest.id
+      ) {
         const settledSubmission = compatibleSubmissionRecord(submissionRequest, {
           status:
             error instanceof Error &&
@@ -6447,6 +6494,7 @@ function PracticeView(props: PracticeProps) {
           props.onVirtualRoundSubmissionSettled(settledSubmission);
         else props.onSubmissionSettled(settledSubmission);
       }
+      if (runId !== verificationRunId.current) return;
       if (activeStudio) {
         props.onInterviewRunnerEvidence(
           activeStudio.id,
@@ -9400,7 +9448,7 @@ function RecordsView({
                   title={
                     found
                       ? "Practice this item again"
-                      : "This custom snippet is archived"
+                      : "This custom practice item is archived"
                   }
                   onClick={() =>
                     found &&
@@ -9645,12 +9693,12 @@ function SettingsView({
           <small>Your data</small>
           <h2>Local profile</h2>
           <p>
-            Export a portable v23 JSON backup with Python, Swift, iOS, assessments, plans, sessions,
+            Export a portable v25 JSON backup with Python, Swift, iOS, assessments, plans, sessions,
             learning debriefs, revisioned snippets, local pacing and weak-line
             analytics, community preferences, structured custom testcases, and
             local submission snapshots, mock notebooks and debriefs, Interview
-            Studio transcripts and criteria, transfer evidence, virtual-round reports,
-            or restore any v2-v22 backup.
+            Studio transcripts and criteria, transfer evidence, authored local
+            challenges, virtual-round reports, or restore any v2-v24 backup.
           </p>
         </div>
         <div className="data-actions">
@@ -9669,6 +9717,9 @@ function SettingsView({
   );
 }
 
+// Kept temporarily for v24 source-level backup compatibility tests; the v25
+// authoring path renders CustomChallengeDialog instead.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function CustomSnippetDialog({
   item,
   onClose,

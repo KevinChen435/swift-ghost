@@ -5,14 +5,14 @@ export type PythonChallengeParameter = {
 };
 
 export type PythonChallengeMetadata = {
-  id: number;
+  id: number | string;
   title: string;
   statement: string;
   entrypoint: string;
   parameters: readonly PythonChallengeParameter[];
   returns: string;
   notes?: readonly string[];
-  constraints: readonly [string, string, string, ...string[]];
+  constraints: readonly [string, ...string[]];
   exampleExplanation?: string;
 };
 

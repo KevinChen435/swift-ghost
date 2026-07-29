@@ -236,6 +236,7 @@ import collections as _collections
 import functools as _functools
 import itertools as _itertools
 import heapq as _heapq
+import builtins as _builtins
 
 _SOURCE = _json.loads(${sourceLiteral})
 _SPEC = _json.loads(${verificationLiteral})
@@ -692,6 +693,13 @@ _sys.modules["typing"] = _typing_module
 
 _blocked_js = _Module()
 _sys.modules["js"] = _blocked_js
+
+_original_import = _builtins.__import__
+def _guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+    if name == "js" or name.startswith("js."):
+        return _blocked_js
+    return _original_import(name, globals, locals, fromlist, level)
+_builtins.__import__ = _guarded_import
 
 def _format_error(error):
     writer = _io.StringIO()

@@ -136,7 +136,8 @@ test("ships the full five-stage practice model and original problem links", asyn
     assert.match(product, new RegExp(stage));
   }
 
-  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v24"/);
+  assert.match(product, /STORAGE_KEY = "swift-ghost-state-v25"/);
+  assert.match(product, /TWENTY_FOURTH_STORAGE_KEY = "swift-ghost-state-v24"/);
   assert.match(product, /TWENTY_FIRST_STORAGE_KEY = "swift-ghost-state-v21"/);
   assert.match(product, /TWENTIETH_STORAGE_KEY = "swift-ghost-state-v20"/);
   assert.match(product, /NINETEENTH_STORAGE_KEY = "swift-ghost-state-v19"/);
@@ -149,7 +150,7 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(product, /TWELFTH_STORAGE_KEY = "swift-ghost-state-v12"/);
   assert.match(product, /PREVIOUS_STORAGE_KEY = "swift-ghost-state-v11"/);
   assert.match(product, /FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2"/);
-  assert.match(product, /version: 24/);
+  assert.match(product, /version: 25/);
   assert.match(product, /swift-ghost-state-v10/);
   assert.match(product, /swift-ghost-state-v9/);
   assert.match(product, /swift-ghost-state-v8/);
@@ -256,6 +257,8 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(consoleUi, /Submit solution/);
   assert.match(consoleUi, /Run custom testcase/);
   assert.match(consoleUi, /Submissions/);
+  assert.match(consoleUi, /aria-label=\{/);
+  assert.match(consoleUi, /Submissions, \$\{submissionHistory\.length\}/);
   assert.match(structuredTests, /Run selected/);
   assert.match(structuredTests, /Run all/);
   assert.match(structuredTests, /Raw JSON/);
@@ -314,7 +317,7 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(page, /setPracticeKind\("typing"\)/);
   assert.match(page, /LearningAnalytics/);
   assert.match(page, /onToggleUploads/);
-  assert.match(page, /CustomSnippetDialog/);
+  assert.match(page, /CustomChallengeDialog/);
   assert.match(page, /SessionsView/);
   assert.match(page, /updateCustomItem/);
   assert.match(page, /sessionNext/);
@@ -388,8 +391,8 @@ test("ships first-class Swift and iOS concept recall", async () => {
   assert.match(app, /finishConcept/);
   assert.match(app, /practiceKind: "concept"/);
   assert.match(app, /STATE_STORAGE_KEYS/);
-  assert.match(app, /Export a portable v23 JSON backup/);
-  assert.match(app, /restore any v2-v22 backup/);
+  assert.match(app, /Export a portable v25 JSON backup/);
+  assert.match(app, /restore any v2-v24 backup/);
   assert.match(concept, /Commit & compare answer/);
   assert.match(concept, /Optional guided typing/);
   assert.match(concept, /Self-rated recall · not automated correctness/);

@@ -491,6 +491,11 @@ export function ChallengeConsole({
             role="tab"
             aria-controls={panelId(idPrefix, tab)}
             aria-selected={activeTab === tab}
+            aria-label={
+              tab === "submissions" && submissionHistory.length > 0
+                ? `Submissions, ${submissionHistory.length} ${submissionHistory.length === 1 ? "submission" : "submissions"}`
+                : TAB_LABELS[tab]
+            }
             tabIndex={activeTab === tab ? 0 : -1}
             onClick={() => onConsoleTabChange(tab)}
             onKeyDown={(event) => selectAdjacentTab(event, tab)}

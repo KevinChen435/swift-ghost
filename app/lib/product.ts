@@ -37,6 +37,11 @@ import {
   type CustomTestcaseCollection,
   type CustomTestcaseSchema,
 } from "./custom-testcases.mjs";
+import {
+  customChallengeInputFromBundle,
+  normalizeCustomChallenge,
+  type CustomChallengeBundle,
+} from "./custom-challenges";
 import type {
   SessionLanguage,
   SessionQueueEntry,
@@ -292,7 +297,7 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 24;
+  version: 25;
   attempts: AttemptRecord[];
   submissionLog: SubmissionLog;
   submissionAnnotations: SubmissionAnnotations;
@@ -317,7 +322,8 @@ export type AppState = {
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v24";
+export const STORAGE_KEY = "swift-ghost-state-v25";
+export const TWENTY_FOURTH_STORAGE_KEY = "swift-ghost-state-v24";
 export const TWENTY_THIRD_STORAGE_KEY = "swift-ghost-state-v23";
 export const TWENTY_SECOND_STORAGE_KEY = "swift-ghost-state-v22";
 export const TWENTY_FIRST_STORAGE_KEY = "swift-ghost-state-v21";
@@ -341,10 +347,11 @@ export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
-  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
 ];
 export const STATE_STORAGE_KEYS = [
   STORAGE_KEY,
+  TWENTY_FOURTH_STORAGE_KEY,
   TWENTY_THIRD_STORAGE_KEY,
   TWENTY_SECOND_STORAGE_KEY,
   TWENTY_FIRST_STORAGE_KEY,
@@ -383,7 +390,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 24,
+  version: 25,
   attempts: [],
   submissionLog: createSubmissionLog(),
   submissionAnnotations: {},
@@ -508,7 +515,12 @@ function normalizeSettings(value: unknown): Settings {
   };
 }
 
-function normalizeCustomItems(value: unknown): PracticeItem[] {
+const CUSTOM_ITEM_STATE_BYTE_LIMIT = 2_500_000;
+
+function normalizeCustomItems(
+  value: unknown,
+  stateVersion: number,
+): PracticeItem[] {
   if (!Array.isArray(value)) return [];
   const patterns = new Set(BUILTIN_ITEMS.map((item) => item.pattern));
   const normalized = value
@@ -550,8 +562,35 @@ function normalizeCustomItems(value: unknown): PracticeItem[] {
           /* ignore malformed and unsafe imported links */
         }
       }
+      let challengeBundle: CustomChallengeBundle | null = null;
+      if (
+        stateVersion >= 25 &&
+        normalizedLanguage === "python" &&
+        item.track !== "ios" &&
+        item.challenge &&
+        item.verification &&
+        typeof item.starterCode === "string"
+      ) {
+        try {
+          challengeBundle = normalizeCustomChallenge(
+            customChallengeInputFromBundle({
+              challenge: item.challenge,
+              verification: item.verification,
+              starterCode: item.starterCode,
+            }),
+            {
+              stableId: item.itemId,
+              title: item.title,
+              revision: item.verification.revision,
+            },
+          );
+        } catch {
+          // Invalid or oversized imported judge definitions degrade to snippets.
+        }
+      }
       return {
-        ...item,
+        itemId: item.itemId,
+        source: "custom" as const,
         track: (item.track === "ios"
           ? "ios"
           : "interview") as PracticeItem["track"],
@@ -567,7 +606,9 @@ function normalizeCustomItems(value: unknown): PracticeItem[] {
         summary:
           typeof item.summary === "string"
             ? item.summary.slice(0, 500)
-            : `A device-local ${normalizedLanguage === "python" ? "Python" : "Swift"} snippet for deliberate recall practice.`,
+            : challengeBundle
+              ? "A device-local Python coding challenge with visible examples and a private submission suite."
+              : `A device-local ${normalizedLanguage === "python" ? "Python" : "Swift"} snippet for deliberate recall practice.`,
         cue:
           typeof item.cue === "string"
             ? item.cue.slice(0, 1000)
@@ -616,11 +657,28 @@ function normalizeCustomItems(value: unknown): PracticeItem[] {
           !Number.isNaN(Date.parse(item.archivedAt))
             ? item.archivedAt
             : undefined,
+        challenge: challengeBundle?.challenge,
+        verification: challengeBundle?.verification,
+        starterCode: challengeBundle?.starterCode,
       };
     });
-  return [
+  const unique = [
     ...new Map(normalized.map((item) => [item.itemId, item])).values(),
   ].slice(-100);
+  let usedBytes = 0;
+  return unique
+    .reverse()
+    .filter((item) => {
+      const itemBytes = new TextEncoder().encode(JSON.stringify(item)).byteLength;
+      if (
+        itemBytes > CUSTOM_ITEM_STATE_BYTE_LIMIT ||
+        usedBytes + itemBytes > CUSTOM_ITEM_STATE_BYTE_LIMIT
+      )
+        return false;
+      usedBytes += itemBytes;
+      return true;
+    })
+    .reverse();
 }
 
 function itemIdFromRaw(value: unknown): ItemId | null {
@@ -1110,7 +1168,7 @@ export function customTestcaseSchemaForItem(
 
 export function normalizeState(value: unknown): AppState {
   if (!hasSupportedStateVersion(value)) return EMPTY_STATE;
-  const customItems = normalizeCustomItems(value.customItems);
+  const customItems = normalizeCustomItems(value.customItems, Number(value.version));
   const validIds = new Set<ItemId>([
     ...BUILTIN_ITEMS.map((item) => item.itemId),
     ...customItems.map((item) => item.itemId),
@@ -1556,7 +1614,7 @@ export function normalizeState(value: unknown): AppState {
       .map((attempt) => attempt.id),
   );
   return {
-    version: 24,
+    version: 25,
     attempts,
     submissionLog,
     submissionAnnotations,
