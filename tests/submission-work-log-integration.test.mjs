@@ -36,7 +36,7 @@ test("ordinary and timed submissions persist pending receipts before invoking th
   assert.ok(request >= 0 && persist > request);
   assert.ok(persist < runner && runner < verify);
   assert.match(app, /requestSubmissionReceipt\(current\.submissionLog, request\)/);
-  assert.match(app, /const persisted = saveState\(next\)/);
+  assert.match(app, /saveStateForScope\(next, activeScope\)/);
   assert.match(app, /options\.requirePersistence && !persisted/);
   const localRequest = app.slice(
     app.indexOf("function requestLocalSubmission"),

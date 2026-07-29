@@ -23,22 +23,17 @@ async function render() {
   );
 }
 
-test("server-renders the Swift Ghost practice shell", async () => {
+test("server-renders a private profile-loading shell before browser identity resolves", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
   assert.match(html, /<title>Swift Ghost/);
-  assert.match(html, /Type it\./);
-  assert.match(html, /Fade it\./);
-  assert.match(html, /Daily Type/);
-  assert.match(html, /Adaptive Daily Coach/);
-  assert.match(html, /Practice the skill that needs evidence/);
-  assert.match(html, /Build recall, one clean pass at a time/);
-  assert.match(html, /Add snippet/);
-  assert.match(html, /Studio/);
-  assert.match(html, /Records/);
+  assert.match(html, /loading your private practice profile/);
+  assert.match(html, /Loading your practice profile/);
+  assert.match(html, /browser data stays separated by signed-in account/i);
+  assert.match(html, /aria-busy="true"/);
   assert.doesNotMatch(html, /codex-preview|react-loading-skeleton/i);
 });
 
@@ -162,7 +157,7 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(product, /swift-ghost-state-v4/);
   assert.match(product, /swift-ghost-state-v3/);
   assert.match(product, /swift-ghost-state-v2/);
-  assert.match(product, /if \(!hasSupportedStateVersion\(parsed\)\) continue;/);
+  assert.match(product, /readStoredJson\([\s\S]*SUPPORTED_STATE_VERSIONS/);
   assert.match(product, /localDayKey\(date\)}-catalog-v2/);
   assert.match(product, /replace\(\/\\r\\n\?\/g, "\\n"\)/);
   assert.match(product, /correctKeystrokes/);
@@ -239,7 +234,7 @@ test("ships the full five-stage practice model and original problem links", asyn
   );
   assert.match(
     product,
-    /Try the next older backup when a newer write was interrupted/,
+    /readStoredJson/,
   );
   assert.match(page, /<ChallengeConsole/);
   assert.match(page, /Write any passing Python solution/);
@@ -272,7 +267,7 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(page, /purpose === "submit"/);
   assert.match(consoleUi, /Record verified solve/);
   assert.match(consoleUi, /expected:/);
-  assert.match(page, /Skip to practice content/);
+  assert.match(page, /Skip to main content/);
   assert.match(page, /Planned independent solve/);
   assert.match(coach, /15, 30, 45/);
   assert.match(coach, /Every task says why it earned time/);
@@ -392,10 +387,10 @@ test("ships first-class Swift and iOS concept recall", async () => {
   assert.match(product, /conceptCommittedResponse/);
   assert.match(app, /finishConcept/);
   assert.match(app, /practiceKind: "concept"/);
-  assert.match(app, /STATE_STORAGE_KEYS/);
-  assert.match(app, /Export a portable v27 JSON backup/);
-  assert.match(app, /restore any v2-v26 backup/);
-  assert.match(app, /per-problem notes/);
+  assert.match(app, /saveStateForScope/);
+  assert.match(app, /portable v27 backup envelope/);
+  assert.match(app, /supported v2-v27 backups/);
+  assert.match(app, /notes, settings/);
   assert.match(concept, /Commit & compare answer/);
   assert.match(concept, /Optional guided typing/);
   assert.match(concept, /Self-rated recall · not automated correctness/);

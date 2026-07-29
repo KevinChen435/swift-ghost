@@ -38,7 +38,7 @@ test("the runner persists an on-time round receipt before creating or invoking t
   assert.notEqual(requestIndex, -1);
   assert.ok(requestIndex < runnerIndex);
   assert.ok(runnerIndex < verifyIndex);
-  assert.match(app, /commitStateImmediately[\s\S]*saveState\(next\)/);
+  assert.match(app, /commitStateImmediately[\s\S]*saveStateForScope\(next, activeScope\)/);
   assert.match(app, /const submissionContextKind:[\s\S]*\? "round"/);
   assert.match(app, /requestSubmissionReceipt\(\s*current\.submissionLog/);
   assert.match(app, /!isStudio &&\s+!isVirtualRound/);
@@ -121,12 +121,16 @@ test("the locked round workspace keeps switching, flags, and finishing reachable
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.practice-layout\.is-solving\.is-virtual-round \.problem-rail \{\s+display: none/);
 });
 
-test("backup copy advertises the v23 schema and all older supported imports", async () => {
+test("backup copy advertises the v27 envelope and all older supported imports", async () => {
   const app = await readFile(
     new URL("../app/components/SwiftGhostApp.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(app, /Export a portable v27 JSON backup/);
-  assert.match(app, /restore any v2-v26 backup/);
-  assert.match(app, /virtual-round reports/);
+  const backup = await readFile(
+    new URL("../app/lib/backup.mjs", import.meta.url),
+    "utf8",
+  );
+  assert.match(app, /portable v27 backup envelope/);
+  assert.match(app, /supported v2-v27 backups/);
+  assert.match(backup, /virtualRoundWorkspace/);
 });
