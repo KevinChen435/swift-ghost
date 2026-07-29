@@ -117,6 +117,7 @@ export function selectVirtualRoundItems(candidates, problemCount) {
         pattern,
         difficulty,
         independentSolves: finiteInteger(candidate.independentSolves, 0, 0, 1_000_000),
+        roundAppearances: finiteInteger(candidate.roundAppearances, 0, 0, 1_000_000),
         lastAttemptAt:
           typeof candidate.lastAttemptAt === "string" && !Number.isNaN(Date.parse(candidate.lastAttemptAt))
             ? new Date(candidate.lastAttemptAt).toISOString()
@@ -135,7 +136,9 @@ export function selectVirtualRoundItems(candidates, problemCount) {
     const pool = exact.length ? exact : available;
     pool.sort((left, right) =>
       (patternCounts.get(left.pattern) ?? 0) - (patternCounts.get(right.pattern) ?? 0) ||
-      left.independentSolves - right.independentSolves ||
+      left.independentSolves + left.roundAppearances -
+        (right.independentSolves + right.roundAppearances) ||
+      left.roundAppearances - right.roundAppearances ||
       (left.lastAttemptAt ?? "").localeCompare(right.lastAttemptAt ?? "") ||
       difficultyRank(left.difficulty) - difficultyRank(right.difficulty) ||
       left.itemId.localeCompare(right.itemId),
@@ -235,6 +238,33 @@ function normalizeRun(value, fallbackNow, history = false) {
     });
   if (problems.length !== preset.problemCount || new Set(problems.map((problem) => problem.itemId)).size !== problems.length)
     return null;
+  for (const problem of problems) {
+    if (problem.openedAt) {
+      problem.openedAt = new Date(
+        Math.min(
+          Date.parse(endsAt),
+          Math.max(Date.parse(startedAt), Date.parse(problem.openedAt)),
+        ),
+      ).toISOString();
+    }
+    problem.submissions = problem.submissions.map((submission) => {
+      const requestedAt = new Date(
+        Math.min(
+          Date.parse(endsAt),
+          Math.max(Date.parse(startedAt), Date.parse(submission.requestedAt)),
+        ),
+      ).toISOString();
+      return {
+        ...submission,
+        requestedAt,
+        judgedAt:
+          submission.judgedAt &&
+          Date.parse(submission.judgedAt) < Date.parse(requestedAt)
+            ? requestedAt
+            : submission.judgedAt,
+      };
+    });
+  }
   const currentProblemId = boundedId(value.currentProblemId);
   const current = problems.some((problem) => problem.itemId === currentProblemId)
     ? currentProblemId
@@ -317,9 +347,15 @@ export function normalizeVirtualRoundWorkspace(value, options = {}) {
 
   const validItemIds = options.validItemIds instanceof Set ? options.validItemIds : null;
   const revisions = options.revisions instanceof Map ? options.revisions : null;
+  const verificationRevisions =
+    options.verificationRevisions instanceof Map
+      ? options.verificationRevisions
+      : null;
   const activeItemsValid = active.problems.every((problem) =>
     (!validItemIds || validItemIds.has(problem.itemId)) &&
-    (!revisions || revisions.get(problem.itemId) === problem.itemRevision),
+    (!revisions || revisions.get(problem.itemId) === problem.itemRevision) &&
+    (!verificationRevisions ||
+      verificationRevisions.get(problem.itemId) === problem.verificationRevision),
   );
   if (!activeItemsValid) {
     active = interruptPending(active, now);

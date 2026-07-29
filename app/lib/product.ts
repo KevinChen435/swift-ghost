@@ -1228,6 +1228,12 @@ export function normalizeState(value: unknown): AppState {
       item.contentRevision,
     ]),
   );
+  const verificationRevisions = new Map<ItemId, number>(
+    [...BUILTIN_ITEMS, ...customItems].map((item) => [
+      item.itemId,
+      item.verification?.revision ?? 1,
+    ]),
+  );
   const tracks = new Map<ItemId, PracticeItem["track"]>(
     [...BUILTIN_ITEMS, ...customItems].map((item) => [item.itemId, item.track]),
   );
@@ -1586,6 +1592,7 @@ export function normalizeState(value: unknown): AppState {
     {
       validItemIds: activeIds,
       revisions,
+      verificationRevisions,
       now: new Date().toISOString(),
     },
   );

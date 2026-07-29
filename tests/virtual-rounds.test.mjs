@@ -294,6 +294,91 @@ test("normalization fails closed for orphan pending judgments and finalizes inte
   assert.equal(finalized.history[0].problems[0].submissions[0].status, "judge-error");
 });
 
+test("selection rotates away from problems already used in retained rounds", () => {
+  const candidates = [
+    {
+      itemId: "seen-easy",
+      difficulty: "Easy",
+      pattern: "Arrays",
+      independentSolves: 0,
+      roundAppearances: 3,
+    },
+    {
+      itemId: "fresh-easy",
+      difficulty: "Easy",
+      pattern: "Strings",
+      independentSolves: 0,
+      roundAppearances: 0,
+    },
+    {
+      itemId: "seen-medium",
+      difficulty: "Medium",
+      pattern: "Trees",
+      independentSolves: 0,
+      roundAppearances: 1,
+    },
+    {
+      itemId: "fresh-medium",
+      difficulty: "Medium",
+      pattern: "Graphs",
+      independentSolves: 0,
+      roundAppearances: 0,
+    },
+  ];
+  assert.deepEqual(
+    selectVirtualRoundItems(candidates, 2).map((entry) => entry.itemId),
+    ["fresh-easy", "fresh-medium"],
+  );
+});
+
+test("normalization clamps imported round activity to the frozen clock window", () => {
+  let workspace = request(
+    start(),
+    "problem-1",
+    "late-import",
+    "2026-07-28T12:10:00.000Z",
+  );
+  workspace = settle(workspace, "late-import", {
+    judgedAt: "2026-07-28T12:10:01.000Z",
+    status: "accepted",
+    passed: 3,
+    total: 3,
+  });
+  const imported = JSON.parse(JSON.stringify(workspace));
+  imported.active.problems[0].openedAt = "2026-07-28T11:00:00.000Z";
+  imported.active.problems[0].submissions[0].requestedAt =
+    "2026-07-28T14:00:00.000Z";
+  const normalized = normalizeVirtualRoundWorkspace(imported, {
+    now: "2026-07-28T12:20:00.000Z",
+  });
+  assert.equal(normalized.active.problems[0].openedAt, START);
+  assert.equal(
+    normalized.active.problems[0].submissions[0].requestedAt,
+    normalized.active.endsAt,
+  );
+});
+
+test("normalization expires an active round when its frozen judge revision changed", () => {
+  const workspace = start();
+  const normalized = normalizeVirtualRoundWorkspace(
+    JSON.parse(JSON.stringify(workspace)),
+    {
+      now: "2026-07-28T12:20:00.000Z",
+      validItemIds: new Set(["problem-1", "problem-2"]),
+      revisions: new Map([
+        ["problem-1", 1],
+        ["problem-2", 2],
+      ]),
+      verificationRevisions: new Map([
+        ["problem-1", 999],
+        ["problem-2", 11],
+      ]),
+    },
+  );
+  assert.equal(normalized.active, null);
+  assert.equal(normalized.history[0].outcome, "expired");
+});
+
 test("normalization is bounded, strips unknown keys, and is idempotent", () => {
   const histories = Array.from({ length: 40 }, (_, index) => {
     const finished = finishVirtualRound(start("sprint", `history-${index}`), `history-${index}`, {

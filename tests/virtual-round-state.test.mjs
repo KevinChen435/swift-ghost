@@ -68,6 +68,35 @@ test("virtual rounds have a first-class Assess route and a locked problem worksp
   assert.match(rounds, /No global rank, interview-readiness rating, certification, or hiring signal/);
 });
 
+test("the contest center exposes route-backed navigation, personal standings, and post-round actions", async () => {
+  const app = await readFile(
+    new URL("../app/components/SwiftGhostApp.tsx", import.meta.url),
+    "utf8",
+  );
+  const rounds = await readFile(
+    new URL("../app/components/VirtualRounds.tsx", import.meta.url),
+    "utf8",
+  );
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(app, /function updateContestRoute/);
+  assert.match(app, /contestSection: nextSection/);
+  assert.match(app, /selectedReportId=\{contestRoundId\}/);
+  assert.match(app, /buildPersonalStandings\(state\.virtualRoundWorkspace\.history\)/);
+  assert.match(app, /function retryVirtualRoundProblem/);
+  assert.match(app, /origins: \["round"\][\s\S]*selectedId: submissionId/);
+  assert.match(app, /window\.confirm\([\s\S]*Finish and lock/);
+  assert.match(rounds, /role="tablist"/);
+  assert.match(rounds, /ArrowRight/);
+  assert.match(rounds, /Personal standings/);
+  assert.match(rounds, /adaptive problem mixes can differ/i);
+  assert.match(rounds, /Retry as fresh practice/);
+  assert.match(rounds, /Inspect source/);
+  assert.match(rounds, /role="timer"/);
+  assert.match(css, /\.contest-tabs/);
+  assert.match(css, /\.contest-standings-scroll/);
+  assert.match(css, /@media \(max-width: 620px\)[\s\S]*\.contest-history-row/);
+});
+
 test("the Today draft card restores the virtual-round identity instead of opening ordinary practice", async () => {
   const app = await readFile(
     new URL("../app/components/SwiftGhostApp.tsx", import.meta.url),
