@@ -151,7 +151,6 @@ import {
 } from "../lib/solution-review.mjs";
 import {
   EMPTY_STATE,
-  STATE_STORAGE_KEYS,
   STAGES,
   SUPPORTED_STATE_VERSIONS,
   activeStreak,
@@ -166,7 +165,7 @@ import {
   formatDuration,
   isReviewDue,
   itemStats,
-  loadState,
+  loadStateForScope,
   makeId,
   maskCode,
   milestones,
@@ -176,7 +175,7 @@ import {
   qualificationFor,
   recommendedStage,
   reviewDueAt,
-  saveState,
+  saveStateForScope,
   submissionEvidence,
   type AppState,
   type AttemptRecord,
@@ -189,6 +188,18 @@ import {
   type TrainingSession,
   type View,
 } from "../lib/product";
+import {
+  GUEST_PERSISTENCE_SCOPE,
+  resolvePersistenceScope,
+  scopeMatchesAuthenticatedUser,
+  type PersistenceScope,
+} from "../lib/account-storage.mjs";
+import {
+  backupInventory,
+  createBackupEnvelope,
+  hasMeaningfulBackupState,
+  readBackupPayload,
+} from "../lib/backup.mjs";
 import {
   addCustomTestcase,
   buildCustomTestcaseExecution,
@@ -728,6 +739,12 @@ export default function SwiftGhostApp() {
   const stateRef = useRef(state);
   stateRef.current = state;
   const [ready, setReady] = useState(false);
+  const [bootstrapped, setBootstrapped] = useState(false);
+  const [persistenceScope, setPersistenceScope] =
+    useState<PersistenceScope>();
+  const persistenceScopeRef = useRef<PersistenceScope | undefined>(undefined);
+  const volatileScopeStateRef = useRef(new Map<PersistenceScope, AppState>());
+  const [guestDataAvailable, setGuestDataAvailable] = useState(false);
   const [view, setView] = useState<View>("today");
   const [catalogQuery, setCatalogQuery] = useState<CatalogQuery>(() =>
     normalizeCatalogQuery(DEFAULT_CATALOG_QUERY),
@@ -772,6 +789,9 @@ export default function SwiftGhostApp() {
   const studyServerRevisionRef = useRef(0);
   const studySyncReadyRef = useRef(false);
   const studySyncedFingerprintRef = useRef("");
+  const studySyncEpochRef = useRef(0);
+  const [studySyncEpoch, setStudySyncEpoch] = useState(0);
+  const [studySyncReadyVersion, setStudySyncReadyVersion] = useState(0);
   const importRef = useRef<HTMLInputElement>(null);
   const expireMockInterviewRef = useRef<(sessionId: string) => void>(() => {});
   expireMockInterviewRef.current = expireMockInterview;
@@ -799,7 +819,7 @@ export default function SwiftGhostApp() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const restored = loadState();
+      const restored = loadStateForScope(GUEST_PERSISTENCE_SCOPE);
       const items = [
         ...BUILTIN_ITEMS,
         ...restored.customItems.filter((item) => !item.archivedAt),
@@ -926,7 +946,7 @@ export default function SwiftGhostApp() {
           window.history.replaceState({}, "", canonicalHref);
       }
       setNow(Date.now());
-      setReady(true);
+      setBootstrapped(true);
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -1001,16 +1021,19 @@ export default function SwiftGhostApp() {
   }, [ready, allItems, selectedId]);
 
   useEffect(() => {
-    if (!ready) return;
-    const timer = window.setTimeout(
-      () => saveState(stateRef.current),
-      STATE_SAVE_DEBOUNCE_MS,
-    );
+    if (!ready || !persistenceScope) return;
+    const timer = window.setTimeout(() => {
+      if (saveStateForScope(stateRef.current, persistenceScope))
+        volatileScopeStateRef.current.delete(persistenceScope);
+    }, STATE_SAVE_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [ready, state]);
+  }, [ready, state, persistenceScope]);
   useEffect(() => {
-    if (!ready) return;
-    const flushState = () => saveState(stateRef.current);
+    if (!ready || !persistenceScope) return;
+    const flushState = () => {
+      if (saveStateForScope(stateRef.current, persistenceScope))
+        volatileScopeStateRef.current.delete(persistenceScope);
+    };
     const flushHiddenState = () => {
       if (document.visibilityState === "hidden") flushState();
     };
@@ -1021,7 +1044,7 @@ export default function SwiftGhostApp() {
       window.removeEventListener("pagehide", flushState);
       document.removeEventListener("visibilitychange", flushHiddenState);
     };
-  }, [ready]);
+  }, [ready, persistenceScope]);
   useEffect(() => {
     document.documentElement.dataset.theme = state.settings.theme;
     document.documentElement.dataset.font = state.settings.font;
@@ -1059,7 +1082,7 @@ export default function SwiftGhostApp() {
   }, [toast]);
 
   useEffect(() => {
-    if (!ready) return;
+    if (!bootstrapped) return;
     const controller = new AbortController();
     async function connectCloud() {
       const capabilities = await cloudClient.capabilities({
@@ -1107,7 +1130,162 @@ export default function SwiftGhostApp() {
     }
     void connectCloud();
     return () => controller.abort();
-  }, [ready, cloud.refresh]);
+  }, [bootstrapped, cloud.refresh]);
+
+  useEffect(() => {
+    if (!bootstrapped) return;
+    const nextScope = resolvePersistenceScope({
+      status: cloud.status,
+      authenticated: cloud.session?.authenticated,
+      userId: cloud.session?.user?.id,
+      currentScope: persistenceScopeRef.current,
+    });
+    if (!nextScope) return;
+    let cancelled = false;
+    void Promise.resolve().then(() => {
+      if (cancelled) return;
+      const previousScope = persistenceScopeRef.current;
+      if (previousScope === nextScope) {
+        if (!ready) setReady(true);
+        return;
+      }
+      const previousSaveFailed = Boolean(
+        previousScope &&
+          !saveStateForScope(stateRef.current, previousScope),
+      );
+      if (previousScope && previousSaveFailed)
+        volatileScopeStateRef.current.set(previousScope, stateRef.current);
+      else if (previousScope)
+        volatileScopeStateRef.current.delete(previousScope);
+      let restored =
+        volatileScopeStateRef.current.get(nextScope) ??
+        loadStateForScope(nextScope);
+      if (!previousScope) {
+        const route = parseRoute(window.location.href);
+        const items = [
+          ...BUILTIN_ITEMS,
+          ...restored.customItems.filter((candidate) => !candidate.archivedAt),
+        ];
+        const routedItem = resolveRouteItem(items, route);
+        const restoredItem =
+          items.find((candidate) => candidate.itemId === restored.lastItemId) ??
+          BUILTIN_ITEMS[0];
+        const initialItem = routedItem ?? restoredItem;
+        if (route.view === "practice" && initialItem.transfer) {
+          restored = {
+            ...restored,
+            transferWorkspace: recordTransferOpened(
+              restored.transferWorkspace,
+              initialItem.itemId,
+              {
+                now: new Date().toISOString(),
+                variantRevision: initialItem.contentRevision,
+              },
+            ),
+          };
+        }
+      }
+      persistenceScopeRef.current = nextScope;
+      setPersistenceScope(nextScope);
+      invalidateCloudWork();
+      stateRef.current = restored;
+      setState(restored);
+      setGuestDataAvailable(
+        nextScope !== GUEST_PERSISTENCE_SCOPE &&
+          hasMeaningfulBackupState(
+            loadStateForScope(GUEST_PERSISTENCE_SCOPE),
+          ),
+      );
+      setReveal(false);
+      setResult(null);
+      setCustomEditor(null);
+      setMockReviewSessionId(null);
+      setPracticeEpoch((current) => current + 1);
+      if (previousScope) {
+        const firstItem =
+          [...BUILTIN_ITEMS, ...restored.customItems].find(
+            (candidate) => candidate.itemId === restored.lastItemId,
+          ) ?? BUILTIN_ITEMS[0];
+        setView("today");
+        setSelectedId(firstItem.itemId);
+        setStage(restored.lastStage || 1);
+        setPracticeKind(
+          restored.draft?.itemId === firstItem.itemId
+            ? coercePracticeKind(firstItem, restored.draft.practiceKind)
+            : "typing",
+        );
+        setAssessmentRouteId(undefined);
+        setSelectedSessionId(undefined);
+        setReviewAttemptId(undefined);
+        setTransferRecordVariantId(undefined);
+        setTransferRecordAttemptId(undefined);
+        window.history.replaceState(
+          {},
+          "",
+          serializeRoute({ view: "today" }, window.location.href),
+        );
+        setToast(
+          previousSaveFailed
+            ? "Profile switched · the previous profile is held in memory because browser storage is unavailable"
+            : nextScope === GUEST_PERSISTENCE_SCOPE
+              ? "Switched to this browser's guest profile"
+              : `Loaded ${cloud.session?.user?.displayName ?? "your"} account profile`,
+        );
+      } else {
+        const items = [
+          ...BUILTIN_ITEMS,
+          ...restored.customItems.filter((candidate) => !candidate.archivedAt),
+        ];
+        const route = parseRoute(window.location.href);
+        const routed = resolveRouteItem(items, route);
+        const selected =
+          routed ??
+          items.find((candidate) => candidate.itemId === restored.lastItemId) ??
+          BUILTIN_ITEMS[0];
+        const nextPracticeKind = coercePracticeKind(
+          selected,
+          route.practiceKind ??
+            (restored.draft?.itemId === selected.itemId
+              ? restored.draft.practiceKind
+              : undefined),
+        );
+        setSelectedId(selected.itemId);
+        setPracticeKind(nextPracticeKind);
+        setStage(
+          nextPracticeKind === "solving"
+            ? 5
+            : (route.stage ?? restored.lastStage ?? 1),
+        );
+        setSelectedSessionId(
+          route.sessionId &&
+            restored.sessionHistory.some(
+              (record) => record.id === route.sessionId,
+            )
+            ? route.sessionId
+            : undefined,
+        );
+        setReviewAttemptId(
+          route.reviewAttemptId &&
+            restored.attempts.some(
+              (attempt) => attempt.id === route.reviewAttemptId,
+            )
+            ? route.reviewAttemptId
+            : undefined,
+        );
+      }
+      setReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    bootstrapped,
+    cloud.status,
+    cloud.session?.authenticated,
+    cloud.session?.user?.id,
+    cloud.session?.user?.displayName,
+    ready,
+  ]);
 
   useEffect(() => {
     if (!ready) return;
@@ -1130,6 +1308,20 @@ export default function SwiftGhostApp() {
       };
     }
     if (cloud.status !== "connected" && cloud.status !== "syncing") return;
+    const expectedUserId = cloud.session?.user?.id;
+    if (
+      !persistenceScope ||
+      !scopeMatchesAuthenticatedUser(persistenceScope, expectedUserId)
+    ) {
+      void Promise.resolve().then(() => {
+        if (!cancelled) setStudySyncStatus("offline");
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+    const expectedEpoch = studySyncEpochRef.current;
+    studySyncReadyRef.current = false;
     const controller = new AbortController();
     void Promise.resolve().then(() => {
       if (!cancelled) setStudySyncStatus("checking");
@@ -1137,6 +1329,15 @@ export default function SwiftGhostApp() {
     void cloudClient
       .getStudyWorkspace({ signal: controller.signal })
       .then(async (result) => {
+        if (
+          cancelled ||
+          expectedEpoch !== studySyncEpochRef.current ||
+          !scopeMatchesAuthenticatedUser(
+            persistenceScopeRef.current,
+            expectedUserId,
+          )
+        )
+          return;
         if (!result.available) {
           if (result.reason !== "aborted") setStudySyncStatus("offline");
           return;
@@ -1144,6 +1345,7 @@ export default function SwiftGhostApp() {
         if (!result.data) {
           studyServerRevisionRef.current = 0;
           studySyncReadyRef.current = true;
+          setStudySyncReadyVersion((current) => current + 1);
           const localWorkspace = stateRef.current.studyWorkspace;
           const hasLocalStudyData = Boolean(
             localWorkspace.collections.length ||
@@ -1166,6 +1368,7 @@ export default function SwiftGhostApp() {
         const mergedFingerprint = JSON.stringify(merged);
         mutateState((current) => ({ ...current, studyWorkspace: merged }));
         studySyncReadyRef.current = true;
+        setStudySyncReadyVersion((current) => current + 1);
         if (mergedFingerprint === remoteFingerprint) {
           studySyncedFingerprintRef.current = mergedFingerprint;
           setStudySyncStatus("synced");
@@ -1183,6 +1386,9 @@ export default function SwiftGhostApp() {
     cloud.status,
     cloud.capabilities?.studySync,
     cloud.session?.authenticated,
+    cloud.session?.user?.id,
+    persistenceScope,
+    studySyncEpoch,
   ]);
 
   useEffect(() => {
@@ -1191,9 +1397,16 @@ export default function SwiftGhostApp() {
       !studySyncReadyRef.current ||
       !cloud.capabilities?.studySync ||
       !cloud.session?.authenticated ||
+      !persistenceScope ||
+      !scopeMatchesAuthenticatedUser(
+        persistenceScope,
+        cloud.session?.user?.id,
+      ) ||
       (cloud.status !== "connected" && cloud.status !== "syncing")
     )
       return;
+    const expectedUserId = cloud.session.user?.id;
+    const expectedEpoch = studySyncEpochRef.current;
     const workspace = state.studyWorkspace;
     const fingerprint = JSON.stringify(workspace);
     if (fingerprint === studySyncedFingerprintRef.current) return;
@@ -1207,6 +1420,14 @@ export default function SwiftGhostApp() {
           signal: controller.signal,
         })
         .then((result) => {
+          if (
+            expectedEpoch !== studySyncEpochRef.current ||
+            !scopeMatchesAuthenticatedUser(
+              persistenceScopeRef.current,
+              expectedUserId,
+            )
+          )
+            return;
           if (result.available) {
             studyServerRevisionRef.current = result.data.revision;
             const live = stateRef.current.studyWorkspace;
@@ -1259,15 +1480,26 @@ export default function SwiftGhostApp() {
     cloud.status,
     cloud.capabilities?.studySync,
     cloud.session?.authenticated,
+    cloud.session?.user?.id,
+    persistenceScope,
+    studySyncEpoch,
+    studySyncReadyVersion,
   ]);
 
   useEffect(() => {
     if (
       !ready ||
       !state.cloud.communityEnabled ||
-      !cloud.session?.authenticated
+      !cloud.session?.authenticated ||
+      !persistenceScope ||
+      !scopeMatchesAuthenticatedUser(
+        persistenceScope,
+        cloud.session?.user?.id,
+      )
     )
       return;
+    const expectedUserId = cloud.session.user?.id;
+    const expectedEpoch = studySyncEpochRef.current;
     const known = new Set(state.cloud.uploadedAttemptIds);
     const pending = state.attempts
       .filter(
@@ -1298,6 +1530,14 @@ export default function SwiftGhostApp() {
         { signal: controller.signal },
       )
       .then((receipt) => {
+        if (
+          expectedEpoch !== studySyncEpochRef.current ||
+          !scopeMatchesAuthenticatedUser(
+            persistenceScopeRef.current,
+            expectedUserId,
+          )
+        )
+          return;
         if (!receipt.available) {
           setCloud((current) => ({
             ...current,
@@ -1329,6 +1569,9 @@ export default function SwiftGhostApp() {
     state.cloud.uploadedAttemptIds,
     state.attempts,
     cloud.session?.authenticated,
+    cloud.session?.user?.id,
+    persistenceScope,
+    studySyncEpoch,
   ]);
 
   const item =
@@ -1606,6 +1849,16 @@ export default function SwiftGhostApp() {
       stateRef.current = next;
       return next;
     });
+  }
+
+  function invalidateCloudWork() {
+    const nextEpoch = studySyncEpochRef.current + 1;
+    studySyncEpochRef.current = nextEpoch;
+    studySyncReadyRef.current = false;
+    studyServerRevisionRef.current = 0;
+    studySyncedFingerprintRef.current = "";
+    setStudySyncEpoch(nextEpoch);
+    setStudySyncStatus("checking");
   }
 
   function writeRoute(route: AppRoute, replace = false) {
@@ -3979,7 +4232,10 @@ export default function SwiftGhostApp() {
     options: { requirePersistence?: boolean } = {},
   ) {
     const next = updater(stateRef.current);
-    const persisted = saveState(next);
+    const activeScope = persistenceScopeRef.current;
+    const persisted = Boolean(
+      activeScope && saveStateForScope(next, activeScope),
+    );
     if (options.requirePersistence && !persisted) {
       throw new Error(
         "Local storage is unavailable · free browser storage before submitting",
@@ -5173,9 +5429,14 @@ export default function SwiftGhostApp() {
   }
 
   function exportProgress() {
-    const blob = new Blob([JSON.stringify(state, null, 2)], {
-      type: "application/json",
-    });
+    const portableState = {
+      ...state,
+      cloud: { communityEnabled: false, uploadedAttemptIds: [] },
+    };
+    const blob = new Blob(
+      [JSON.stringify(createBackupEnvelope(portableState), null, 2)],
+      { type: "application/json" },
+    );
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = `swift-ghost-progress-${dayKey(new Date())}.json`;
@@ -5190,15 +5451,37 @@ export default function SwiftGhostApp() {
     try {
       if (file.size > 5 * 1024 * 1024) throw new Error("backup too large");
       const parsed = JSON.parse(await file.text()) as unknown;
-      const restored = normalizeState(parsed);
+      const backup = readBackupPayload(parsed, SUPPORTED_STATE_VERSIONS);
+      if (!backup) throw new Error("invalid");
+      const normalized = normalizeState(backup.payload);
+      const inventory = backupInventory(normalized);
+      const activeScope = persistenceScopeRef.current;
+      if (!activeScope) throw new Error("profile unavailable");
+      const profileLabel =
+        activeScope === GUEST_PERSISTENCE_SCOPE
+          ? "this browser's guest profile"
+          : `${cloud.session?.user?.displayName ?? "your signed-in"} account profile`;
+      const exportedLabel = backup.exportedAt
+        ? ` from ${new Date(backup.exportedAt).toLocaleDateString()}`
+        : "";
       if (
-        !parsed ||
-        typeof parsed !== "object" ||
-        !SUPPORTED_STATE_VERSIONS.includes(
-          Number((parsed as { version?: unknown }).version),
+        !window.confirm(
+          `Replace ${profileLabel} with this backup${exportedLabel}?\n\nIt contains ${inventory.attempts} attempts, ${inventory.submissions} submissions, ${inventory.sessions} sessions, ${inventory.customItems} custom items, and ${inventory.plans} study plans. Community sharing stays off. Hosted Study Plans are preserved and merged after import.`,
         )
       )
-        throw new Error("invalid");
+        return;
+      const restored: AppState = {
+        ...normalized,
+        studyWorkspace:
+          activeScope === GUEST_PERSISTENCE_SCOPE
+            ? normalized.studyWorkspace
+            : mergeStudyWorkspaces(
+                normalized.studyWorkspace,
+                stateRef.current.studyWorkspace,
+                { now: new Date().toISOString() },
+              ),
+        cloud: { communityEnabled: false, uploadedAttemptIds: [] },
+      };
       const restoredItem = [
         ...BUILTIN_ITEMS,
         ...restored.customItems.filter((candidate) => !candidate.archivedAt),
@@ -5211,6 +5494,9 @@ export default function SwiftGhostApp() {
               : "typing",
           )
         : "typing";
+      invalidateCloudWork();
+      if (!saveStateForScope(restored, activeScope))
+        throw new Error("storage unavailable");
       stateRef.current = restored;
       setState(restored);
       setSelectedId(restoredItem?.itemId ?? BUILTIN_ITEMS[0].itemId);
@@ -5219,7 +5505,7 @@ export default function SwiftGhostApp() {
       setPracticeEpoch((current) => current + 1);
       setReveal(false);
       setResult(null);
-      setToast("Progress restored and migrated");
+      setToast("Backup restored · community sharing remains off");
     } catch {
       setToast("That backup could not be read");
     }
@@ -5227,14 +5513,25 @@ export default function SwiftGhostApp() {
   }
 
   function resetAllData() {
+    const activeScope = persistenceScopeRef.current;
+    if (!activeScope) {
+      setToast("Your profile is still loading");
+      return;
+    }
+    const profileLabel =
+      activeScope === GUEST_PERSISTENCE_SCOPE
+        ? "this browser's guest profile"
+        : `${cloud.session?.user?.displayName ?? "your signed-in"} account profile on this browser`;
     if (
       !window.confirm(
-        "Delete all Swift Ghost progress, custom practice items, and settings from this device?",
+        `Clear ${profileLabel}?\n\nThis removes browser-only code, attempts, sessions, notes, custom items, and settings for this profile. Hosted Study Plans stay intact and will return after sync.`,
       )
     )
       return;
-    for (const storageKey of STATE_STORAGE_KEYS) {
-      localStorage.removeItem(storageKey);
+    invalidateCloudWork();
+    if (!saveStateForScope(EMPTY_STATE, activeScope)) {
+      setToast("Local storage is unavailable · data was not cleared");
+      return;
     }
     stateRef.current = EMPTY_STATE;
     setState(EMPTY_STATE);
@@ -5242,7 +5539,54 @@ export default function SwiftGhostApp() {
     setStage(1);
     setPracticeKind("typing");
     setPracticeEpoch((current) => current + 1);
-    setToast("Local data cleared");
+    setToast("Browser data cleared · hosted Study Plans preserved");
+  }
+
+  function copyGuestDataToAccount() {
+    const activeScope = persistenceScopeRef.current;
+    const userId = cloud.session?.user?.id;
+    if (
+      !activeScope ||
+      activeScope === GUEST_PERSISTENCE_SCOPE ||
+      !scopeMatchesAuthenticatedUser(activeScope, userId)
+    )
+      return;
+    const guestState = loadStateForScope(GUEST_PERSISTENCE_SCOPE);
+    if (!hasMeaningfulBackupState(guestState)) {
+      setGuestDataAvailable(false);
+      setToast("No guest progress is available to copy");
+      return;
+    }
+    const inventory = backupInventory(guestState);
+    if (
+      !window.confirm(
+        `Copy guest progress into ${cloud.session?.user?.displayName ?? "this account"}?\n\nThis replaces browser-only account data with ${inventory.attempts} attempts, ${inventory.sessions} sessions, and ${inventory.customItems} custom items. Account Study Plans are merged, community sharing stays off, and the guest copy remains available.`,
+      )
+    )
+      return;
+    const restored: AppState = {
+      ...guestState,
+      studyWorkspace: mergeStudyWorkspaces(
+        guestState.studyWorkspace,
+        stateRef.current.studyWorkspace,
+        { now: new Date().toISOString() },
+      ),
+      cloud: { communityEnabled: false, uploadedAttemptIds: [] },
+    };
+    invalidateCloudWork();
+    if (!saveStateForScope(restored, activeScope)) {
+      setToast("Local storage is unavailable · guest data was not copied");
+      return;
+    }
+    stateRef.current = restored;
+    setState(restored);
+    setSelectedId(restored.lastItemId ?? BUILTIN_ITEMS[0].itemId);
+    setStage(restored.lastStage || 1);
+    setPracticeKind("typing");
+    setPracticeEpoch((current) => current + 1);
+    setReveal(false);
+    setResult(null);
+    setToast("Guest progress copied · original guest profile kept");
   }
 
   function handleResultNext() {
@@ -5415,10 +5759,45 @@ export default function SwiftGhostApp() {
   );
   const firstMockReviewProblem = mockReviewProblems[0];
 
+  const expectedPersistenceScope = resolvePersistenceScope({
+    status: cloud.status,
+    authenticated: cloud.session?.authenticated,
+    userId: cloud.session?.user?.id,
+    currentScope: persistenceScope,
+  });
+  if (
+    !ready ||
+    (expectedPersistenceScope !== undefined &&
+      persistenceScope !== expectedPersistenceScope)
+  ) {
+    return (
+      <div className="app-shell" aria-busy="true">
+        <header className="topbar">
+          <span className="brand" aria-label="Swift Ghost">
+            <span className="brand-mark" aria-hidden="true">
+              S<span>G</span>
+            </span>
+            <span>
+              <strong>Swift Ghost</strong>
+              <small>loading your private practice profile</small>
+            </span>
+          </span>
+        </header>
+        <main id="main-content" className="page-container settings-page">
+          <PageHeading
+            eyebrow="One moment"
+            title="Loading your practice profile."
+            copy="Your browser data stays separated by signed-in account."
+          />
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className={`app-shell ${focusMode ? "is-focus" : ""}`}>
       <a className="skip-link" href="#main-content">
-        Skip to practice content
+        Skip to main content
       </a>
       <header className="topbar">
         <button
@@ -5766,7 +6145,7 @@ export default function SwiftGhostApp() {
       )}
       {view === "records" && (
         <RecordsView
-          key={`${cloud.status}:${cloud.refresh}:${cloud.session?.profile?.handle ?? "local"}:${cloud.session?.profile?.updatedAt ?? "new"}`}
+          key={`${cloud.status}:${cloud.refresh}:${cloud.session?.user?.id ?? "guest"}:${cloud.session?.profile?.handle ?? "local"}:${cloud.session?.profile?.updatedAt ?? "new"}`}
           state={state}
           items={allItems}
           section={recordsSection}
@@ -5809,10 +6188,19 @@ export default function SwiftGhostApp() {
       {view === "settings" && (
         <SettingsView
           state={state}
+          profileLabel={
+            persistenceScope === GUEST_PERSISTENCE_SCOPE
+              ? "Guest profile on this browser"
+              : `${cloud.session?.user?.displayName ?? "Signed-in"} account on this browser`
+          }
+          accountScoped={persistenceScope !== GUEST_PERSISTENCE_SCOPE}
+          guestDataAvailable={guestDataAvailable}
+          studySyncStatus={studySyncStatus}
           onUpdate={updateSettings}
           onExport={exportProgress}
           onImport={() => importRef.current?.click()}
           onReset={resetAllData}
+          onCopyGuestData={copyGuestDataToAccount}
         />
       )}
 
@@ -9755,23 +10143,33 @@ function RecordsView({
 
 function SettingsView({
   state,
+  profileLabel,
+  accountScoped,
+  guestDataAvailable,
+  studySyncStatus,
   onUpdate,
   onExport,
   onImport,
   onReset,
+  onCopyGuestData,
 }: {
   state: AppState;
+  profileLabel: string;
+  accountScoped: boolean;
+  guestDataAvailable: boolean;
+  studySyncStatus: StudyPlanSyncStatus;
   onUpdate: (patch: Partial<Settings>) => void;
   onExport: () => void;
   onImport: () => void;
   onReset: () => void;
+  onCopyGuestData: () => void;
 }) {
   return (
     <main id="main-content" tabIndex={-1} className="page-container settings-page">
       <PageHeading
         eyebrow="Make it yours"
         title="Practice settings."
-        copy="Tune the editor for comfort. Preferences, snippets, and history stay in this browser unless you explicitly enable community uploads or export them."
+        copy="Tune the editor for comfort and see exactly where each kind of practice data lives."
       />
       <section className="settings-section">
         <div className="settings-intro">
@@ -9785,6 +10183,7 @@ function SettingsView({
               className={state.settings.theme === theme.id ? "active" : ""}
               onClick={() => onUpdate({ theme: theme.id })}
               key={theme.id}
+              aria-pressed={state.settings.theme === theme.id}
             >
               <span>
                 {theme.colors.map((color) => (
@@ -9831,6 +10230,7 @@ function SettingsView({
           <SettingRow label="Font size" note="Editor text size.">
             <div className="stepper">
               <button
+                aria-label="Decrease editor font size"
                 onClick={() =>
                   onUpdate({
                     fontSize: Math.max(12, state.settings.fontSize - 1),
@@ -9841,6 +10241,7 @@ function SettingsView({
               </button>
               <span>{state.settings.fontSize}px</span>
               <button
+                aria-label="Increase editor font size"
                 onClick={() =>
                   onUpdate({
                     fontSize: Math.min(24, state.settings.fontSize + 1),
@@ -9905,6 +10306,7 @@ function SettingsView({
           >
             <div className="stepper">
               <button
+                aria-label="Decrease daily practice goal"
                 onClick={() =>
                   onUpdate({
                     dailyGoalMinutes: Math.max(
@@ -9918,6 +10320,7 @@ function SettingsView({
               </button>
               <span>{state.settings.dailyGoalMinutes} min</span>
               <button
+                aria-label="Increase daily practice goal"
                 onClick={() =>
                   onUpdate({
                     dailyGoalMinutes: Math.min(
@@ -9936,14 +10339,21 @@ function SettingsView({
       <section className="settings-section">
         <div className="settings-intro">
           <small>Your data</small>
-          <h2>Local profile</h2>
+          <h2>Account and data</h2>
           <p>
-            Export a portable v27 JSON backup with Python, Swift, iOS, assessments, plans, sessions,
-            learning debriefs, revisioned snippets, local pacing and weak-line
-            analytics, community preferences, structured custom testcases, and
-            local submission snapshots, mock notebooks and debriefs, Interview
-            Studio transcripts and criteria, transfer evidence, authored local
-            challenges, virtual-round reports, per-problem notes, routeable session recaps, or restore any v2-v26 backup.
+            Current profile: <strong>{profileLabel}</strong>. Each signed-in
+            account and the guest profile have separate browser data.
+          </p>
+          <p>
+            Browser only: code, drafts, attempts, submissions, transcripts,
+            notes, settings, and custom content. Private sync: Study Plan
+            structure only ({studySyncStatus}). Community: only qualifying
+            attempt summaries when you explicitly turn sharing on.
+          </p>
+          <p>
+            Exports use a portable v27 backup envelope and imports accept
+            supported v2-v27 backups. Account-bound sharing consent and upload
+            receipts are never carried into another profile.
           </p>
         </div>
         <div className="data-actions">
@@ -9953,8 +10363,13 @@ function SettingsView({
           <button className="outline-button" onClick={onImport}>
             Import backup
           </button>
+          {accountScoped && guestDataAvailable && (
+            <button className="outline-button" onClick={onCopyGuestData}>
+              Copy guest progress here
+            </button>
+          )}
           <button className="danger-button" onClick={onReset}>
-            Clear local data
+            Clear this browser profile
           </button>
         </div>
       </section>

@@ -42,7 +42,7 @@ test("ships the scripted Python and Swift/iOS Interview Studio surfaces", async 
   );
   assert.match(app, /Interview archived · transcript and evidence saved locally/);
   assert.match(app, /event\.shiftKey && \(!isMock \|\| isStudio\)/);
-  assert.match(app, /Interview\s+Studio transcripts and criteria/);
+  assert.match(app, /transcripts,\s+notes, settings/);
 
   for (const phase of [
     "introduction",

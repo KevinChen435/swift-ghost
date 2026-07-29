@@ -13,6 +13,14 @@ import {
 } from "./submission-log.mjs";
 import { persistJsonProperty } from "./local-persistence.mjs";
 import {
+  GUEST_PERSISTENCE_SCOPE,
+  normalizePersistenceScope,
+  persistScopedJson,
+  readStoredJson,
+  scopedStateKey,
+  type PersistenceScope,
+} from "./account-storage.mjs";
+import {
   normalizeSubmissionAnnotations,
   type SubmissionAnnotations,
 } from "./submission-annotations.mjs";
@@ -1727,19 +1735,66 @@ export function normalizeState(value: unknown): AppState {
 export function loadState(): AppState {
   if (typeof window === "undefined") return EMPTY_STATE;
   try {
-    for (const key of STATE_STORAGE_KEYS) {
-      const stored = localStorage.getItem(key);
-      if (!stored) continue;
-      try {
-        const parsed = JSON.parse(stored);
-        if (!hasSupportedStateVersion(parsed)) continue;
-        return normalizeState(parsed);
-      } catch {
-        // Try the next older backup when a newer write was interrupted.
-      }
-    }
+    const stored = readStoredJson(
+      window.localStorage,
+      STATE_STORAGE_KEYS,
+      SUPPORTED_STATE_VERSIONS,
+    );
+    if (stored.found) return normalizeState(stored.value);
   } catch {
     // Storage may be unavailable in private or hardened browser contexts.
+  }
+  return EMPTY_STATE;
+}
+
+function migrateLegacyStateToGuest(storage: Storage) {
+  const guestKeys = STATE_STORAGE_KEYS.flatMap((key) => {
+    const scoped = scopedStateKey(key, GUEST_PERSISTENCE_SCOPE);
+    return scoped ? [scoped] : [];
+  });
+  const existingGuest = readStoredJson(
+    storage,
+    guestKeys,
+    SUPPORTED_STATE_VERSIONS,
+  );
+  if (existingGuest.found) return existingGuest;
+  const legacy = readStoredJson(
+    storage,
+    STATE_STORAGE_KEYS,
+    SUPPORTED_STATE_VERSIONS,
+  );
+  if (!legacy.found) return legacy;
+  const normalized = normalizeState(legacy.value);
+  persistScopedJson(
+    storage,
+    STORAGE_KEY,
+    GUEST_PERSISTENCE_SCOPE,
+    normalized,
+  );
+  return { found: true as const, value: normalized, key: legacy.key };
+}
+
+export function loadStateForScope(scope: PersistenceScope): AppState {
+  if (typeof window === "undefined") return EMPTY_STATE;
+  const normalizedScope = normalizePersistenceScope(scope);
+  if (!normalizedScope) return EMPTY_STATE;
+  try {
+    const storage = window.localStorage;
+    const scopedKeys = STATE_STORAGE_KEYS.flatMap((key) => {
+      const scoped = scopedStateKey(key, normalizedScope);
+      return scoped ? [scoped] : [];
+    });
+    const stored = readStoredJson(
+      storage,
+      scopedKeys,
+      SUPPORTED_STATE_VERSIONS,
+    );
+    if (stored.found) return normalizeState(stored.value);
+    const guest = migrateLegacyStateToGuest(storage);
+    if (normalizedScope === GUEST_PERSISTENCE_SCOPE && guest.found)
+      return normalizeState(guest.value);
+  } catch {
+    // A new account gets an empty, isolated profile when storage is blocked.
   }
   return EMPTY_STATE;
 }
@@ -1756,6 +1811,25 @@ function hasSupportedStateVersion(
 export function saveState(state: AppState) {
   if (typeof window === "undefined") return false;
   return persistJsonProperty(window, "localStorage", STORAGE_KEY, state);
+}
+
+export function saveStateForScope(
+  state: AppState,
+  scope: PersistenceScope,
+) {
+  if (typeof window === "undefined") return false;
+  const normalizedScope = normalizePersistenceScope(scope);
+  if (!normalizedScope) return false;
+  try {
+    return persistScopedJson(
+      window.localStorage,
+      STORAGE_KEY,
+      normalizedScope,
+      state,
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function maskCode(
