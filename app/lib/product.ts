@@ -144,6 +144,7 @@ export const STAGES = [
 export type View =
   | "today"
   | "plans"
+  | "improve"
   | "practice"
   | "sessions"
   | "assessments"
