@@ -38,6 +38,7 @@ export type PracticeItem = Omit<Problem, "swiftNote"> & {
   itemId: ItemId;
   track: PracticeTrack;
   language: CodeLanguage;
+  conceptLane?: "swift" | "ios";
   languageNote: string;
   source: "builtin" | "custom";
   tags: string[];
@@ -127,6 +128,15 @@ export const IOS_ITEMS: PracticeItem[] = FUNDAMENTALS.map(
     itemId: fundamental.id as ItemId,
     pattern: fundamental.pattern as Pattern,
     language: "swift",
+    conceptLane: [
+      "Swift Semantics",
+      "Optionals & Errors",
+      "Protocols & Generics",
+      "Memory Management",
+      "Concurrency",
+    ].includes(fundamental.pattern)
+      ? "swift"
+      : "ios",
     languageNote: swiftNote,
     source: "builtin",
     contentRevision: 2,

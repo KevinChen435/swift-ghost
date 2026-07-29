@@ -124,6 +124,8 @@ function weakness(value) {
 }
 
 function laneFor(item, fallback = "python") {
+  if (item?.conceptLane === "swift" || item?.conceptLane === "ios")
+    return item.conceptLane;
   if (item?.track === "ios" || fallback === "ios") return "ios";
   if (item?.language === "swift" || fallback === "swift") return "swift";
   return "python";
@@ -327,14 +329,14 @@ function collectEvidence(input, itemById) {
   for (const attempt of Array.isArray(input.testDesignAttempts) ? input.testDesignAttempts : []) {
     const probe = testProbes.get(attempt?.probeId);
     const item = itemById.get(attempt?.itemId);
-    if (!attempt?.completedAt || !probe || !item || Number(attempt.probeRevision) !== Number(probe.revision) || attempt.itemId !== probe.itemId || Number(attempt.itemRevision) !== Number(probe.itemRevision) || Number(item.contentRevision) !== Number(probe.itemRevision)) continue;
+    if (!attempt?.completedAt || !probe || !item || attempt.lane !== probe.lane || laneFor(item, probe.lane) !== probe.lane || Number(attempt.probeRevision) !== Number(probe.revision) || attempt.itemId !== probe.itemId || Number(attempt.itemRevision) !== Number(probe.itemRevision) || Number(item.contentRevision) !== Number(probe.itemRevision)) continue;
     if (attempt.oracleStatus === "contradicted") pushEvidence(evidence, {
       id: `test-design:${attempt.id}:oracle`, kind: "test-design", weakness: "verification", itemId: probe.itemId, itemRevision: probe.itemRevision,
-      occurredAt: attempt.completedAt, weight: 3, label: "Test Design Lab", summary: `The committed expected result contradicted an original reference oracle for ${probe.title}. Free-form assumptions were not auto-scored.`, sourceId: attempt.id, lane: "python", topicKey: probe.skillLabel,
+      occurredAt: attempt.completedAt, weight: 3, label: "Test Design Lab", summary: `The committed expected observation contradicted an original reference oracle for ${probe.title}. Free-form assumptions were not auto-scored.`, sourceId: attempt.id, lane: probe.lane, topicKey: item.pattern ?? probe.skillLabel,
     }, itemById);
     if (attempt.purposeMatch === false) pushEvidence(evidence, {
       id: `test-design:${attempt.id}:purpose`, kind: "test-design", weakness: "boundary", itemId: probe.itemId, itemRevision: probe.itemRevision,
-      occurredAt: attempt.completedAt, weight: 2, label: "Test Design Lab", summary: `The committed test purpose did not match the authored failure target for ${probe.title}.`, sourceId: attempt.id, lane: "python", topicKey: probe.skillLabel,
+      occurredAt: attempt.completedAt, weight: 2, label: "Test Design Lab", summary: `The committed test purpose did not match the authored failure target for ${probe.title}.`, sourceId: attempt.id, lane: probe.lane, topicKey: item.pattern ?? probe.skillLabel,
     }, itemById);
   }
 
@@ -517,7 +519,12 @@ export function buildWeaknessLab(input = {}) {
     const lastSuccessAt = validDate(successes.at(-1)?.at);
     const hasDelayedPair = successes.length >= 2 && lastSuccessAt - firstSuccessAt >= DAY_MS;
     const hasTransfer = successes.some((entry) => entry.transfer);
-    const resolved = hasDelayedPair && hasTransfer;
+    const distinctSuccessItems = new Set(
+      successes.filter((entry) => !entry.transfer).map((entry) => entry.itemId),
+    ).size;
+    const resolved =
+      hasDelayedPair &&
+      (latest.lane === "python" ? hasTransfer : distinctSuccessItems >= 2);
     const dueAtMs = successes.length
       ? lastSuccessAt + (successes.length >= 2 ? 7 : 3) * DAY_MS
       : validDate(latest.occurredAt) + DAY_MS;
@@ -547,7 +554,7 @@ export function buildWeaknessLab(input = {}) {
       lastEvidenceAt: latest.occurredAt,
       prompt: WEAKNESS_META[latest.weakness].prompt,
       queue,
-      transferRequired: !hasTransfer,
+      transferRequired: latest.lane === "python" && !hasTransfer,
       priority: 0,
     };
     value.priority = casePriority(value, nowMs);

@@ -94,17 +94,63 @@ test("Pattern Decision Review routes preserve a bounded sprint and exclude lesso
   );
 });
 
-test("Test Design Lab uses an isolated bounded sprint route and clears incompatible lesson state", () => {
-  const route = parseRoute("/?view=learn&review=tests&sprint=test-lab%3Aabc&pattern=trees&lessonStep=trace");
+test("Test Design Academy round-trips lane, sprint, and exact evidence while clearing incompatible lesson state", () => {
+  const route = parseRoute(
+    "/?view=learn&review=tests&lane=swift&sprint=test-lab%3Aabc&attempt=test-attempt%3A1&pattern=trees&lessonStep=trace",
+  );
   assert.equal(route.learnReview, "tests");
+  assert.equal(route.testDesignLane, "swift");
   assert.equal(route.testDesignSprintId, "test-lab:abc");
+  assert.equal(route.testDesignAttemptId, "test-attempt:1");
   assert.equal(route.patternSprintId, undefined);
   assert.equal(route.patternId, undefined);
   assert.equal(route.lessonStep, undefined);
-  assert.equal(serializeRoute(route), "/?view=learn&review=tests&sprint=test-lab%3Aabc");
+  assert.equal(
+    serializeRoute(route),
+    "/?view=learn&review=tests&lane=swift&sprint=test-lab%3Aabc&attempt=test-attempt%3A1",
+  );
+
+  for (const lane of ["python", "swift", "ios"]) {
+    const laneRoute = parseRoute(`/?view=learn&review=tests&lane=${lane}`);
+    assert.equal(laneRoute.testDesignLane, lane);
+    assert.equal(
+      serializeRoute(laneRoute),
+      `/?view=learn&review=tests&lane=${lane}`,
+    );
+  }
+
+  const invalid = parseRoute(
+    "/?view=learn&review=tests&lane=admin&sprint=..%2Fprivate&attempt=..%2Fprivate",
+  );
+  assert.equal(invalid.testDesignLane, undefined);
+  assert.equal(invalid.testDesignSprintId, undefined);
+  assert.equal(invalid.testDesignAttemptId, undefined);
+  assert.equal(serializeRoute(invalid), "/?view=learn&review=tests");
+
   const mixed = parseRoute("/?view=learn&review=mixed&sprint=pattern-only");
   assert.equal(mixed.testDesignSprintId, undefined);
-  assert.equal(serializeRoute({view:"learn",learnReview:"tests",patternSprintId:"wrong",testDesignSprintId:"right"}), "/?view=learn&review=tests&sprint=right");
+  assert.equal(mixed.testDesignLane, undefined);
+  assert.equal(mixed.testDesignAttemptId, undefined);
+  assert.equal(
+    serializeRoute({
+      view: "learn",
+      learnReview: "tests",
+      patternSprintId: "wrong",
+      testDesignSprintId: "right",
+      testDesignLane: "ios",
+      testDesignAttemptId: "evidence-1",
+    }),
+    "/?view=learn&review=tests&lane=ios&sprint=right&attempt=evidence-1",
+  );
+  assert.doesNotMatch(
+    serializeRoute({
+      view: "records",
+      learnReview: "tests",
+      testDesignLane: "swift",
+      testDesignAttemptId: "evidence-1",
+    }),
+    /review=tests|lane=swift|attempt=evidence-1/,
+  );
 });
 
 test("Weakness Lab filters and selected cases are bounded and reload-safe", () => {

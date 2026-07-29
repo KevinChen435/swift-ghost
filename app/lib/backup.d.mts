@@ -16,6 +16,8 @@ export type BackupInventory = {
   patternReviews: number;
   patternDecisions: number;
   testDesignAttempts: number;
+  testDesignDrafts: number;
+  activeTestDesignSprints: number;
 };
 
 export function backupInventory(state: unknown): BackupInventory;

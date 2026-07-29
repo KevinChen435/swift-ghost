@@ -31,6 +31,7 @@ export const LEARN_STEPS = [
   "practice",
 ];
 export const LEARN_REVIEW_MODES = ["mixed", "tests"];
+export const TEST_DESIGN_LANES = ["python", "swift", "ios"];
 export const COMMUNITY_TABS = ["recent", "records", "daily", "profile"];
 export const RECORDS_SECTIONS = [
   "overview",
@@ -263,6 +264,12 @@ export function parseRoute(input) {
     learnReview === "mixed" ? cleanSessionId(params.get("sprint")) : undefined;
   const testDesignSprintId =
     learnReview === "tests" ? cleanSessionId(params.get("sprint")) : undefined;
+  const testDesignLane =
+    learnReview === "tests" && TEST_DESIGN_LANES.includes(params.get("lane"))
+      ? params.get("lane")
+      : undefined;
+  const testDesignAttemptId =
+    learnReview === "tests" ? cleanSessionId(params.get("attempt")) : undefined;
   const lessonStep =
     view === "learn" && LEARN_STEPS.includes(params.get("lessonStep"))
       ? params.get("lessonStep")
@@ -286,6 +293,8 @@ export function parseRoute(input) {
                 learnReview,
                 ...(patternSprintId ? { patternSprintId } : {}),
                 ...(testDesignSprintId ? { testDesignSprintId } : {}),
+                ...(testDesignLane ? { testDesignLane } : {}),
+                ...(testDesignAttemptId ? { testDesignAttemptId } : {}),
               }
             : {
                 ...(patternId ? { patternId } : {}),
@@ -496,10 +505,19 @@ export function serializeRoute(
       : undefined;
     if (learnReview) {
       url.searchParams.set("review", learnReview);
+      if (
+        learnReview === "tests" &&
+        TEST_DESIGN_LANES.includes(route?.testDesignLane)
+      )
+        url.searchParams.set("lane", route.testDesignLane);
       const sprintId = cleanSessionId(
         learnReview === "tests" ? route?.testDesignSprintId : route?.patternSprintId,
       );
       if (sprintId) url.searchParams.set("sprint", sprintId);
+      if (learnReview === "tests") {
+        const attemptId = cleanSessionId(route?.testDesignAttemptId);
+        if (attemptId) url.searchParams.set("attempt", attemptId);
+      }
     } else {
       const patternId = cleanPatternId(route?.patternId);
       if (patternId) url.searchParams.set("pattern", patternId);

@@ -6,6 +6,7 @@ import {
 } from "../app/lib/weakness-lab.mjs";
 import { PATTERN_DECISION_PROBES } from "../app/data/pattern-decision-probes.ts";
 import { PATTERN_LESSONS } from "../app/data/pattern-lessons.ts";
+import { TEST_DESIGN_PROBES } from "../app/data/test-design-probes.ts";
 
 const items = [
   {
@@ -53,6 +54,46 @@ const items = [
     pattern: "Memory Management",
     track: "ios",
     language: "swift",
+    estimatedMinutes: 7,
+  },
+  {
+    itemId: "swift:value-a",
+    contentRevision: 2,
+    title: "Swift Value A",
+    pattern: "Swift Semantics",
+    track: "ios",
+    language: "swift",
+    conceptLane: "swift",
+    estimatedMinutes: 7,
+  },
+  {
+    itemId: "swift:value-b",
+    contentRevision: 2,
+    title: "Swift Value B",
+    pattern: "Swift Semantics",
+    track: "ios",
+    language: "swift",
+    conceptLane: "swift",
+    estimatedMinutes: 7,
+  },
+  {
+    itemId: "ios:reuse-a",
+    contentRevision: 2,
+    title: "iOS Reuse A",
+    pattern: "UIKit",
+    track: "ios",
+    language: "swift",
+    conceptLane: "ios",
+    estimatedMinutes: 7,
+  },
+  {
+    itemId: "ios:reuse-b",
+    contentRevision: 2,
+    title: "iOS Reuse B",
+    pattern: "UIKit",
+    track: "ios",
+    language: "swift",
+    conceptLane: "ios",
     estimatedMinutes: 7,
   },
 ];
@@ -323,6 +364,124 @@ test("one independent success stabilizes and a delayed pair plus transfer resolv
   });
   assert.equal(resolved.cases[0].status, "resolved");
   assert.equal(resolved.cases[0].transferRequired, false);
+});
+
+test("Swift and iOS cases resolve with a delayed pair on distinct non-transfer concepts", () => {
+  for (const scenario of [
+    {
+      lane: "swift",
+      itemIds: ["swift:value-a", "swift:value-b"],
+      pattern: "Swift Semantics",
+    },
+    {
+      lane: "ios",
+      itemIds: ["ios:reuse-a", "ios:reuse-b"],
+      pattern: "UIKit",
+    },
+  ]) {
+    const learningEvent = {
+      id: `${scenario.lane}-event`,
+      attemptId: `${scenario.lane}-old`,
+      itemId: scenario.itemIds[0],
+      itemRevision: 2,
+      friction: "implementation",
+      grade: "again",
+      createdAt: "2026-07-01T12:00:00.000Z",
+    };
+    const conceptAttempt = (id, itemId, completedAt) => ({
+      id,
+      itemId,
+      itemRevision: 2,
+      practiceKind: "concept",
+      outcome: "completed",
+      qualification: "independent",
+      conceptGrade: "good",
+      peeks: 0,
+      completedAt,
+    });
+
+    const stabilizing = buildWeaknessLab({
+      items,
+      learningEvents: [learningEvent],
+      attempts: [
+        conceptAttempt(`${scenario.lane}-one`, scenario.itemIds[0], "2026-07-10T12:00:00.000Z"),
+      ],
+      now: "2026-07-20T12:00:00.000Z",
+    }).cases.find((entry) => entry.lane === scenario.lane);
+    assert.equal(stabilizing.status, "stabilizing", scenario.lane);
+    assert.equal(stabilizing.transferRequired, false, scenario.lane);
+
+    const sameItemTwice = buildWeaknessLab({
+      items,
+      learningEvents: [learningEvent],
+      attempts: [
+        conceptAttempt(`${scenario.lane}-one`, scenario.itemIds[0], "2026-07-10T12:00:00.000Z"),
+        conceptAttempt(`${scenario.lane}-repeat`, scenario.itemIds[0], "2026-07-12T12:00:00.000Z"),
+      ],
+      now: "2026-07-20T12:00:00.000Z",
+    }).cases.find((entry) => entry.lane === scenario.lane);
+    assert.equal(sameItemTwice.status, "stabilizing", `${scenario.lane} needs distinct items`);
+
+    const resolved = buildWeaknessLab({
+      items,
+      learningEvents: [learningEvent],
+      attempts: [
+        conceptAttempt(`${scenario.lane}-one`, scenario.itemIds[0], "2026-07-10T12:00:00.000Z"),
+        conceptAttempt(`${scenario.lane}-two`, scenario.itemIds[1], "2026-07-12T12:00:00.000Z"),
+      ],
+      now: "2026-07-20T12:00:00.000Z",
+    }).cases.find((entry) => entry.lane === scenario.lane);
+    assert.equal(resolved.status, "resolved", scenario.lane);
+    assert.equal(resolved.successes.length, 2, scenario.lane);
+  }
+});
+
+test("Test Design evidence requires current probe, item, and structural lane identity", () => {
+  const probeFor = (lane) => TEST_DESIGN_PROBES.find((probe) => probe.lane === lane);
+  for (const lane of ["python", "swift", "ios"]) {
+    const probe = probeFor(lane);
+    const item = {
+      itemId: probe.itemId,
+      contentRevision: probe.itemRevision,
+      title: probe.title,
+      pattern: `Test topic ${lane}`,
+      track: lane === "python" ? "interview" : "ios",
+      language: lane === "python" ? "python" : "swift",
+      ...(lane !== "python" ? { conceptLane: lane } : {}),
+      estimatedMinutes: 8,
+    };
+    const attempt = {
+      id: `test-design-${lane}`,
+      probeId: probe.id,
+      probeRevision: probe.revision,
+      lane,
+      itemId: probe.itemId,
+      itemRevision: probe.itemRevision,
+      purposeMatch: false,
+      oracleStatus: "confirmed",
+      completedAt: "2026-07-10T12:00:00.000Z",
+    };
+    const model = buildWeaknessLab({
+      items: [item],
+      testDesignAttempts: [attempt],
+      testDesignProbes: TEST_DESIGN_PROBES,
+      now: "2026-07-20T12:00:00.000Z",
+    });
+    const evidenceCase = model.cases.find((entry) =>
+      entry.sourceKinds.includes("test-design"),
+    );
+    assert.equal(evidenceCase.lane, lane);
+    assert.equal(evidenceCase.weakness, "boundary");
+    assert.equal(evidenceCase.topicKey, item.pattern);
+
+    const mismatched = buildWeaknessLab({
+      items: [item],
+      testDesignAttempts: [{ ...attempt, lane: lane === "ios" ? "swift" : "ios" }],
+      testDesignProbes: TEST_DESIGN_PROBES,
+      now: "2026-07-20T12:00:00.000Z",
+    });
+    assert.equal(mismatched.cases.length, 0, `${lane} mismatch must not leak evidence`);
+  }
 });
 
 test("targeted queues exclude sealed transfer variants and choose lane-appropriate modes", () => {

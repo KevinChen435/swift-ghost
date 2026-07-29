@@ -5,6 +5,7 @@ import type { PracticeItem } from "../lib/items";
 import type { RetrievalGrade } from "../lib/learning-state.mjs";
 import type {
   TestDesignProbe,
+  TestDesignLane,
   TestDesignSource,
   TestPurpose,
 } from "../data/test-design-probes";
@@ -18,8 +19,11 @@ type Props = {
   probes: readonly TestDesignProbe[];
   items: readonly PracticeItem[];
   workspace: TestDesignWorkspace;
+  selectedLane: TestDesignLane;
+  entrySource: TestDesignSource;
   routedSprintId?: string;
-  onStartSprint: (source: TestDesignSource) => void;
+  selectedAttemptId?: string;
+  onStartSprint: (source: TestDesignSource, lane: TestDesignLane) => void;
   onSaveDraft: (probe: TestDesignProbe, input: TestDesignInput) => void;
   onCommit: (probe: TestDesignProbe, input: TestDesignInput) => void;
   onReveal: (attemptId: string) => void;
@@ -53,6 +57,56 @@ const GRADES: { id: RetrievalGrade; label: string }[] = [
   { id: "easy", label: "Easy" },
 ];
 
+const LANES: {
+  id: TestDesignLane;
+  label: string;
+  title: string;
+  copy: string;
+}[] = [
+  {
+    id: "python",
+    label: "Python",
+    title: "Algorithm counterexamples",
+    copy: "Design compact call cases for collections, normalization, and window boundaries.",
+  },
+  {
+    id: "swift",
+    label: "Swift",
+    title: "Language and concurrency contracts",
+    copy: "Plan observations for value semantics, errors, ownership, and structured concurrency.",
+  },
+  {
+    id: "ios",
+    label: "iOS",
+    title: "Framework behavior scenarios",
+    copy: "Exercise lifecycle, state restoration, networking, test seams, and accessibility.",
+  },
+];
+
+function laneLabel(lane: TestDesignLane) {
+  return LANES.find((entry) => entry.id === lane)?.label ?? lane;
+}
+
+function inputCopy(probe: TestDesignProbe) {
+  if (probe.lane === "python")
+    return {
+      tag: "Python call arguments",
+      help: "JSON list of Python call arguments, or plain planning text",
+      placeholder: "Example: [[4], 8]",
+    };
+  if (probe.lane === "swift")
+    return {
+      tag: probe.inputFormat === "event-sequence" ? "Swift event sequence" : "Swift structured scenario",
+      help: "JSON setup and observation steps, or plain planning text",
+      placeholder: '{"setup":"smallest useful state","action":"one change"}',
+    };
+  return {
+    tag: "iOS behavior scenario",
+    help: "JSON lifecycle, state, network, or accessibility events",
+    placeholder: '{"events":["load","appear","layout"]}',
+  };
+}
+
 function sourceLabel(source: TestDesignSource) {
   return {
     academy: "Pattern Academy",
@@ -66,7 +120,10 @@ export function TestDesignLab({
   probes,
   items,
   workspace,
+  selectedLane,
+  entrySource,
   routedSprintId,
+  selectedAttemptId,
   onStartSprint,
   onSaveDraft,
   onCommit,
@@ -106,10 +163,19 @@ export function TestDesignLab({
     defectCaught: "",
     assisted: false,
   };
-  const overview = deriveTestDesignOverview(probes, workspace, {
-    now: new Date().toISOString(),
-  });
+  const currentLane = sprint?.lane ?? selectedLane;
+  const laneOverviews = Object.fromEntries(
+    LANES.map((lane) => [
+      lane.id,
+      deriveTestDesignOverview(probes, workspace, {
+        lane: lane.id,
+        now: new Date().toISOString(),
+      }),
+    ]),
+  ) as Record<TestDesignLane, ReturnType<typeof deriveTestDesignOverview>>;
+  const overview = laneOverviews[currentLane];
   const promptHeadingRef = useRef<HTMLHeadingElement>(null);
+  const lockedHeadingRef = useRef<HTMLHeadingElement>(null);
   const revealHeadingRef = useRef<HTMLHeadingElement>(null);
   const itemsById = useMemo(
     () => new Map(items.map((candidate) => [candidate.itemId, candidate])),
@@ -127,32 +193,132 @@ export function TestDesignLab({
 
   useEffect(() => {
     if (attempt?.revealedAt) revealHeadingRef.current?.focus();
+    else if (attempt) lockedHeadingRef.current?.focus();
     else if (probe) promptHeadingRef.current?.focus();
-  }, [attempt?.revealedAt, probe]);
+  }, [attempt, probe]);
 
-  if (!sprint || (routedSprintId && routedSprintId !== sprint.id))
+  const selectedAttempt = selectedAttemptId
+    ? workspace.attempts.find((candidate) => candidate.id === selectedAttemptId)
+    : undefined;
+  if (selectedAttemptId) {
+    const selectedProbe = probes.find(
+      (candidate) =>
+        candidate.id === selectedAttempt?.probeId &&
+        candidate.revision === selectedAttempt.probeRevision,
+    );
+    const repairLane =
+      workspace.activeSprint?.status === "active"
+        ? workspace.activeSprint.lane
+        : selectedAttempt?.lane;
     return (
       <main id="main-content" className="page-container test-design-page">
-        <section className="test-design-empty">
-          <p className="eyebrow">Test Design Lab</p>
+        <section className="test-design-summary test-design-evidence-detail">
+          <p className="eyebrow">Private Test Design evidence</p>
+          <h1>{selectedProbe?.title ?? "Retired test-design exercise"}</h1>
+          {!selectedAttempt ? (
+            <div className="test-design-boundary">
+              This bounded attempt ID is not available in the current local history.
+            </div>
+          ) : (
+            <>
+              <div className="test-design-evidence-status">
+                <span className={`oracle-${selectedAttempt.oracleStatus}`}>
+                  Oracle {selectedAttempt.oracleStatus}
+                </span>
+                <span>{selectedAttempt.purposeMatch ? "Purpose matched" : "Purpose differed"}</span>
+                <span>{selectedAttempt.assisted ? "Hint used" : "Unassisted"}</span>
+                {selectedAttempt.retired ? <span>Retired content · history only</span> : null}
+              </div>
+              <p>
+                {laneLabel(selectedAttempt.lane)} · {sourceLabel(selectedAttempt.source)} · committed {new Date(selectedAttempt.committedAt).toLocaleString()}
+              </p>
+              <div className="test-design-committed-evidence">
+                <article><span>Purpose</span><strong>{selectedAttempt.purpose}</strong></article>
+                <article><span>Assumption</span><p>{selectedAttempt.assumption}</p></article>
+                <article><span>Structured scenario</span><pre><code>{selectedAttempt.input}</code></pre></article>
+                <article><span>Expected observation</span><pre><code>{selectedAttempt.expected}</code></pre></article>
+                <article><span>Defect named</span><p>{selectedAttempt.defectCaught}</p></article>
+              </div>
+              <div className="test-reference-notice">
+                <strong>Design only · not executed</strong>
+                <span>Objective status came only from exact authored structured cases. Assumption and defect prose were never semantically scored.</span>
+              </div>
+            </>
+          )}
+          <div className="test-design-summary-actions">
+            {repairLane ? (
+              <button className="primary-button" onClick={() => onStartSprint("weakness", repairLane)}>
+                {workspace.activeSprint?.status === "active"
+                  ? `Resume active ${laneLabel(repairLane)} lab`
+                  : `Start ${laneLabel(repairLane)} repair lab`}
+              </button>
+            ) : null}
+            <button className="secondary-button" onClick={onExit}>Back to Weakness Lab</button>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  if (!sprint || routedSprintId !== sprint.id)
+    return (
+      <main id="main-content" className="page-container test-design-page">
+        <section className="test-design-empty test-design-lane-entry">
+          <p className="eyebrow">Test Design Academy</p>
           <h1>Make the failure concrete before writing code.</h1>
           <p>
-            Design three small Python-call cases. Commit the purpose,
-            assumption, input, oracle, and defect before seeing project-authored
-            references.
+            Choose a lane, then design three compact cases. Commit the purpose,
+            assumption, structured scenario, expected observation, and defect
+            before seeing project-authored references.
           </p>
           <div className="test-design-boundary">
-            This is design evidence only. Your case is not executed, copied into
-            the editor, or treated as a solve.
+            Design-only evidence. Python, Swift, and iOS scenarios are not
+            executed, copied into practice, or treated as solves.
           </div>
-          <button
-            className="primary-button"
-            onClick={() => onStartSprint("academy")}
-          >
-            Start 3-prompt lab
-          </button>
+          {sprint?.status === "active" ? (
+            <article className="test-design-active-lane">
+              <div>
+                <span className="eyebrow">Active sprint</span>
+                <h2>Resume {laneLabel(sprint.lane)} before switching lanes.</h2>
+                <p>Your committed work and draft stay pinned to this sprint.</p>
+              </div>
+              <button
+                className="primary-button"
+                onClick={() => onStartSprint(sprint.source, sprint.lane)}
+              >
+                Resume active lab
+              </button>
+            </article>
+          ) : (
+            <div className="test-design-lane-grid" aria-label="Test design lanes">
+              {LANES.map((lane) => {
+                const laneOverview = laneOverviews[lane.id];
+                return (
+                  <article
+                    key={lane.id}
+                    className={lane.id === selectedLane ? "is-selected" : ""}
+                  >
+                    <span>{lane.label}</span>
+                    <h2>{lane.title}</h2>
+                    <p>{lane.copy}</p>
+                    <dl>
+                      <div><dt>New</dt><dd>{laneOverview.newCount}</dd></div>
+                      <div><dt>Due</dt><dd>{laneOverview.dueCount}</dd></div>
+                      <div><dt>Retained</dt><dd>{laneOverview.retainedCount}/{laneOverview.totalSkills}</dd></div>
+                    </dl>
+                    <button
+                      className={lane.id === selectedLane ? "primary-button" : "secondary-button"}
+                      onClick={() => onStartSprint(entrySource, lane.id)}
+                    >
+                      Start {lane.label} lab
+                    </button>
+                  </article>
+                );
+              })}
+            </div>
+          )}
           <button className="text-button" onClick={onExit}>
-            Back to Pattern Academy
+            Back to {sourceLabel(entrySource)}
           </button>
         </section>
       </main>
@@ -171,7 +337,9 @@ export function TestDesignLab({
     return (
       <main id="main-content" className="page-container test-design-page">
         <section className="test-design-summary">
-          <p className="eyebrow">Lab complete · {sourceLabel(sprint.source)}</p>
+          <p className="eyebrow">
+            {laneLabel(sprint.lane)} lab complete · {sourceLabel(sprint.source)}
+          </p>
           <h1>
             {confirmed}/{completed.length} oracles confirmed against reference
             cases.
@@ -196,7 +364,8 @@ export function TestDesignLab({
               <dd>
                 {
                   workspace.attempts.filter(
-                    (candidate) => candidate.completedAt,
+                    (candidate) =>
+                      candidate.completedAt && candidate.lane === sprint.lane,
                   ).length
                 }
               </dd>
@@ -227,7 +396,9 @@ export function TestDesignLab({
                       className="text-button"
                       onClick={() => onStartSolve(solve)}
                     >
-                      Continue to blank solve
+                      {solve.track === "ios"
+                        ? "Open blank concept reconstruction"
+                        : "Continue to blank solve"}
                     </button>
                   ) : null}
                 </article>
@@ -235,14 +406,19 @@ export function TestDesignLab({
             })}
           </div>
           <div className="test-design-summary-actions">
-            <button
-              className="primary-button"
-              onClick={() => onStartSprint("academy")}
-            >
-              Start another lab
-            </button>
+            <div className="test-design-next-lanes" aria-label="Start another lane">
+              {LANES.map((lane) => (
+                <button
+                  key={lane.id}
+                  className={lane.id === sprint.lane ? "primary-button" : "secondary-button"}
+                  onClick={() => onStartSprint(sprint.source, lane.id)}
+                >
+                  {lane.id === sprint.lane ? `Repeat ${lane.label}` : `Start ${lane.label}`}
+                </button>
+              ))}
+            </div>
             <button className="secondary-button" onClick={onExit}>
-              Back to Pattern Academy
+              Back to {sourceLabel(sprint.source)}
             </button>
           </div>
         </section>
@@ -259,55 +435,63 @@ export function TestDesignLab({
           <p>Start a fresh sprint to use current exercise revisions.</p>
           <button
             className="primary-button"
-            onClick={() => onStartSprint("academy")}
+            onClick={() => onStartSprint(sprint.source, sprint.lane)}
           >
             Start current lab
           </button>
           <button className="text-button" onClick={onExit}>
-            Back to Pattern Academy
+            Back to {sourceLabel(sprint.source)}
           </button>
         </section>
       </main>
     );
 
   const display = attempt ?? draft;
+  const inputPresentation = inputCopy(probe);
   return (
     <main id="main-content" className="page-container test-design-page">
       <section className="test-design-shell">
         <header className="test-design-header">
           <div>
             <p className="eyebrow">
-              Test-design sprint · {sourceLabel(sprint.source)}
+              {laneLabel(sprint.lane)} test-design sprint · {sourceLabel(sprint.source)}
             </p>
             <h1>
               Prompt {sprint.cursor + 1} of {sprint.entries.length}
             </h1>
           </div>
           <button className="text-button" onClick={onExit}>
-            Exit to Academy
+            Exit lab
           </button>
         </header>
         <div
           className="test-design-progress"
           role="progressbar"
           aria-label="Test design progress"
-          aria-valuemin={0}
+          aria-valuemin={1}
           aria-valuemax={sprint.entries.length}
-          aria-valuenow={sprint.cursor}
+          aria-valuenow={sprint.cursor + 1}
+          aria-valuetext={`Prompt ${sprint.cursor + 1} of ${sprint.entries.length}`}
         >
           <span
             style={{
-              width: `${(sprint.cursor / sprint.entries.length) * 100}%`,
+              width: `${((sprint.cursor + 1) / sprint.entries.length) * 100}%`,
             }}
           />
         </div>
         <article className="test-design-prompt">
-          <span>Pattern and solution hidden · Python call arguments</span>
+          <span>
+            Pattern and solution hidden · {inputPresentation.tag}
+          </span>
           <h2 ref={promptHeadingRef} tabIndex={-1}>
             {probe.prompt}
           </h2>
           <p>
             <strong>Contract:</strong> {probe.constraint}
+          </p>
+          <p className="test-design-execution-policy">
+            <strong>Design only · not executed.</strong> Objective status comes
+            only from an exact match to an authored structured case.
           </p>
         </article>
         <section
@@ -366,7 +550,7 @@ export function TestDesignLab({
             <label>
               Smallest useful input{" "}
               <small>
-                JSON list of Python call arguments, or plain planning text
+                {inputPresentation.help}
               </small>
               <textarea
                 className="test-code-input"
@@ -374,19 +558,19 @@ export function TestDesignLab({
                 maxLength={4000}
                 value={display.input}
                 onChange={(event) => update({ input: event.target.value })}
-                placeholder="Example: [[4], 8]"
+                placeholder={inputPresentation.placeholder}
               />
             </label>
             <label>
-              Expected result{" "}
-              <small>JSON when you want an authored oracle match</small>
+              Expected observation{" "}
+              <small>Structured JSON when you want an authored oracle match</small>
               <textarea
                 className="test-code-input"
                 spellCheck={false}
                 maxLength={4000}
                 value={display.expected}
                 onChange={(event) => update({ expected: event.target.value })}
-                placeholder="Example: []"
+                placeholder='Example: {"outcome":"expected state"}'
               />
             </label>
             <label>
@@ -415,7 +599,9 @@ export function TestDesignLab({
           <section className="test-design-reveal">
             <div>
               <p className="eyebrow">Design locked</p>
-              <h2>Now inspect the reference cases.</h2>
+              <h2 ref={lockedHeadingRef} tabIndex={-1}>
+                Now inspect the reference cases.
+              </h2>
               <p>Your committed fields cannot be edited after reveal.</p>
             </div>
             <button
@@ -446,8 +632,8 @@ export function TestDesignLab({
               <strong>Project-authored learning cases</strong>
               <span>
                 These references are original teaching examples, not hidden
-                judge cases. Your committed case has not been executed or copied
-                anywhere.
+                judge cases. Your committed case has not been executed, copied,
+                compiled, or sent anywhere.
               </span>
             </div>
             <div className="test-reference-grid">
@@ -457,8 +643,8 @@ export function TestDesignLab({
                   <h3>{reference.rationale}</h3>
                   <pre>
                     <code>
-                      args = {reference.input}
-                      {"\n"}expected = {reference.expected}
+                      {probe.lane === "python" ? "args" : "scenario"} = {reference.input}
+                      {"\n"}expected observation = {reference.expected}
                     </code>
                   </pre>
                   <p>

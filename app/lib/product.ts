@@ -327,7 +327,7 @@ export type CloudPreferences = {
 };
 
 export type AppState = {
-  version: 30;
+  version: 31;
   attempts: AttemptRecord[];
   submissionLog: SubmissionLog;
   submissionAnnotations: SubmissionAnnotations;
@@ -355,7 +355,8 @@ export type AppState = {
   cloud: CloudPreferences;
 };
 
-export const STORAGE_KEY = "swift-ghost-state-v30";
+export const STORAGE_KEY = "swift-ghost-state-v31";
+export const THIRTIETH_STORAGE_KEY = "swift-ghost-state-v30";
 export const TWENTY_NINTH_STORAGE_KEY = "swift-ghost-state-v29";
 export const TWENTY_EIGHTH_STORAGE_KEY = "swift-ghost-state-v28";
 export const TWENTY_SEVENTH_STORAGE_KEY = "swift-ghost-state-v27";
@@ -385,10 +386,11 @@ export const INITIAL_STORAGE_KEY = "swift-ghost-state-v4";
 export const SECOND_VERSION_STORAGE_KEY = "swift-ghost-state-v3";
 export const FIRST_VERSION_STORAGE_KEY = "swift-ghost-state-v2";
 export const SUPPORTED_STATE_VERSIONS: readonly number[] = [
-  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
 ];
 export const STATE_STORAGE_KEYS = [
   STORAGE_KEY,
+  THIRTIETH_STORAGE_KEY,
   TWENTY_NINTH_STORAGE_KEY,
   TWENTY_EIGHTH_STORAGE_KEY,
   TWENTY_SEVENTH_STORAGE_KEY,
@@ -433,7 +435,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const EMPTY_STATE: AppState = {
-  version: 30,
+  version: 31,
   attempts: [],
   submissionLog: createSubmissionLog(),
   submissionAnnotations: {},
@@ -1693,7 +1695,7 @@ export function normalizeState(value: unknown): AppState {
       .map((attempt) => attempt.id),
   );
   return {
-    version: 30,
+    version: 31,
     attempts,
     submissionLog,
     submissionAnnotations,

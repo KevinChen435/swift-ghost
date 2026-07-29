@@ -5,6 +5,7 @@ import type { CatalogQuery } from "./catalog-discovery.mjs";
 import type { SubmissionWorkLogQuery } from "./submission-work-log.mjs";
 import type { WeaknessFilter, WeaknessLane } from "./weakness-lab.mjs";
 import type { PatternLessonStep } from "../data/pattern-lessons";
+import type { TestDesignLane } from "../data/test-design-probes";
 
 export type CommunityTab = "recent" | "records" | "daily" | "profile";
 export type LearnReviewMode = "mixed" | "tests";
@@ -47,6 +48,8 @@ export type AppRoute = {
   learnReview?: LearnReviewMode;
   patternSprintId?: string;
   testDesignSprintId?: string;
+  testDesignLane?: TestDesignLane;
+  testDesignAttemptId?: string;
 };
 
 export const ROUTE_VIEWS: View[];
@@ -56,6 +59,7 @@ export const CONTEST_SECTIONS: ContestSection[];
 export const ROUTE_LANGUAGES: CodeLanguage[];
 export const LEARN_STEPS: PatternLessonStep[];
 export const LEARN_REVIEW_MODES: LearnReviewMode[];
+export const TEST_DESIGN_LANES: TestDesignLane[];
 export function parseRoute(input: string | URL | URLSearchParams): AppRoute;
 export function itemRouteToken(item: PracticeItem): string;
 export function resolveRouteItem(
