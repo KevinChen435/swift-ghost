@@ -1,6 +1,7 @@
 import {
   CONTRACT_VERSION,
   type ComparisonMode,
+  type JudgeLanguage,
   type SubmissionRequest,
   type TestCase,
 } from "./types";
@@ -10,6 +11,7 @@ const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const MAX_SOURCE_BYTES = 48_000;
 const MAX_TESTS = 64;
 const MAX_TEST_VALUE_BYTES = 32_000;
+const DIGEST_PATTERN = /^[a-f0-9]{64}$/;
 
 export class ValidationError extends Error {
   constructor(message: string) {
@@ -79,7 +81,26 @@ export function parseSubmission(value: unknown, allowedOriginsCsv: string): Subm
   }
   const submissionId = string(input.submissionId, "submissionId", 160);
   if (!ID_PATTERN.test(submissionId)) throw new ValidationError("submissionId has invalid characters");
-  if (input.language !== "python3") throw new ValidationError("language must be python3");
+  const language: JudgeLanguage = input.language === "python3" || input.language === "swift6"
+    ? input.language
+    : (() => { throw new ValidationError("language must be python3 or swift6"); })();
+  const runtime = string(input.runtime, "runtime", 80);
+  const expectedRuntime = language === "swift6" ? "swift-6.3.3-linux" : "python-3.13-linux";
+  if (runtime !== expectedRuntime) {
+    throw new ValidationError(`runtime must be ${expectedRuntime} for ${language}`);
+  }
+  const contentRevision = Number(input.contentRevision);
+  const judgeRevision = Number(input.judgeRevision);
+  if (!Number.isSafeInteger(contentRevision) || contentRevision < 1 || contentRevision > 1_000_000) {
+    throw new ValidationError("contentRevision must be a positive bounded integer");
+  }
+  if (!Number.isSafeInteger(judgeRevision) || judgeRevision < 1 || judgeRevision > 1_000_000) {
+    throw new ValidationError("judgeRevision must be a positive bounded integer");
+  }
+  const contractDigest = string(input.contractDigest, "contractDigest", 64);
+  if (!DIGEST_PATTERN.test(contractDigest)) {
+    throw new ValidationError("contractDigest must be a lowercase SHA-256 digest");
+  }
   const comparison: ComparisonMode = input.comparison === undefined ? "exact" : input.comparison as ComparisonMode;
   if (comparison !== "exact" && comparison !== "trim-final-newline") {
     throw new ValidationError("comparison is unsupported");
@@ -94,7 +115,11 @@ export function parseSubmission(value: unknown, allowedOriginsCsv: string): Subm
   return {
     version: CONTRACT_VERSION,
     submissionId,
-    language: "python3",
+    language,
+    runtime,
+    contentRevision,
+    judgeRevision,
+    contractDigest,
     source: string(input.source, "source", MAX_SOURCE_BYTES),
     comparison,
     tests,

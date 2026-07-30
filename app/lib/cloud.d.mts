@@ -187,12 +187,15 @@ export type CloudDailyChallenge = {
 export type CloudTrustedJudgeVerdict =
   | "accepted"
   | "wrong-answer"
+  | "compile-error"
   | "runtime-error"
   | "time-limit"
   | "judge-error";
 
 export type CloudTrustedChallenge = {
   key: string;
+  language: "python" | "swift";
+  runtime: string;
   contentRevision: number;
   judgeRevision: number;
   title: string;
@@ -203,7 +206,12 @@ export type CloudTrustedChallenge = {
   constraints: string[];
   tags: string[];
   starterCode: string;
-  entrypoint: { kind: "function"; name: string };
+  entrypoint: {
+    kind: "function";
+    name: string;
+    parameters?: Array<{ name: string; type: string }>;
+    returns?: string;
+  };
   samples: Array<{ id: string; name: string; args: unknown[]; expected: unknown }>;
 };
 
@@ -216,7 +224,10 @@ export type CloudTrustedSubmission = {
   result: null | {
     passed: number;
     total: number;
-    authority: "server-isolated-python";
+    authority: "server-isolated-python" | "server-isolated-swift";
+    language: "python" | "swift";
+    runtime: string;
+    contractDigest?: string;
     contentRevision: number;
     judgeRevision: number;
   };
@@ -229,6 +240,7 @@ export type CloudTrustedAssignment = {
     revision: number;
     title: string;
     evidenceLabel: string;
+    language: "python" | "swift";
   };
   challenge: CloudTrustedChallenge;
   status: "active" | "accepted" | "expired";
@@ -244,7 +256,7 @@ export type CloudTrustedAssignmentList = {
     title: string;
     description: string;
     evidenceLabel: string;
-    language: "python";
+    language: "mixed";
   };
   entries: CloudTrustedAssignment[];
 };
@@ -294,7 +306,7 @@ export type CloudClient = {
   ): Promise<CloudResult<CloudTrustedAssignmentList>>;
   issueTrustedAssignment(
     clientRequestId: string,
-    options?: CloudRequestOptions,
+    options?: CloudRequestOptions & { language?: "python" | "swift" },
   ): Promise<CloudResult<CloudTrustedAssignment>>;
   submitTrustedAssignment(
     assignmentId: string,

@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import {
   MAX_TRUSTED_SOURCE_BYTES,
   TRUSTED_CHALLENGE_COUNT,
+  TRUSTED_SWIFT_CHALLENGE_COUNT,
   cleanTrustedId,
   cleanTrustedSource,
   normalizeTrustedGatewayResult,
@@ -87,12 +88,12 @@ test("judge results require exact totals and cannot manufacture acceptance", () 
   );
 });
 
-test("callable challenges translate into the bounded stdin/stdout gateway contract", () => {
+test("callable challenges translate into the bounded stdin/stdout gateway contract", async () => {
   const challenge = trustedChallengeForSequence(0);
   const judgeSpec = privateJudgeSpec(challenge);
   const source =
     "def longest_stable_window(nums, max_gap):\n    return len(nums)";
-  const submission = trustedGatewaySubmission({
+  const submission = await trustedGatewaySubmission({
     submissionId: "verified-abc12345",
     source,
     judgeSpec,
@@ -100,11 +101,15 @@ test("callable challenges translate into the bounded stdin/stdout gateway contra
   });
   assert.equal(submission.version, "judge.submission.v1");
   assert.equal(submission.language, "python3");
+  assert.equal(submission.runtime, "python-3.13-linux");
+  assert.match(submission.contractDigest, /^[a-f0-9]{64}$/);
   assert.equal(submission.comparison, "exact");
   assert.equal(submission.tests.length, judgeSpec.cases.length);
   assert.equal(submission.tests[0].input, '{"args":[[8,2,4,7],4]}\n');
   assert.equal(submission.tests[0].expectedOutput, "2\n");
   assert.match(submission.source, /compile\(__swift_ghost_source/);
+  assert.match(submission.source, /saved_stdio/);
+  assert.match(submission.source, /submission exited before its required entrypoint/);
   assert.match(submission.source, /longest_stable_window/);
   assert.doesNotMatch(submission.source, /hidden-contract/);
   assert.ok(new TextEncoder().encode(submission.source).byteLength <= 48_000);
@@ -112,9 +117,8 @@ test("callable challenges translate into the bounded stdin/stdout gateway contra
     submission.callbackUrl,
     "https://swift.example/api/internal/judge-results",
   );
-  assert.throws(
-    () =>
-      trustedGatewaySubmission({
+  await assert.rejects(
+    () => trustedGatewaySubmission({
         submissionId: "verified-abc12345",
         source,
         judgeSpec,
@@ -124,7 +128,47 @@ test("callable challenges translate into the bounded stdin/stdout gateway contra
   );
 });
 
-test("signed gateway results require the frozen total and cannot forge acceptance", () => {
+test("Swift challenges generate typed harnesses without embedding sealed cases", async () => {
+  assert.equal(TRUSTED_SWIFT_CHALLENGE_COUNT, 8);
+  const challenge = trustedChallengeForSequence(0, "swift");
+  const publicProjection = publicTrustedChallenge(challenge);
+  const judgeSpec = privateJudgeSpec(challenge);
+  assert.equal(publicProjection.language, "swift");
+  assert.equal(publicProjection.runtime, "swift-6.3.3-linux");
+  assert.equal(Object.hasOwn(publicProjection, "hiddenCases"), false);
+  const submission = await trustedGatewaySubmission({
+    submissionId: "verified-swift12345",
+    source: "import Foundation\nfunc twoSum(_ nums: [Int], _ target: Int) -> [Int] { [0, 1] }",
+    judgeSpec,
+    callbackUrl: "https://swift.example/api/internal/judge-results",
+  });
+  assert.equal(submission.language, "swift6");
+  assert.match(submission.source, /JSONDecoder/);
+  assert.match(submission.source, /@main/);
+  assert.match(submission.source, /__SwiftGhostMain/);
+  assert.match(submission.source, /twoSum\(__swiftGhostInput\.arg0, __swiftGhostInput\.arg1\)/);
+  assert.doesNotMatch(submission.source, /hidden-duplicate|negative complement/);
+  assert.equal(submission.tests.length, challenge.samples.length + challenge.hiddenCases.length);
+  await assert.rejects(
+    () => trustedGatewaySubmission({
+      submissionId: "verified-swift12345",
+      source: "func twoSum(_ nums: [Int], _ target: Int) -> [Int] { [0, 1] }",
+      judgeSpec: { ...judgeSpec, runtime: "python-3.13-linux" },
+      callbackUrl: "https://swift.example/api/internal/judge-results",
+    }),
+    /INVALID_TRUSTED_JUDGE_SPEC/,
+  );
+});
+
+test("signed gateway results require the frozen language, revisions, digest, and total", () => {
+  const expected = {
+    total: 7,
+    language: "python",
+    runtime: "python-3.13-linux",
+    contentRevision: 1,
+    judgeRevision: 2,
+    contractDigest: "a".repeat(64),
+  };
   assert.deepEqual(
     normalizeTrustedGatewayResult(
       {
@@ -134,12 +178,26 @@ test("signed gateway results require the frozen total and cannot forge acceptanc
         passed: 4,
         total: 7,
         failedCaseIndex: 4,
+        language: "python3",
+        runtime: expected.runtime,
+        contentRevision: expected.contentRevision,
+        judgeRevision: expected.judgeRevision,
+        contractDigest: expected.contractDigest,
         diagnostic: "discarded",
       },
       "verified-abc12345",
-      7,
+      expected,
     ),
-    { verdict: "wrong-answer", passed: 4, total: 7 },
+    {
+      verdict: "wrong-answer",
+      passed: 4,
+      total: 7,
+      language: "python",
+      runtime: expected.runtime,
+      contentRevision: expected.contentRevision,
+      judgeRevision: expected.judgeRevision,
+      contractDigest: expected.contractDigest,
+    },
   );
   assert.equal(
     normalizeTrustedGatewayResult(
@@ -149,9 +207,14 @@ test("signed gateway results require the frozen total and cannot forge acceptanc
         verdict: "accepted",
         passed: 6,
         total: 7,
+        language: "python3",
+        runtime: expected.runtime,
+        contentRevision: expected.contentRevision,
+        judgeRevision: expected.judgeRevision,
+        contractDigest: expected.contractDigest,
       },
       "verified-abc12345",
-      7,
+      expected,
     ),
     null,
   );
@@ -163,9 +226,33 @@ test("signed gateway results require the frozen total and cannot forge acceptanc
         verdict: "accepted",
         passed: 7,
         total: 7,
+        language: "python3",
+        runtime: expected.runtime,
+        contentRevision: expected.contentRevision,
+        judgeRevision: expected.judgeRevision,
+        contractDigest: expected.contractDigest,
       },
       "verified-abc12345",
-      7,
+      expected,
+    ),
+    null,
+  );
+  assert.equal(
+    normalizeTrustedGatewayResult(
+      {
+        version: "judge.result.v1",
+        submissionId: "verified-abc12345",
+        verdict: "accepted",
+        passed: 7,
+        total: 7,
+        language: "swift6",
+        runtime: expected.runtime,
+        contentRevision: expected.contentRevision,
+        judgeRevision: expected.judgeRevision,
+        contractDigest: expected.contractDigest,
+      },
+      "verified-abc12345",
+      expected,
     ),
     null,
   );
@@ -229,6 +316,7 @@ test("trusted migrations enforce ownership, idempotency, settlement hashes, chec
     await applyMigration(db, "0002_steep_ego.sql");
     await applyMigration(db, "0003_clean_scourge.sql");
     await applyMigration(db, "0004_petite_professor_monster.sql");
+    await applyMigration(db, "0005_lying_wilson_fisk.sql");
     insertProfile(db, "alice", "alice@example.com", "alice-swift");
     insertProfile(db, "bob", "bob@example.com", "bob-swift");
     const assignment = insertAssignment(db);
@@ -329,4 +417,9 @@ test("Sites build packages the trusted migration", async () => {
     "utf8",
   );
   assert.match(enqueueSql, /enqueued_at/);
+  const swiftVerdictSql = await readFile(
+    new URL("../dist/.openai/drizzle/0005_lying_wilson_fisk.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(swiftVerdictSql, /compile-error/);
 });

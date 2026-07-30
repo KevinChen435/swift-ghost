@@ -2,7 +2,7 @@ import { signPayload } from "./auth";
 import { parsePositiveInt, secretIsStrong, validateCallbackUrl } from "./schema";
 import type { CallbackQueueMessage, Env } from "./types";
 
-const VERDICTS = new Set(["accepted", "wrong-answer", "runtime-error", "time-limit", "judge-error"]);
+const VERDICTS = new Set(["accepted", "wrong-answer", "compile-error", "runtime-error", "time-limit", "judge-error"]);
 
 function assertCallbackResult(message: CallbackQueueMessage): void {
   const result = message.result as unknown as Record<string, unknown>;
@@ -12,6 +12,16 @@ function assertCallbackResult(message: CallbackQueueMessage): void {
     result.version !== "judge.result.v1" ||
     typeof result.submissionId !== "string" ||
     !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(result.submissionId) ||
+    (result.language !== "python3" && result.language !== "swift6") ||
+    typeof result.runtime !== "string" ||
+    result.runtime.length < 1 ||
+    result.runtime.length > 80 ||
+    !Number.isInteger(result.contentRevision) ||
+    (result.contentRevision as number) < 1 ||
+    !Number.isInteger(result.judgeRevision) ||
+    (result.judgeRevision as number) < 1 ||
+    typeof result.contractDigest !== "string" ||
+    !/^[a-f0-9]{64}$/.test(result.contractDigest) ||
     typeof result.verdict !== "string" ||
     !VERDICTS.has(result.verdict) ||
     !Number.isInteger(result.passed) ||

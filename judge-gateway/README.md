@@ -1,7 +1,7 @@
 # Judge Gateway
 
 An independently deployable Cloudflare Worker that accepts authenticated Python
-stdin/stdout submissions, places them on Cloudflare Queues, and judges them in a
+and portable Swift submissions, places them on Cloudflare Queues, and judges them in a
 fresh Cloudflare Sandbox container. This directory intentionally has no build or
 runtime dependency on the root application.
 
@@ -37,6 +37,10 @@ rate limits, Access policy, monitoring, and an incident response process.
   "version": "judge.submission.v1",
   "submissionId": "018f-example-id",
   "language": "python3",
+  "runtime": "python-3.13-linux",
+  "contentRevision": 1,
+  "judgeRevision": 2,
+  "contractDigest": "<lowercase sha-256>",
   "source": "print(input())",
   "comparison": "exact",
   "tests": [
@@ -45,6 +49,12 @@ rate limits, Access policy, monitoring, and an incident response process.
   "callbackUrl": "https://app.example.com/internal/judge-results"
 }
 ```
+
+The language/runtime binding is exact: `python3` uses `python-3.13-linux` and
+`swift6` uses `swift-6.3.3-linux`. Swift submissions are compiled once with the
+official Linux toolchain and the resulting binary is run once per case. The
+source must define the frozen typed function entrypoint; the Swift harness is
+compiled with `-parse-as-library` and owns the only `@main` entrypoint.
 
 Limits are 120 KB for the HTTP/Queue message, 48,000 UTF-8 bytes of source, 64
 tests, and 32,000 UTF-8 bytes per input or expected output. Comparison converts
@@ -75,14 +85,19 @@ The gateway POSTs an immutable `judge.result.v1` object:
 {
   "version": "judge.result.v1",
   "submissionId": "018f-example-id",
+  "language": "swift6",
+  "runtime": "swift-6.3.3-linux",
+  "contentRevision": 1,
+  "judgeRevision": 1,
+  "contractDigest": "<lowercase sha-256>",
   "verdict": "accepted",
   "passed": 1,
   "total": 1
 }
 ```
 
-Verdicts are `accepted`, `wrong-answer`, `runtime-error`, `time-limit`, and
-`judge-error`. Failed results can also contain a zero-based `failedCaseIndex`
+Verdicts are `accepted`, `wrong-answer`, `compile-error`, `runtime-error`,
+`time-limit`, and `judge-error`. Failed results can also contain a zero-based `failedCaseIndex`
 and a bounded diagnostic; neither expected output nor test input is returned.
 
 Callbacks include:
@@ -152,9 +167,9 @@ but that does **not** build or validate the container.
 ## Integration still required
 
 The existing browser judge uses callable function/method cases and rich codecs;
-this service accepts a narrower stdin/stdout Python program contract. A trusted
-producer must translate problem revisions into this contract or add a reviewed
-harness format without ever embedding expected values in sandbox files.
+this service accepts a narrower, reviewed typed-entrypoint contract for Python
+and portable Linux Swift. A trusted producer translates problem revisions into
+this contract without ever embedding hidden expected values in sandbox files.
 
 No status database is included. The application remains the source of truth and
 must create its pending receipt before enqueueing, then implement the idempotent

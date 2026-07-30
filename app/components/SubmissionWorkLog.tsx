@@ -29,6 +29,7 @@ const STATUS_LABELS: Record<string, string> = {
   pending: "Judging",
   accepted: "Accepted",
   "wrong-answer": "Wrong answer",
+  "compile-error": "Compile error",
   "runtime-error": "Runtime error",
   "time-limit": "Time limit exceeded",
   "invalid-entrypoint": "Invalid entrypoint",
@@ -278,11 +279,11 @@ export function SubmissionWorkLog({
     <section className="submission-work-log" aria-labelledby="submission-work-log-title">
       <div className="submission-work-log-hero">
         <div>
-          <small>Device-local judge evidence</small>
+          <small>Local + server judge evidence</small>
           <h2 id="submission-work-log-title">Submission work log</h2>
           <p>Find the exact work you submitted, compare revisions, annotate mistakes, and choose a clean or explicitly assisted retry.</p>
         </div>
-        <p className="submission-work-log-trust">Receipts are local to this browser. Verdicts reflect the bundled judge at that time—not peer rank, certification, or interview readiness.</p>
+        <p className="submission-work-log-trust">Receipts stay private to this browser. Local verdicts reflect the bundled judge; server receipts retain their isolated authority and contract revisions. This is not peer rank, certification, or interview readiness.</p>
       </div>
 
       <div className="submission-work-log-stats" aria-label="Submission summary">
@@ -298,7 +299,7 @@ export function SubmissionWorkLog({
           <input value={query.text} onChange={(event) => updateFilter({ text: event.target.value })} placeholder="Title, ID, pattern, tag" />
         </label>
         <label><span>Verdict</span><select value={selectValue(query.statuses)} onChange={(event) => updateFilter({ statuses: arrayValue(event.target.value) as SubmissionWorkLogQuery["statuses"] })}>
-          <option value="all">All verdicts</option><option value="pending">Judging</option><option value="accepted">Accepted</option><option value="wrong-answer">Wrong answer</option><option value="runtime-error">Runtime error</option><option value="time-limit">Time limit</option><option value="invalid-entrypoint">Invalid entrypoint</option><option value="judge-error">Judge interrupted</option>
+          <option value="all">All verdicts</option><option value="pending">Judging</option><option value="accepted">Accepted</option><option value="wrong-answer">Wrong answer</option><option value="compile-error">Compile error</option><option value="runtime-error">Runtime error</option><option value="time-limit">Time limit</option><option value="invalid-entrypoint">Invalid entrypoint</option><option value="judge-error">Judge interrupted</option>
         </select></label>
         <label><span>Context</span><select value={selectValue(query.origins)} onChange={(event) => updateFilter({ origins: arrayValue(event.target.value) as SubmissionWorkLogQuery["origins"] })}>
           <option value="all">All contexts</option><option value="practice">Practice</option><option value="transfer">Transfer Lab</option><option value="assessment">Assessment</option><option value="mock">Mock interview</option><option value="studio">Interview Studio</option><option value="round">Virtual round</option>
@@ -328,7 +329,7 @@ export function SubmissionWorkLog({
               </article>
             );
           }) : (
-            <div className="empty-history"><strong>{log.receipts.length ? "No matching submissions." : "No submissions yet."}</strong><p>{log.receipts.length ? "Clear or change the filters to widen the work log." : "Submit a verified Python solution and its receipt will appear here."}</p></div>
+            <div className="empty-history"><strong>{log.receipts.length ? "No matching submissions." : "No submissions yet."}</strong><p>{log.receipts.length ? "Clear or change the filters to widen the work log." : "Submit a verified Python or Swift solution and its receipt will appear here."}</p></div>
           )}
           {derived.pageCount > 1 ? (
             <nav className="submission-work-log-pagination" aria-label="Submission pages"><button className="outline-button" type="button" disabled={derived.page <= 1} onClick={() => update({ page: derived.page - 1, selectedId: undefined, compareId: undefined }, "push")}>Previous</button><span>Page {derived.page} of {derived.pageCount}</span><button className="outline-button" type="button" disabled={derived.page >= derived.pageCount} onClick={() => update({ page: derived.page + 1, selectedId: undefined, compareId: undefined }, "push")}>Next</button></nav>

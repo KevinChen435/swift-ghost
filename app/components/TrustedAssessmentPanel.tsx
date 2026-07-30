@@ -16,10 +16,38 @@ const trustedClient = createCloudClient();
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 
+type SampleResultSnapshot = {
+  result: PythonVerificationResult;
+  source: string;
+};
+
+export type TrustedAssessmentReceiptEvent = {
+  submissionId: string;
+  challengeKey: string;
+  title: string;
+  language: "python" | "swift";
+  source: string;
+  submittedAt: string;
+  settledAt: string;
+  status: Exclude<CloudTrustedSubmission["verdict"], null>;
+  passed: number;
+  total: number;
+  contentRevision: number;
+  judgeRevision: number;
+};
+
 function clientId(prefix: string) {
   const token = globalThis.crypto?.randomUUID?.() ??
     `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return `${prefix}:${token}`;
+}
+
+function submittedSourceKey(submissionId: string) {
+  return `swift-ghost-trusted-submission-source:${submissionId}`;
+}
+
+function assignmentSubmittedSourceKey(assignmentId: string, submissionId: string) {
+  return `swift-ghost-trusted-submission-source:${assignmentId}:${submissionId}`;
 }
 
 function formatDate(value: string) {
@@ -69,18 +97,21 @@ function sampleVerification(assignment: CloudTrustedAssignment) {
 export function TrustedAssessmentPanel({
   available,
   authenticated,
+  onReceipt,
 }: {
   available: boolean;
   authenticated: boolean;
+  onReceipt?: (event: TrustedAssessmentReceiptEvent) => void;
 }) {
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [entries, setEntries] = useState<CloudTrustedAssignment[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
   const [source, setSource] = useState("");
   const [sampleResult, setSampleResult] =
-    useState<PythonVerificationResult | null>(null);
+    useState<SampleResultSnapshot | null>(null);
   const [submission, setSubmission] =
     useState<CloudTrustedSubmission | null>(null);
+  const [submissionSource, setSubmissionSource] = useState<string | null>(null);
   const [action, setAction] = useState<"idle" | "samples" | "submitting">(
     "idle",
   );
@@ -88,6 +119,12 @@ export function TrustedAssessmentPanel({
   const runnerRef = useRef<ReturnType<typeof createPythonRunner> | null>(null);
   const retryClientSubmissionIdRef = useRef<string | null>(null);
   const retrySubmissionSourceRef = useRef<string | null>(null);
+  const submittedSourcesRef = useRef(new Map<string, string>());
+  const emittedReceiptIdsRef = useRef(new Set<string>());
+  const onReceiptRef = useRef(onReceipt);
+  useEffect(() => {
+    onReceiptRef.current = onReceipt;
+  }, [onReceipt]);
   const selected = useMemo(
     () =>
       entries.find((entry) => entry.id === selectedId) ?? entries.at(0) ?? null,
@@ -95,13 +132,98 @@ export function TrustedAssessmentPanel({
   );
   const selectedAssignmentId = selected?.id;
 
+  const rememberSubmittedSource = useCallback(
+    (submissionId: string, assignmentId: string, submittedSource: string) => {
+      submittedSourcesRef.current.set(submissionId, submittedSource);
+      try {
+        globalThis.sessionStorage?.setItem(
+          submittedSourceKey(submissionId),
+          submittedSource,
+        );
+        globalThis.sessionStorage?.setItem(
+          assignmentSubmittedSourceKey(assignmentId, submissionId),
+          submittedSource,
+        );
+      } catch {
+        // A blocked session store must not prevent solving.
+      }
+    },
+    [],
+  );
+
+  const submittedSourceFor = useCallback(
+    (submissionId: string, assignmentId?: string) => {
+      const cached = submittedSourcesRef.current.get(submissionId);
+      if (cached) return cached;
+      let restored: string | null = null;
+      try {
+        restored = globalThis.sessionStorage?.getItem(
+          submittedSourceKey(submissionId),
+        ) ?? null;
+        if (!restored && assignmentId) {
+          restored = globalThis.sessionStorage?.getItem(
+            assignmentSubmittedSourceKey(assignmentId, submissionId),
+          ) ?? null;
+        }
+      } catch {
+        // A blocked session store must not prevent solving.
+      }
+      if (restored) submittedSourcesRef.current.set(submissionId, restored);
+      return restored;
+    },
+    [],
+  );
+
+  const showSubmission = useCallback(
+    (
+      assignment: CloudTrustedAssignment | undefined,
+      candidate: CloudTrustedSubmission | null,
+    ) => {
+      setSubmission(candidate);
+      setSubmissionSource(
+        candidate ? submittedSourceFor(candidate.id, assignment?.id) : null,
+      );
+    },
+    [submittedSourceFor],
+  );
+
+  const emitSettledReceipt = useCallback(
+    (assignment: CloudTrustedAssignment, candidate: CloudTrustedSubmission | null) => {
+      if (
+        !candidate ||
+        candidate.status !== "settled" ||
+        !candidate.verdict ||
+        !candidate.result ||
+        emittedReceiptIdsRef.current.has(candidate.id)
+      ) return;
+      const submittedSource = submittedSourceFor(candidate.id, assignment.id);
+      if (!submittedSource) return;
+      emittedReceiptIdsRef.current.add(candidate.id);
+      onReceiptRef.current?.({
+        submissionId: candidate.id,
+        challengeKey: assignment.challenge.key,
+        title: assignment.challenge.title,
+        language: candidate.result.language,
+        source: submittedSource,
+        submittedAt: candidate.submittedAt,
+        settledAt: candidate.settledAt ?? candidate.submittedAt,
+        status: candidate.verdict,
+        passed: candidate.result.passed,
+        total: candidate.result.total,
+        contentRevision: candidate.result.contentRevision,
+        judgeRevision: candidate.result.judgeRevision,
+      });
+    },
+    [submittedSourceFor],
+  );
+
   const activateAssignment = useCallback((assignment?: CloudTrustedAssignment) => {
     retryClientSubmissionIdRef.current = null;
     retrySubmissionSourceRef.current = null;
     setSelectedId(assignment?.id);
     setSampleResult(null);
     setMessage("");
-    setSubmission(assignment?.latestSubmission ?? null);
+    showSubmission(assignment, assignment?.latestSubmission ?? null);
     if (!assignment) {
       setSource("");
       return;
@@ -115,7 +237,7 @@ export function TrustedAssessmentPanel({
       // A blocked session store must not prevent solving.
     }
     setSource(restored ?? assignment.challenge.starterCode);
-  }, []);
+  }, [showSubmission]);
 
   useEffect(() => {
     if (!available || !authenticated) return;
@@ -139,6 +261,13 @@ export function TrustedAssessmentPanel({
     void loadAssignments();
     return () => controller.abort();
   }, [activateAssignment, authenticated, available]);
+
+  useEffect(() => {
+    if (!available || !authenticated) return;
+    entries.forEach((entry) =>
+      emitSettledReceipt(entry, entry.latestSubmission),
+    );
+  }, [authenticated, available, emitSettledReceipt, entries]);
 
   useEffect(() => {
     if (!selected || !source) return;
@@ -171,7 +300,7 @@ export function TrustedAssessmentPanel({
       ? result.data.entries.find((entry) => entry.id === preferredId)
       : undefined) ?? result.data.entries.at(0);
     setSelectedId(refreshed?.id);
-    setSubmission(refreshed?.latestSubmission ?? null);
+    showSubmission(refreshed, refreshed?.latestSubmission ?? null);
     return true;
   }
 
@@ -201,13 +330,16 @@ export function TrustedAssessmentPanel({
         (entry) => entry.id === selectedAssignmentId,
       );
       if (!refreshed) return;
-      setSubmission(refreshed.latestSubmission);
+      showSubmission(refreshed, refreshed.latestSubmission);
+      emitSettledReceipt(refreshed, refreshed.latestSubmission);
       if (refreshed.latestSubmission?.status === "settled") {
         setMessage(
           refreshed.latestSubmission.verdict === "accepted"
             ? "Accepted. This receipt is server-owned verified evidence."
             : refreshed.latestSubmission.verdict === "judge-error"
               ? "The isolated judge did not settle in time. No correctness inference was recorded."
+              : refreshed.latestSubmission.verdict === "compile-error"
+                ? "The server could not compile this Swift source. Fix the syntax or signature and submit a new revision."
             : "The server returned aggregate feedback without exposing sealed cases.",
         );
         return;
@@ -225,6 +357,8 @@ export function TrustedAssessmentPanel({
     available,
     selectedAssignmentId,
     submission?.status,
+    emitSettledReceipt,
+    showSubmission,
   ]);
 
   async function retryHistory() {
@@ -233,11 +367,12 @@ export function TrustedAssessmentPanel({
     setLoadState(refreshed ? "ready" : "error");
   }
 
-  async function startAssignment() {
+  async function startAssignment(language: "python" | "swift") {
     setMessage("");
     setAction("submitting");
     const result = await trustedClient.issueTrustedAssignment(
       clientId("assignment-request"),
+      { language },
     );
     setAction("idle");
     if (!result.available) {
@@ -257,6 +392,12 @@ export function TrustedAssessmentPanel({
 
   async function runSamples() {
     if (!selected || action !== "idle") return;
+    if (selected.challenge.language === "swift") {
+      setMessage(
+        "Swift samples stay visible, but compilation runs only in the isolated server. Submit compiles once and checks samples plus sealed cases.",
+      );
+      return;
+    }
     setAction("samples");
     setMessage("");
     try {
@@ -264,7 +405,7 @@ export function TrustedAssessmentPanel({
       const runner = createPythonRunner();
       runnerRef.current = runner;
       const result = await runner.verify(source, sampleVerification(selected));
-      setSampleResult(result);
+      setSampleResult({ result, source });
     } catch {
       setMessage("The browser sample runner could not start. Server submission remains separate.");
     } finally {
@@ -285,6 +426,7 @@ export function TrustedAssessmentPanel({
         : clientId("submission");
     retryClientSubmissionIdRef.current = clientSubmissionId;
     retrySubmissionSourceRef.current = source;
+    rememberSubmittedSource(clientSubmissionId, selected.id, source);
     const result = await trustedClient.submitTrustedAssignment(
       selected.id,
       { clientSubmissionId, source },
@@ -298,9 +440,11 @@ export function TrustedAssessmentPanel({
       );
       return;
     }
+    rememberSubmittedSource(result.data.id, selected.id, source);
     retryClientSubmissionIdRef.current = null;
     retrySubmissionSourceRef.current = null;
-    setSubmission(result.data);
+    emitSettledReceipt(selected, result.data);
+    showSubmission(selected, result.data);
     if (result.data.status === "pending") {
       setMessage("Queued in the isolated judge. This page will poll for the signed receipt.");
     } else if (result.data.verdict === "accepted") {
@@ -309,22 +453,41 @@ export function TrustedAssessmentPanel({
     } else if (result.data.verdict === "judge-error") {
       setMessage("The isolated judge did not settle in time. No correctness inference was recorded.");
       await refreshAssignments(selected.id);
+    } else if (result.data.verdict === "compile-error") {
+      setMessage("The server could not compile this Swift source. Fix the syntax or signature and submit a new revision.");
+      await refreshAssignments(selected.id);
     } else {
       setMessage("The server returned aggregate feedback without exposing sealed cases.");
       await refreshAssignments(selected.id);
     }
   }
 
+  function handleSourceChange(nextSource: string) {
+    setSource(nextSource);
+    setSampleResult((current) =>
+      current && current.source !== nextSource ? null : current,
+    );
+  }
+
+  const submissionSourceState = submission
+    ? submissionSource
+      ? submissionSource === source
+        ? "matches"
+        : "edited"
+      : "unavailable"
+    : null;
+
   return (
     <section className="trusted-assessment" aria-labelledby="trusted-assessment-title">
       <div className="trusted-assessment-hero">
         <div>
-          <span className="eyebrow">Verified lane · Python</span>
-          <h2 id="trusted-assessment-title">A real server-owned checkpoint.</h2>
+          <span className="eyebrow">Verified lane · Python + Swift</span>
+          <h2 id="trusted-assessment-title">Compile, run, and earn a server-owned receipt.</h2>
           <p>
             The server selects and freezes the prompt. Samples run in your browser;
-            Submit sends source to an isolated Python sandbox and returns only an
-            aggregate receipt. Sealed tests never ship in this page.
+            Python samples can run locally. Swift and Python submissions go to
+            isolated Linux sandboxes and return only an aggregate receipt.
+            Sealed tests never ship in this page.
           </p>
         </div>
         <div className="trusted-assessment-boundary" aria-label="Trust boundary">
@@ -341,7 +504,7 @@ export function TrustedAssessmentPanel({
           <div>
             <strong>Verified execution is fail-closed.</strong>
             <p>
-              This deployment has not connected its VM-backed judge yet, so Swift
+              This deployment has not connected its isolated judge yet, so Swift
               Ghost will not relabel browser-local results as trusted. The local
               diagnostics and Virtual Rounds below remain fully usable.
             </p>
@@ -378,14 +541,24 @@ export function TrustedAssessmentPanel({
           <aside className="trusted-assignment-list" aria-label="Verified checkpoints">
             <div>
               <span className="eyebrow">History</span>
-              <button
-                className="primary-button"
-                type="button"
-                disabled={action !== "idle"}
-                onClick={() => void startAssignment()}
-              >
-                New checkpoint
-              </button>
+              <div className="trusted-new-actions">
+                <button
+                  className="outline-button"
+                  type="button"
+                  disabled={action !== "idle"}
+                  onClick={() => void startAssignment("python")}
+                >
+                  New Python
+                </button>
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={action !== "idle"}
+                  onClick={() => void startAssignment("swift")}
+                >
+                  New Swift
+                </button>
+              </div>
             </div>
             {entries.map((entry) => (
               <button
@@ -398,7 +571,10 @@ export function TrustedAssessmentPanel({
               >
                 <span>
                   <strong>{entry.challenge.title}</strong>
-                  <small>{formatDate(entry.assignedAt)}</small>
+                  <small>
+                    {entry.challenge.language === "swift" ? "Swift 6" : "Python 3"}
+                    {" · "}{formatDate(entry.assignedAt)}
+                  </small>
                 </span>
                 <span className={`trusted-status ${entry.status}`}>{entry.status}</span>
               </button>
@@ -435,29 +611,35 @@ export function TrustedAssessmentPanel({
             </div>
             <div className="trusted-editor-shell">
               <div className="trusted-editor-toolbar">
-                <span>Python 3 · source stays in this tab until Submit</span>
+                <span>
+                  {selected.challenge.language === "swift"
+                    ? "Swift 6.3.3 · Linux"
+                    : "Python 3"}
+                  {" · source stays in this tab until Submit"}
+                </span>
                 <small>Ctrl/⌘+Enter samples · Shift+Ctrl/⌘+Enter submit</small>
               </div>
               <SolveCodeEditor
                 value={source}
+                language={selected.challenge.language}
                 fontSize={15}
                 tabSize={4}
                 isMock={false}
                 readOnly={selected.status !== "active" || action !== "idle"}
-                ariaLabel={`${selected.challenge.title} verified checkpoint Python editor`}
-                onChange={setSource}
+                ariaLabel={`${selected.challenge.title} verified ${selected.challenge.language} editor`}
+                onChange={handleSourceChange}
                 onRunExamples={() => void runSamples()}
                 onSubmit={() => void submit()}
                 onExitFocus={() => {}}
               />
             </div>
             {sampleResult ? (
-              <div className={`trusted-result ${sampleResult.ok ? "accepted" : "failed"}`}>
+              <div className={`trusted-result ${sampleResult.result.ok ? "accepted" : "failed"}`}>
                 <strong>
-                  Browser samples: {sampleResult.cases.filter((entry) => entry.passed).length}/
-                  {sampleResult.cases.length}
+                  Browser samples: {sampleResult.result.cases.filter((entry) => entry.passed).length}/
+                  {sampleResult.result.cases.length}
                 </strong>
-                <span>Practice feedback only · not verified evidence</span>
+                <span>Practice feedback only · current editor snapshot</span>
               </div>
             ) : null}
             {submission ? (
@@ -465,7 +647,9 @@ export function TrustedAssessmentPanel({
                 <div>
                   <span className="verified-badge">
                     {submission.status === "settled"
-                      ? "Server verified"
+                      ? submission.result?.contractDigest
+                        ? "Server verified"
+                        : "Legacy server receipt"
                       : "Server receipt"}
                   </span>
                   <strong>{verdictLabel(submission.verdict)}</strong>
@@ -475,13 +659,33 @@ export function TrustedAssessmentPanel({
                     Infrastructure result · no learner correctness was inferred
                   </p>
                 ) : submission.result ? (
-                  <p>
-                    {submission.result.passed}/{submission.result.total} sealed +
-                    sample checks · isolated Python sandbox
-                  </p>
+                  <>
+                    <p>
+                      {submission.result.passed}/{submission.result.total} sample +
+                      sealed checks · {submission.result.runtime}
+                    </p>
+                    <small>
+                      {submission.result.contractDigest
+                        ? `Contract ${submission.result.contractDigest.slice(0, 12)}…`
+                        : "Legacy receipt · contract metadata unavailable"}
+                      {" · "}prompt r{submission.result.contentRevision} · judge r{submission.result.judgeRevision}
+                    </small>
+                  </>
                 ) : (
                   <p>Waiting for the isolated judge receipt.</p>
                 )}
+                {submissionSourceState === "matches" ? (
+                  <small>Receipt source matches the current editor.</small>
+                ) : submissionSourceState === "edited" ? (
+                  <small>Receipt belongs to an earlier source snapshot.</small>
+                ) : submissionSourceState === "unavailable" ? (
+                  <small>Receipt source snapshot is unavailable in this tab.</small>
+                ) : null}
+                {submissionSourceState === "edited" ? (
+                  <small>Receipt belongs to the submitted source; the editor has since changed.</small>
+                ) : submissionSourceState === "unavailable" ? (
+                  <small>Receipt source is not available in this browser session.</small>
+                ) : null}
                 <small>Receipt {submission.id}</small>
               </div>
             ) : null}
@@ -490,10 +694,16 @@ export function TrustedAssessmentPanel({
               <button
                 className="outline-button"
                 type="button"
-                disabled={action !== "idle"}
+                disabled={
+                  action !== "idle" || selected.challenge.language === "swift"
+                }
                 onClick={() => void runSamples()}
               >
-                {action === "samples" ? "Running samples…" : "Run samples"}
+                {selected.challenge.language === "swift"
+                  ? "Samples run on Submit"
+                  : action === "samples"
+                    ? "Running samples…"
+                    : "Run samples"}
               </button>
               <button
                 className="primary-button"
@@ -514,14 +724,24 @@ export function TrustedAssessmentPanel({
             You will have two hours to submit. Exact retries are idempotent, and
             client-supplied verdicts or revisions are ignored.
           </p>
-          <button
-            className="primary-button"
-            type="button"
-            disabled={action !== "idle"}
-            onClick={() => void startAssignment()}
-          >
-            {action === "submitting" ? "Issuing checkpoint…" : "Start verified checkpoint →"}
-          </button>
+          <div className="trusted-empty-actions">
+            <button
+              className="outline-button"
+              type="button"
+              disabled={action !== "idle"}
+              onClick={() => void startAssignment("python")}
+            >
+              Start Python
+            </button>
+            <button
+              className="primary-button"
+              type="button"
+              disabled={action !== "idle"}
+              onClick={() => void startAssignment("swift")}
+            >
+              {action === "submitting" ? "Issuing checkpoint…" : "Start Swift →"}
+            </button>
+          </div>
           {message ? <p role="status">{message}</p> : null}
         </div>
       )}

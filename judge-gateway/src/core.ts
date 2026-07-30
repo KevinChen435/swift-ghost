@@ -1,4 +1,4 @@
-import { buildPlan, outputsMatch, parseRunnerResponse } from "./planner";
+import { buildPlan, buildPreparationPlan, outputsMatch, parseRunnerResponse, sourcePath } from "./planner";
 import { RESULT_VERSION, type JudgeResult, type SandboxFactory, type SubmissionRequest } from "./types";
 
 function diagnostic(value: string): string | undefined {
@@ -9,14 +9,55 @@ function diagnostic(value: string): string | undefined {
 export async function judgeSubmission(
   request: SubmissionRequest,
   factory: SandboxFactory,
-  config: { timeoutMs: number; outputLimitBytes: number },
+  config: { timeoutMs: number; compileTimeoutMs?: number; outputLimitBytes: number },
 ): Promise<JudgeResult> {
+  const resultBase = {
+    version: RESULT_VERSION,
+    submissionId: request.submissionId,
+    language: request.language,
+    runtime: request.runtime,
+    contentRevision: request.contentRevision,
+    judgeRevision: request.judgeRevision,
+    contractDigest: request.contractDigest,
+  } as const;
   // A nonce prevents state reuse even when Queues redelivers the same submission.
   const sandboxId = `submission-${crypto.randomUUID()}`;
   const sandbox = factory.create(sandboxId);
   let passed = 0;
   try {
-    await sandbox.writeFile("/workspace/submission.py", request.source);
+    await sandbox.writeFile(sourcePath(request), request.source);
+    const preparation = buildPreparationPlan(request, config.outputLimitBytes, config.compileTimeoutMs ?? 20_000);
+    if (preparation) {
+      let compiler;
+      try {
+        compiler = parseRunnerResponse(
+          await sandbox.exec(preparation.command, { stdin: "", timeout: preparation.sdkTimeoutMs }),
+          config.outputLimitBytes,
+        );
+      } catch (error) {
+        const detail = diagnostic(error instanceof Error ? error.message : "sandbox compilation failed");
+        return {
+          ...resultBase,
+          verdict: "judge-error",
+          passed,
+          total: request.tests.length,
+          ...(detail ? { diagnostic: detail } : {}),
+        };
+      }
+      if (compiler.timedOut || compiler.outputLimited || compiler.exitCode !== 0) {
+        return {
+          ...resultBase,
+          verdict: "compile-error",
+          passed,
+          total: request.tests.length,
+          diagnostic: compiler.timedOut
+            ? "Swift compilation exceeded the compiler time limit"
+            : compiler.outputLimited
+              ? "Swift compiler output exceeded the diagnostic limit"
+              : diagnostic(compiler.stderr) ?? "Swift compilation failed",
+        };
+      }
+    }
     const plans = buildPlan(request, config.timeoutMs, config.outputLimitBytes);
     for (const plan of plans) {
       let runner;
@@ -28,8 +69,7 @@ export async function judgeSubmission(
       } catch (error) {
         const detail = diagnostic(error instanceof Error ? error.message : "sandbox execution failed");
         return {
-          version: RESULT_VERSION,
-          submissionId: request.submissionId,
+          ...resultBase,
           verdict: "judge-error",
           passed,
           total: request.tests.length,
@@ -39,8 +79,7 @@ export async function judgeSubmission(
       }
       if (runner.timedOut) {
         return {
-          version: RESULT_VERSION,
-          submissionId: request.submissionId,
+          ...resultBase,
           verdict: "time-limit",
           passed,
           total: request.tests.length,
@@ -49,8 +88,7 @@ export async function judgeSubmission(
       }
       if (runner.outputLimited) {
         return {
-          version: RESULT_VERSION,
-          submissionId: request.submissionId,
+          ...resultBase,
           verdict: "runtime-error",
           passed,
           total: request.tests.length,
@@ -60,8 +98,7 @@ export async function judgeSubmission(
       }
       if (runner.exitCode !== 0) {
         return {
-          version: RESULT_VERSION,
-          submissionId: request.submissionId,
+          ...resultBase,
           verdict: "runtime-error",
           passed,
           total: request.tests.length,
@@ -72,8 +109,7 @@ export async function judgeSubmission(
       const test = request.tests[plan.caseIndex];
       if (!test || !outputsMatch(runner.stdout, test, request.comparison)) {
         return {
-          version: RESULT_VERSION,
-          submissionId: request.submissionId,
+          ...resultBase,
           verdict: "wrong-answer",
           passed,
           total: request.tests.length,
@@ -83,8 +119,7 @@ export async function judgeSubmission(
       passed += 1;
     }
     return {
-      version: RESULT_VERSION,
-      submissionId: request.submissionId,
+      ...resultBase,
       verdict: "accepted",
       passed,
       total: request.tests.length,
@@ -92,8 +127,7 @@ export async function judgeSubmission(
   } catch (error) {
     const detail = diagnostic(error instanceof Error ? error.message : "sandbox setup failed");
     return {
-      version: RESULT_VERSION,
-      submissionId: request.submissionId,
+      ...resultBase,
       verdict: "judge-error",
       passed,
       total: request.tests.length,

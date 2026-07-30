@@ -19,7 +19,7 @@ import {
 } from "../app/lib/community-core.mjs";
 import { normalizeStudyWorkspace } from "../app/lib/study-plans.mjs";
 import {
-  TRUSTED_ASSESSMENT_PROGRAM,
+  TRUSTED_CODE_LAB_PROGRAM,
   TRUSTED_ASSIGNMENT_TTL_MS,
   MAX_TRUSTED_CALLBACK_BYTES,
   TRUSTED_RETENTION_MS,
@@ -31,6 +31,9 @@ import {
   trustedChallengeForKey,
   trustedChallengeForSequence,
   trustedGatewaySubmission,
+  trustedJudgeContractDigest,
+  trustedProgramForId,
+  trustedProgramForLanguage,
 } from "./trusted-assessments.mjs";
 
 interface Env {
@@ -108,6 +111,7 @@ type TrustedAssignmentRow = {
 type TrustedSubmissionVerdict =
   | "accepted"
   | "wrong-answer"
+  | "compile-error"
   | "runtime-error"
   | "time-limit"
   | "judge-error";
@@ -725,16 +729,26 @@ function trustedSubmissionProjection(row: TrustedSubmissionRow | TrustedAssignme
   const id = "submission_id" in row ? row.submission_id : row.id;
   const status = "submission_status" in row ? row.submission_status : row.status;
   if (!id || !status) return null;
-  const verdict = "submission_verdict" in row ? row.submission_verdict : row.verdict;
+  const verdict = "submission_verdict" in row
+    ? row.submission_verdict
+    : "verdict" in row
+      ? row.verdict
+      : null;
   const resultJson = "submission_result_json" in row
     ? row.submission_result_json
-    : row.result_json;
+    : "result_json" in row
+      ? row.result_json
+      : null;
   const submittedAt = "submission_submitted_at" in row
     ? row.submission_submitted_at
-    : row.submitted_at;
+    : "submitted_at" in row
+      ? row.submitted_at
+      : null;
   const settledAt = "submission_settled_at" in row
     ? row.submission_settled_at
-    : row.settled_at;
+    : "settled_at" in row
+      ? row.settled_at
+      : null;
   let result: Record<string, unknown> | null = null;
   if (status === "settled") {
     if (!verdict || !resultJson || !settledAt)
@@ -755,9 +769,13 @@ function trustedSubmissionProjection(row: TrustedSubmissionRow | TrustedAssignme
 
 function trustedAssignmentProjection(row: TrustedAssignmentRow, now = Date.now()) {
   const publicPayload = JSON.parse(row.public_payload_json) as unknown;
+  const program = trustedProgramForId(row.program_id);
   if (!isRecord(publicPayload)) throw new Error("INVALID_TRUSTED_ASSIGNMENT_ROW");
   if (
+    !program ||
+    row.program_revision !== program.revision ||
     publicPayload.key !== row.challenge_key ||
+    (publicPayload.language ?? "python") !== program.language ||
     publicPayload.contentRevision !== row.content_revision ||
     publicPayload.judgeRevision !== row.judge_revision
   )
@@ -767,10 +785,19 @@ function trustedAssignmentProjection(row: TrustedAssignmentRow, now = Date.now()
     program: {
       id: row.program_id,
       revision: row.program_revision,
-      title: TRUSTED_ASSESSMENT_PROGRAM.title,
-      evidenceLabel: TRUSTED_ASSESSMENT_PROGRAM.evidenceLabel,
+      title: program.title,
+      evidenceLabel: program.evidenceLabel,
+      language: program.language,
     },
-    challenge: publicPayload,
+    challenge: {
+      ...publicPayload,
+      language: publicPayload.language ?? program.language,
+      runtime:
+        publicPayload.runtime ??
+        (program.language === "swift"
+          ? "swift-6.3.3-linux"
+          : "python-3.13-linux"),
+    },
     status:
       row.status === "active" && now >= row.expires_at
         ? "expired"
@@ -852,7 +879,7 @@ async function listTrustedAssignments(request: Request, env: Env, url: URL) {
     LIMIT ?
   `).bind(user.userId, limit).all<TrustedAssignmentRow>();
   return json(request, {
-    program: TRUSTED_ASSESSMENT_PROGRAM,
+    program: TRUSTED_CODE_LAB_PROGRAM,
     entries: rows.results.map((row) => trustedAssignmentProjection(row)),
   });
 }
@@ -888,7 +915,13 @@ async function issueTrustedAssignment(request: Request, env: Env) {
   const clientRequestId = isRecord(body)
     ? cleanTrustedId(body.clientRequestId)
     : null;
-  if (!clientRequestId)
+  const language = isRecord(body) && body.language === "swift"
+    ? "swift"
+    : isRecord(body) && (body.language === undefined || body.language === "python")
+      ? "python"
+      : null;
+  const program = trustedProgramForLanguage(language);
+  if (!clientRequestId || !program)
     return errorResponse(
       request,
       400,
@@ -897,8 +930,8 @@ async function issueTrustedAssignment(request: Request, env: Env) {
     );
   const requestHash = await sha256(JSON.stringify({
     clientRequestId,
-    programId: TRUSTED_ASSESSMENT_PROGRAM.id,
-    programRevision: TRUSTED_ASSESSMENT_PROGRAM.revision,
+    programId: program.id,
+    programRevision: program.revision,
   }));
   const existing = await trustedAssignmentByClientRequest(
     env.DB,
@@ -919,9 +952,12 @@ async function issueTrustedAssignment(request: Request, env: Env) {
   const now = Date.now();
   await ensurePrivateProfile(env.DB, user, now);
   const count = await env.DB.prepare(
-    "SELECT COUNT(*) AS count FROM trusted_assignments WHERE user_id = ?",
-  ).bind(user.userId).first<{ count: number }>();
-  const challenge = trustedChallengeForSequence(Number(count?.count ?? 0));
+    "SELECT COUNT(*) AS count FROM trusted_assignments WHERE user_id = ? AND program_id = ?",
+  ).bind(user.userId, program.id).first<{ count: number }>();
+  const challenge = trustedChallengeForSequence(
+    Number(count?.count ?? 0),
+    program.language,
+  );
   const publicPayloadJson = JSON.stringify(publicTrustedChallenge(challenge));
   const judgePayloadJson = JSON.stringify(privateJudgeSpec(challenge));
   const assignmentId = `trusted-${crypto.randomUUID().replace(/-/g, "")}`;
@@ -940,8 +976,8 @@ async function issueTrustedAssignment(request: Request, env: Env) {
         user.userId,
         clientRequestId,
         requestHash,
-        TRUSTED_ASSESSMENT_PROGRAM.id,
-        TRUSTED_ASSESSMENT_PROGRAM.revision,
+        program.id,
+        program.revision,
         challenge.key,
         challenge.contentRevision,
         challenge.judgeRevision,
@@ -984,18 +1020,21 @@ async function enqueueTrustedJudge(
   submissionId: string,
   source: string,
   judgeSpec: unknown,
+  preparedPayload?: Awaited<ReturnType<typeof trustedGatewaySubmission>>,
 ) {
   if (!hasTrustedJudge(env)) return null;
-  let payload: ReturnType<typeof trustedGatewaySubmission>;
-  try {
-    payload = trustedGatewaySubmission({
-      submissionId,
-      source,
-      judgeSpec: judgeSpec as ReturnType<typeof privateJudgeSpec>,
-      callbackUrl: env.TRUSTED_JUDGE_CALLBACK_URL!,
-    });
-  } catch {
-    return null;
+  let payload = preparedPayload;
+  if (!payload) {
+    try {
+      payload = await trustedGatewaySubmission({
+        submissionId,
+        source,
+        judgeSpec: judgeSpec as ReturnType<typeof privateJudgeSpec>,
+        callbackUrl: env.TRUSTED_JUDGE_CALLBACK_URL!,
+      });
+    } catch {
+      return null;
+    }
   }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12_000);
@@ -1128,10 +1167,22 @@ async function maintainTrustedSubmissions(
         submittedAt: row.submitted_at,
         enqueuedAt: row.enqueued_at,
       }));
+      const timeoutContractDigest = await trustedJudgeContractDigest(
+        judgeSpec as ReturnType<typeof privateJudgeSpec>,
+      );
       const resultJson = JSON.stringify({
         passed: 0,
         total: judgeSpec.cases.length,
-        authority: "server-isolated-python",
+        authority:
+          judgeSpec.language === "swift"
+            ? "server-isolated-swift"
+            : "server-isolated-python",
+        language: judgeSpec.language === "swift" ? "swift" : "python",
+        runtime:
+          typeof judgeSpec.runtime === "string"
+            ? judgeSpec.runtime
+            : "python-3.13-linux",
+        contractDigest: timeoutContractDigest,
         contentRevision: row.content_revision,
         judgeRevision: row.judge_revision,
         infrastructureFailure: true,
@@ -1208,7 +1259,7 @@ async function submitTrustedAssignment(
       request,
       code === "CONTENT_TYPE" ? 415 : 400,
       code,
-      "Send bounded Python source and a stable submission ID.",
+      "Send bounded source and a stable submission ID.",
     );
   }
   const clientSubmissionId = isRecord(body)
@@ -1220,7 +1271,7 @@ async function submitTrustedAssignment(
       request,
       400,
       "INVALID_SUBMISSION",
-      "Send bounded Python source and a stable submission ID.",
+      "Send bounded source and a stable submission ID.",
     );
   const sourceHash = await sha256(source);
   const requestHash = await sha256(JSON.stringify({ assignmentId, sourceHash }));
@@ -1293,6 +1344,7 @@ async function submitTrustedAssignment(
   const currentChallenge = trustedChallengeForKey(assignment.challenge_key);
   if (
     !currentChallenge ||
+    currentChallenge.programId !== assignment.program_id ||
     currentChallenge.contentRevision !== assignment.content_revision ||
     currentChallenge.judgeRevision !== assignment.judge_revision
   )
@@ -1311,7 +1363,33 @@ async function submitTrustedAssignment(
   if (!isRecord(judgeSpec) || !Array.isArray(judgeSpec.cases))
     throw new Error("INVALID_TRUSTED_ASSIGNMENT_SECRET");
 
+  let preparedGatewayPayload: Awaited<ReturnType<typeof trustedGatewaySubmission>>;
+  try {
+    preparedGatewayPayload = await trustedGatewaySubmission({
+      submissionId: `preflight-${crypto.randomUUID().replace(/-/g, "")}`,
+      source,
+      judgeSpec: judgeSpec as ReturnType<typeof privateJudgeSpec>,
+      callbackUrl: env.TRUSTED_JUDGE_CALLBACK_URL!,
+    });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "INVALID_TRUSTED_SUBMISSION";
+    const sizeFailure = new Set([
+      "TRUSTED_GATEWAY_SOURCE_TOO_LARGE",
+      "TRUSTED_GATEWAY_CASE_TOO_LARGE",
+      "TRUSTED_GATEWAY_REQUEST_TOO_LARGE",
+    ]).has(code);
+    return errorResponse(
+      request,
+      sizeFailure ? 413 : 422,
+      sizeFailure ? "SUBMISSION_TOO_LARGE" : "INVALID_TRUSTED_SUBMISSION",
+      sizeFailure
+        ? "This source is too large for the isolated judge envelope. Shorten it and submit again."
+        : "This source does not fit the frozen verified checkpoint contract.",
+    );
+  }
+
   const submissionId = `verified-${crypto.randomUUID().replace(/-/g, "")}`;
+  preparedGatewayPayload = { ...preparedGatewayPayload, submissionId };
   const purgeAfter = now + TRUSTED_RETENTION_MS;
   try {
     await env.DB.batch([
@@ -1366,6 +1444,7 @@ async function submitTrustedAssignment(
     submissionId,
     source,
     judgeSpec,
+    preparedGatewayPayload,
   );
   if (!queued)
     return errorResponse(
@@ -1507,10 +1586,27 @@ async function settleTrustedJudgeResult(request: Request, env: Env) {
   }
   if (!isRecord(judgeSpec) || !Array.isArray(judgeSpec.cases))
     throw new Error("INVALID_TRUSTED_ASSIGNMENT_SECRET");
+  if (
+    (judgeSpec.language !== "python" && judgeSpec.language !== "swift") ||
+    typeof judgeSpec.runtime !== "string" ||
+    judgeSpec.contentRevision !== row.content_revision ||
+    judgeSpec.judgeRevision !== row.judge_revision
+  )
+    throw new Error("INVALID_TRUSTED_ASSIGNMENT_SECRET");
+  const contractDigest = await trustedJudgeContractDigest(
+    judgeSpec as ReturnType<typeof privateJudgeSpec>,
+  );
   const result = normalizeTrustedGatewayResult(
     decoded,
     submissionId,
-    judgeSpec.cases.length,
+    {
+      total: judgeSpec.cases.length,
+      language: judgeSpec.language,
+      runtime: judgeSpec.runtime,
+      contentRevision: row.content_revision,
+      judgeRevision: row.judge_revision,
+      contractDigest,
+    },
   );
   if (!result)
     return errorResponse(
@@ -1542,9 +1638,15 @@ async function settleTrustedJudgeResult(request: Request, env: Env) {
   const resultJson = JSON.stringify({
     passed: result.passed,
     total: result.total,
-    authority: "server-isolated-python",
-    contentRevision: row.content_revision,
-    judgeRevision: row.judge_revision,
+    authority:
+      result.language === "swift"
+        ? "server-isolated-swift"
+        : "server-isolated-python",
+    language: result.language,
+    runtime: result.runtime,
+    contentRevision: result.contentRevision,
+    judgeRevision: result.judgeRevision,
+    contractDigest: result.contractDigest,
   });
   await env.DB.batch([
     env.DB.prepare(`

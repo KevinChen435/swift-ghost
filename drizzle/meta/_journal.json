@@ -36,6 +36,13 @@
       "when": 1785308102248,
       "tag": "0004_petite_professor_monster",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1785343753871,
+      "tag": "0005_lying_wilson_fisk",
+      "breakpoints": true
     }
   ]
 }

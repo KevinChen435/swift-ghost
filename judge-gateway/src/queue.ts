@@ -20,6 +20,7 @@ export async function processQueueBatch(
         const request = parseSubmission(body.request, env.CALLBACK_ALLOWED_ORIGINS);
         const result = await judgeSubmission(request, sandboxFactory, {
           timeoutMs: parsePositiveInt(env.TEST_TIMEOUT_MS, 4_000, 100, 30_000),
+          compileTimeoutMs: parsePositiveInt(env.COMPILE_TIMEOUT_MS, 20_000, 1_000, 60_000),
           outputLimitBytes: parsePositiveInt(env.OUTPUT_LIMIT_BYTES, 65_536, 1_024, 262_144),
         });
         // Decouple the exact result from execution retries. From here onward,

@@ -35,6 +35,7 @@ import { ReadinessAnalytics } from "./ReadinessAnalytics";
 import { ReadinessTrends } from "./ReadinessTrends";
 import { TransferEvidenceRecords } from "./TransferEvidenceRecords";
 import { AssessmentCenter } from "./AssessmentCenter";
+import type { TrustedAssessmentReceiptEvent } from "./TrustedAssessmentPanel";
 import {
   VirtualRounds,
   type ActiveVirtualRound,
@@ -4669,6 +4670,61 @@ export default function SwiftGhostApp() {
     }
   }
 
+  function recordTrustedAssessmentReceipt(event: TrustedAssessmentReceiptEvent) {
+    const receiptId = `trusted:${event.submissionId}`;
+    const itemId = `custom:trusted-${event.challengeKey}` as ItemId;
+    const settledAt = event.settledAt;
+    const durationMs = Math.max(
+      0,
+      Math.min(86_400_000, Date.parse(settledAt) - Date.parse(event.submittedAt)),
+    );
+    try {
+      commitStateImmediately(
+        (current) => {
+          if (current.submissionLog.receipts.some((receipt) => receipt.id === receiptId)) {
+            return current;
+          }
+          const requested = requestSubmissionReceipt(current.submissionLog, {
+            id: receiptId,
+            itemId,
+            titleSnapshot: event.title,
+            language: event.language,
+            itemRevision: event.contentRevision,
+            requestedAt: event.submittedAt,
+            source: event.source,
+            judge: {
+              kind: event.language === "swift"
+                ? "server-isolated-swift"
+                : "server-isolated-python",
+              revision: event.judgeRevision,
+            },
+            context: { kind: "assessment" },
+            assistance: "unknown",
+          });
+          const settled = settleSubmissionReceipt(requested, receiptId, {
+            settledAt,
+            status: event.status,
+            durationMs,
+            passed: event.passed,
+            total: event.total,
+          });
+          return withReconciledAttemptEvidence(
+            { ...current, submissionLog: settled },
+            settledAt,
+          );
+        },
+        { requirePersistence: true },
+      );
+      setToast(
+        event.status === "accepted"
+          ? `${event.language === "swift" ? "Swift" : "Python"} receipt saved to the assessment work log`
+          : `${event.language === "swift" ? "Swift" : "Python"} ${event.status.replace("-", " ")} saved for review`,
+      );
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Verified receipt could not be saved locally");
+    }
+  }
+
   function restoreSubmissionSource(submission: SubmissionRecord) {
     if (
       practiceKind !== "solving" ||
@@ -8492,6 +8548,7 @@ export default function SwiftGhostApp() {
           trustedAssessmentsAuthenticated={
             cloud.session?.authenticated === true
           }
+          onTrustedReceipt={recordTrustedAssessmentReceipt}
           selectedAssessment={assessmentRouteId}
           activeDraft={state.draft}
           onSelect={selectAssessment}

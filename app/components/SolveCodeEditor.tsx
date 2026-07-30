@@ -6,6 +6,7 @@ import type { EditorView } from "@codemirror/view";
 
 export type SolveCodeEditorProps = {
   value: string;
+  language?: "python" | "swift";
   fontSize: number;
   tabSize: number;
   isMock: boolean;
@@ -19,7 +20,7 @@ export type SolveCodeEditorProps = {
 
 type EditorConfiguration = Pick<
   SolveCodeEditorProps,
-  "fontSize" | "tabSize" | "isMock" | "readOnly" | "ariaLabel"
+  "fontSize" | "tabSize" | "isMock" | "readOnly" | "ariaLabel" | "language"
 >;
 
 type EditorRuntime = {
@@ -28,6 +29,7 @@ type EditorRuntime = {
   fontSize: Compartment;
   tabSize: Compartment;
   completions: Compartment;
+  syntax: Compartment;
   accessibility: Compartment;
   editable: Compartment;
   configure: (configuration: EditorConfiguration) => void;
@@ -59,6 +61,24 @@ const PYTHON_FLUENCY_COMPLETIONS = [
   { label: "sum", type: "function", info: "Add numeric values" },
   { label: "any", type: "function", info: "Test whether any value is true" },
   { label: "all", type: "function", info: "Test whether all values are true" },
+] as const;
+
+const SWIFT_FLUENCY_COMPLETIONS = [
+  { label: "func", type: "keyword", info: "Declare a function" },
+  { label: "let", type: "keyword", info: "Declare an immutable binding" },
+  { label: "var", type: "keyword", info: "Declare a mutable binding" },
+  { label: "return", type: "keyword", info: "Return a value" },
+  { label: "if", type: "keyword", info: "Start a conditional" },
+  { label: "else", type: "keyword", info: "Add a fallback branch" },
+  { label: "for", type: "keyword", info: "Iterate over a sequence" },
+  { label: "while", type: "keyword", info: "Repeat while a condition holds" },
+  { label: "guard", type: "keyword", info: "Exit when a condition fails" },
+  { label: "in", type: "keyword", info: "Bind an iteration sequence" },
+  { label: "Array", type: "class", info: "Swift ordered collection" },
+  { label: "Dictionary", type: "class", info: "Swift key-value collection" },
+  { label: "Set", type: "class", info: "Swift unique-value collection" },
+  { label: "enumerated", type: "method", info: "Iterate with offsets" },
+  { label: "sorted", type: "method", info: "Return sorted elements" },
 ] as const;
 
 function normalizedFontSize(value: number) {
@@ -114,6 +134,7 @@ export function SolveCodeEditor(props: SolveCodeEditorProps) {
         const fontSize = new state.Compartment();
         const tabSize = new state.Compartment();
         const completions = new state.Compartment();
+        const syntax = new state.Compartment();
         const accessibility = new state.Compartment();
         const editable = new state.Compartment();
         const externalChange = state.Annotation.define<boolean>();
@@ -135,7 +156,10 @@ export function SolveCodeEditor(props: SolveCodeEditorProps) {
           ];
         };
 
-        const completionExtension = (isMock: boolean) => {
+        const completionExtension = (
+          isMock: boolean,
+          editorLanguage: "python" | "swift" = "python",
+        ) => {
           if (isMock) return [];
           const pythonFluencySource: import("@codemirror/autocomplete").CompletionSource =
             (context) => {
@@ -143,7 +167,11 @@ export function SolveCodeEditor(props: SolveCodeEditorProps) {
               if (!word && !context.explicit) return null;
               return {
                 from: word?.from ?? context.pos,
-                options: [...PYTHON_FLUENCY_COMPLETIONS],
+                options: [
+                  ...(editorLanguage === "swift"
+                    ? SWIFT_FLUENCY_COMPLETIONS
+                    : PYTHON_FLUENCY_COMPLETIONS),
+                ],
                 validFor: /^\w*$/,
               };
             };
@@ -218,7 +246,9 @@ export function SolveCodeEditor(props: SolveCodeEditorProps) {
             language.bracketMatching(),
             autocomplete.closeBrackets(),
             search.highlightSelectionMatches(),
-            python.python(),
+            syntax.of(
+              initialProps.language === "swift" ? [] : python.python(),
+            ),
             state.Prec.highest(view.keymap.of(commandKeymap)),
             state.Prec.high(view.keymap.of(editingKeymap)),
             view.keymap.of([
@@ -228,7 +258,12 @@ export function SolveCodeEditor(props: SolveCodeEditorProps) {
             ]),
             fontSize.of(fontSizeExtension(initialProps.fontSize)),
             tabSize.of(tabSizeExtension(initialProps.tabSize)),
-            completions.of(completionExtension(initialProps.isMock)),
+            completions.of(
+              completionExtension(
+                initialProps.isMock,
+                initialProps.language ?? "python",
+              ),
+            ),
             accessibility.of(accessibilityExtension(initialProps.ariaLabel)),
             editable.of(view.EditorView.editable.of(!initialProps.readOnly)),
             view.EditorView.updateListener.of((update) => {
@@ -255,6 +290,7 @@ export function SolveCodeEditor(props: SolveCodeEditorProps) {
           fontSize,
           tabSize,
           completions,
+          syntax,
           accessibility,
           editable,
           configure(configuration) {
@@ -263,7 +299,13 @@ export function SolveCodeEditor(props: SolveCodeEditorProps) {
                 fontSize.reconfigure(fontSizeExtension(configuration.fontSize)),
                 tabSize.reconfigure(tabSizeExtension(configuration.tabSize)),
                 completions.reconfigure(
-                  completionExtension(configuration.isMock),
+                  completionExtension(
+                    configuration.isMock,
+                    configuration.language ?? "python",
+                  ),
+                ),
+                syntax.reconfigure(
+                  configuration.language === "swift" ? [] : python.python(),
                 ),
                 accessibility.reconfigure(
                   accessibilityExtension(configuration.ariaLabel),
@@ -317,16 +359,17 @@ export function SolveCodeEditor(props: SolveCodeEditorProps) {
       fontSize: props.fontSize,
       tabSize: props.tabSize,
       isMock: props.isMock,
+      language: props.language,
       readOnly: props.readOnly,
       ariaLabel: props.ariaLabel,
     });
-  }, [props.ariaLabel, props.fontSize, props.isMock, props.readOnly, props.tabSize]);
+  }, [props.ariaLabel, props.fontSize, props.isMock, props.language, props.readOnly, props.tabSize]);
 
   return (
     <div className="solve-code-editor" data-editor-state={loadState}>
       {loadState === "loading" && (
         <div className="solve-code-editor-loading" role="status">
-          Loading Python editor…
+          Loading {props.language === "swift" ? "Swift" : "Python"} editor…
         </div>
       )}
       {loadState === "error" && (

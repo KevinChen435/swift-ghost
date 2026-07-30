@@ -68,6 +68,7 @@ async function applyMigrations(database) {
     "0002_steep_ego.sql",
     "0003_clean_scourge.sql",
     "0004_petite_professor_monster.sql",
+    "0005_lying_wilson_fisk.sql",
   ]) {
     const sql = await readFile(new URL(`../drizzle/${name}`, import.meta.url), "utf8");
     for (const statement of sql.split("--> statement-breakpoint")) {
@@ -114,6 +115,16 @@ function signedCallbackRequest(env, result, overrides = {}) {
 }
 
 const context = { waitUntil() {}, passThroughOnException() {} };
+
+function callbackContract(gatewayBody) {
+  return {
+    language: gatewayBody.language,
+    runtime: gatewayBody.runtime,
+    contentRevision: gatewayBody.contentRevision,
+    judgeRevision: gatewayBody.judgeRevision,
+    contractDigest: gatewayBody.contractDigest,
+  };
+}
 
 test("Worker queues callable checkpoints and settles only signed idempotent callbacks", async () => {
   const database = new DatabaseSync(":memory:");
@@ -229,6 +240,24 @@ test("Worker queues callable checkpoints and settles only signed idempotent call
       judgeRevision: 999,
       userId: "bob",
     };
+    const oversizedEnvelope = await worker.fetch(
+      workerRequest(
+        `/trusted/assignments/${issued.id}/submissions`,
+        {
+          clientSubmissionId: "submission:alice-oversized",
+          source: "\\".repeat(30_000),
+        },
+      ),
+      env,
+      context,
+    );
+    assert.equal(oversizedEnvelope.status, 413);
+    assert.equal((await oversizedEnvelope.json()).error.code, "SUBMISSION_TOO_LARGE");
+    assert.equal(
+      database.prepare("SELECT COUNT(*) AS count FROM trusted_submissions").get().count,
+      0,
+      "packaging failures are rejected before a pending row is created",
+    );
     const unavailableSubmission = await worker.fetch(
       workerRequest(
         `/trusted/assignments/${issued.id}/submissions`,
@@ -249,6 +278,8 @@ test("Worker queues callable checkpoints and settles only signed idempotent call
     );
     assert.equal(judgeCalls[0].body.version, "judge.submission.v1");
     assert.equal(judgeCalls[0].body.language, "python3");
+    assert.equal(judgeCalls[0].body.runtime, "python-3.13-linux");
+    assert.match(judgeCalls[0].body.contractDigest, /^[a-f0-9]{64}$/);
     assert.equal(judgeCalls[0].body.callbackUrl, env.TRUSTED_JUDGE_CALLBACK_URL);
     assert.equal(judgeCalls[0].body.tests.length, 7);
     assert.ok(judgeCalls[0].body.tests.some((entry) => entry.id.startsWith("hidden-")));
@@ -312,6 +343,7 @@ test("Worker queues callable checkpoints and settles only signed idempotent call
     const wrongResult = {
       version: "judge.result.v1",
       submissionId: serverSubmissionId,
+      ...callbackContract(judgeCalls[0].body),
       verdict: "wrong-answer",
       passed: 4,
       total: 7,
@@ -384,6 +416,7 @@ test("Worker queues callable checkpoints and settles only signed idempotent call
     const contradictoryAccepted = {
       version: "judge.result.v1",
       submissionId: serverSubmissionId,
+      ...callbackContract(judgeCalls[0].body),
       verdict: "accepted",
       passed: 7,
       total: 7,
@@ -426,6 +459,7 @@ test("Worker queues callable checkpoints and settles only signed idempotent call
     const acceptedResult = {
       version: "judge.result.v1",
       submissionId: acceptedQueued.id,
+      ...callbackContract(judgeCalls[2].body),
       verdict: "accepted",
       passed: 7,
       total: 7,
@@ -454,8 +488,10 @@ test("Worker queues callable checkpoints and settles only signed idempotent call
     assert.equal(accepted.id, acceptedQueued.id);
     assert.equal(accepted.verdict, "accepted");
     assert.equal(accepted.result.authority, "server-isolated-python");
+    assert.equal(accepted.result.language, "python");
+    assert.equal(accepted.result.runtime, "python-3.13-linux");
+    assert.match(accepted.result.contractDigest, /^[a-f0-9]{64}$/);
     assert.equal(Object.hasOwn(accepted.result, "durationMs"), false);
-    assert.equal(Object.hasOwn(accepted.result, "runtime"), false);
     assert.equal(judgeCalls.length, 3);
 
     const conflictingReplay = await worker.fetch(
@@ -482,6 +518,67 @@ test("Worker queues callable checkpoints and settles only signed idempotent call
     assert.equal(listed.entries[0].status, "accepted");
     assert.equal(listed.entries[0].latestSubmission.id, accepted.id);
     assert.equal(Object.hasOwn(listed.entries[0].challenge, "hiddenCases"), false);
+
+    const swiftIssuedResponse = await worker.fetch(
+      workerRequest("/trusted/assignments", {
+        clientRequestId: "assignment-request:swift12345",
+        language: "swift",
+      }),
+      env,
+      context,
+    );
+    assert.equal(swiftIssuedResponse.status, 201);
+    const swiftIssued = (await swiftIssuedResponse.json()).assignment;
+    assert.equal(swiftIssued.program.language, "swift");
+    assert.equal(swiftIssued.challenge.language, "swift");
+    assert.equal(swiftIssued.challenge.key, "swift-two-sum");
+    const swiftSource = "import Foundation\nfunc twoSum(_ nums: [Int], _ target: Int) -> [Int] { [0, 1] }";
+    const swiftQueuedResponse = await worker.fetch(
+      workerRequest(`/trusted/assignments/${swiftIssued.id}/submissions`, {
+        clientSubmissionId: "submission:swift-abc12345",
+        source: swiftSource,
+      }),
+      env,
+      context,
+    );
+    assert.equal(swiftQueuedResponse.status, 202);
+    const swiftQueued = (await swiftQueuedResponse.json()).submission;
+    const swiftJudgeBody = judgeCalls.at(-1).body;
+    assert.equal(swiftJudgeBody.language, "swift6");
+    assert.equal(swiftJudgeBody.runtime, "swift-6.3.3-linux");
+    assert.match(swiftJudgeBody.source, /JSONDecoder/);
+    assert.doesNotMatch(swiftJudgeBody.source, /hidden-duplicate|negative complement/);
+    const swiftCompileResult = {
+      version: "judge.result.v1",
+      submissionId: swiftQueued.id,
+      ...callbackContract(swiftJudgeBody),
+      verdict: "compile-error",
+      passed: 0,
+      total: swiftJudgeBody.tests.length,
+    };
+    assert.equal(
+      (
+        await worker.fetch(
+          signedCallbackRequest(env, swiftCompileResult),
+          env,
+          context,
+        )
+      ).status,
+      204,
+    );
+    const swiftCompileReplay = await worker.fetch(
+      workerRequest(`/trusted/assignments/${swiftIssued.id}/submissions`, {
+        clientSubmissionId: "submission:swift-abc12345",
+        source: swiftSource,
+      }),
+      env,
+      context,
+    );
+    const swiftCompileReceipt = (await swiftCompileReplay.json()).submission;
+    assert.equal(swiftCompileReceipt.verdict, "compile-error");
+    assert.equal(swiftCompileReceipt.result.authority, "server-isolated-swift");
+    assert.equal(swiftCompileReceipt.result.language, "swift");
+    assert.equal(swiftCompileReceipt.result.runtime, "swift-6.3.3-linux");
 
     const ownerId = database.prepare(
       "SELECT user_id FROM trusted_assignments WHERE id = ?",

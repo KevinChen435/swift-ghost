@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "typeRoots": ["../judge-gateway/node_modules/@cloudflare", "../judge-gateway/node_modules/@types"],
+    "types": ["workers-types", "node"],
+    "strict": true,
+    "noEmit": true,
+    "allowJs": false,
+    "skipLibCheck": true,
+    "resolveJsonModule": true
+  },
+  "include": ["index.ts", "trusted-assessments.d.mts"]
+}

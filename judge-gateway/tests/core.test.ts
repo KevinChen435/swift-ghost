@@ -25,6 +25,10 @@ function submission(): SubmissionRequest {
     version: CONTRACT_VERSION,
     submissionId: "submission-1",
     language: "python3",
+    runtime: "python-3.13-linux",
+    contentRevision: 1,
+    judgeRevision: 1,
+    contractDigest: "a".repeat(64),
     source: "print(input())",
     comparison: "exact",
     tests: [
@@ -63,6 +67,57 @@ test("uses a fresh sandbox, sends one input per exec, compares outside, and dest
   assert.deepEqual(inputs, ["a\n", "b\n"]);
   assert.equal(result.verdict, "accepted");
   assert.equal(destroyed, true);
+});
+
+test("compiles Swift exactly once before running cases and returns compile-error separately", async () => {
+  const request: SubmissionRequest = {
+    ...submission(),
+    language: "swift6",
+    runtime: "swift-6.3.3-linux",
+    source: "print(readLine() ?? \"\")",
+  };
+  const commands: string[] = [];
+  const inputs: string[] = [];
+  let destroyed = false;
+  const factory: SandboxFactory = {
+    create() {
+      return {
+        async writeFile(path, content) {
+          assert.equal(path, "/workspace/main.swift");
+          assert.equal(content, request.source);
+        },
+        async exec(command, options) {
+          commands.push(command);
+          inputs.push(options.stdin);
+          if (command.includes("swift-compile")) return runner("");
+          return runner(options.stdin);
+        },
+        async destroy() { destroyed = true; },
+      };
+    },
+  };
+  const accepted = await judgeSubmission(request, factory, { timeoutMs: 4_000, outputLimitBytes: 4_096 });
+  assert.equal(accepted.verdict, "accepted");
+  assert.equal(commands.filter((command) => command.includes("swift-compile")).length, 1);
+  assert.equal(commands.filter((command) => command.includes("swift-run")).length, 2);
+  assert.deepEqual(inputs, ["", "a\n", "b\n"]);
+  assert.equal(accepted.language, "swift6");
+  assert.equal(accepted.contractDigest, request.contractDigest);
+  assert.equal(destroyed, true);
+
+  const compileFailure: SandboxFactory = {
+    create() {
+      return {
+        async writeFile() {},
+        async exec() { return runner("", { exitCode: 1, stderrBase64: btoa("syntax error") }); },
+        async destroy() {},
+      };
+    },
+  };
+  const failed = await judgeSubmission(request, compileFailure, { timeoutMs: 4_000, outputLimitBytes: 4_096 });
+  assert.equal(failed.verdict, "compile-error");
+  assert.match(failed.diagnostic ?? "", /syntax error/);
+  assert.equal(failed.passed, 0);
 });
 
 test("destroys after a timeout result and stops before later tests", async () => {

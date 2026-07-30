@@ -4,6 +4,7 @@ export type SubmissionLanguage = CodeLanguage;
 export type SubmissionStatus =
   | "accepted"
   | "wrong-answer"
+  | "compile-error"
   | "runtime-error"
   | "time-limit"
   | "invalid-entrypoint"
@@ -21,7 +22,7 @@ export type SubmissionSnapshotProvenance =
   | "migrated-catalog-fallback";
 
 export type SubmissionJudge = Readonly<{
-  kind: "browser-python-local";
+  kind: "browser-python-local" | "server-isolated-python" | "server-isolated-swift";
   revision: number;
 }>;
 
@@ -164,6 +165,7 @@ export const SUBMISSION_CONTEXT_KINDS: readonly SubmissionContextKind[];
 export const SUBMISSION_ASSISTANCE: readonly SubmissionAssistance[];
 export const SUBMISSION_SNAPSHOT_PROVENANCE: readonly SubmissionSnapshotProvenance[];
 export const SUBMISSION_JUDGE_KIND: "browser-python-local";
+export const SUBMISSION_JUDGE_KINDS: readonly SubmissionJudge["kind"][];
 export const SUBMISSION_INTERRUPTION_REASON: "interrupted-before-settlement";
 export const SUBMISSION_LOG_STATUSES: readonly SubmissionStatus[];
 export const SUBMISSION_LOG_LANGUAGES: readonly SubmissionLanguage[];

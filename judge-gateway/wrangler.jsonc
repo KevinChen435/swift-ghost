@@ -8,6 +8,7 @@
     "SANDBOX_TRANSPORT": "rpc",
     "MAX_REQUEST_BYTES": "120000",
     "TEST_TIMEOUT_MS": "4000",
+    "COMPILE_TIMEOUT_MS": "20000",
     "OUTPUT_LIMIT_BYTES": "65536",
     "CALLBACK_TIMEOUT_MS": "10000",
     "CALLBACK_ALLOWED_ORIGINS": "https://REPLACE.example.com"
@@ -16,7 +17,8 @@
     {
       "class_name": "JudgeSandbox",
       "image": "./Dockerfile",
-      "max_instances": 10
+      "max_instances": 10,
+      "instance_type": "standard-1"
     }
   ],
   "durable_objects": {

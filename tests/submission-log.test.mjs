@@ -74,6 +74,29 @@ test("requests atomically preserve immutable metadata and exact source without m
   assert.equal(sourceAvailable(log, input.id), true);
 });
 
+test("server-isolated Swift receipts are durable work-log evidence", () => {
+  let log = requestedLog({
+    id: "trusted:verified-swift12345",
+    itemId: "custom:trusted-swift-two-sum",
+    titleSnapshot: "Swift Two Sum",
+    language: "swift",
+    itemRevision: 1,
+    source: "import Foundation\nfunc twoSum() -> [Int] { [] }\n",
+    judge: { kind: "server-isolated-swift", revision: 1 },
+    context: { kind: "assessment" },
+    assistance: "unknown",
+  });
+  log = settleSubmission(log, "trusted:verified-swift12345", outcome({
+    status: "compile-error",
+    passed: 0,
+    total: 8,
+  }));
+  assert.equal(log.receipts[0].language, "swift");
+  assert.equal(log.receipts[0].judge.kind, "server-isolated-swift");
+  assert.equal(log.receipts[0].status, "compile-error");
+  assert.equal(settledSubmissionRecords(log)[0].language, "swift");
+});
+
 test("settled evidence distinguishes tracked clean, assisted, and unknown receipts", () => {
   const receipts = [
     ["clean", "none-recorded"],

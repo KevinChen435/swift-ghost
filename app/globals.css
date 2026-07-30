@@ -9985,6 +9985,13 @@ kbd {
 .trusted-assessment-empty h3 {
   margin: 0;
 }
+.trusted-new-actions,
+.trusted-empty-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 .trusted-assessment-workspace {
   display: grid;
   grid-template-columns: minmax(220px, 0.27fr) minmax(0, 1fr);
@@ -10146,6 +10153,7 @@ kbd {
 }
 .trusted-result.failed,
 .trusted-result.wrong-answer,
+.trusted-result.compile-error,
 .trusted-result.runtime-error,
 .trusted-result.time-limit,
 .trusted-result.judge-error {
@@ -12052,6 +12060,7 @@ details.virtual-round-disclosure p {
 .submission-work-log-row.is-runtime-error,
 .submission-work-log-row.is-time-limit,
 .submission-work-log-row.is-invalid-entrypoint { border-left-color: var(--danger); }
+.submission-work-log-row.is-compile-error { border-left-color: var(--danger); }
 .submission-work-log-row.is-judge-error,
 .submission-work-log-row.is-pending { border-left-color: var(--warning); }
 .submission-work-log-row.is-selected {
@@ -12129,6 +12138,7 @@ details.virtual-round-disclosure p {
 .submission-work-log-verdict.is-runtime-error,
 .submission-work-log-verdict.is-time-limit,
 .submission-work-log-verdict.is-invalid-entrypoint { color: var(--danger); }
+.submission-work-log-verdict.is-compile-error { color: var(--danger); }
 .submission-work-log-evidence {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

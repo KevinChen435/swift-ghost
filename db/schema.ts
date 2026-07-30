@@ -229,6 +229,7 @@ export const trustedSubmissions = sqliteTable(
       enum: [
         "accepted",
         "wrong-answer",
+        "compile-error",
         "runtime-error",
         "time-limit",
         "judge-error",
@@ -271,7 +272,7 @@ export const trustedSubmissions = sqliteTable(
     ),
     check(
       "trusted_submissions_verdict_check",
-      sql`${table.verdict} IS NULL OR ${table.verdict} IN ('accepted', 'wrong-answer', 'runtime-error', 'time-limit', 'judge-error')`,
+      sql`${table.verdict} IS NULL OR ${table.verdict} IN ('accepted', 'wrong-answer', 'compile-error', 'runtime-error', 'time-limit', 'judge-error')`,
     ),
     check(
       "trusted_submissions_settlement_check",

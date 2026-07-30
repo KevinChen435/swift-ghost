@@ -361,10 +361,30 @@ function normalizeTrustedChallenge(value) {
   const starterCode = typeof value.starterCode === "string"
     ? value.starterCode.replace(/\r\n?/g, "\n").slice(0, 16_000)
     : "";
+  const language = value.language === "swift"
+    ? "swift"
+    : value.language === "python"
+      ? "python"
+      : null;
+  const runtime = cleanString(value.runtime, 80);
   const contentRevision = finiteNumber(value.contentRevision, 0, 0, 1_000_000, true);
   const judgeRevision = finiteNumber(value.judgeRevision, 0, 0, 1_000_000, true);
+  const parameters = isRecord(value.entrypoint) && Array.isArray(value.entrypoint.parameters)
+    ? value.entrypoint.parameters.flatMap((parameter) =>
+        isRecord(parameter) && id(parameter.name, 64) && cleanString(parameter.type, 32)
+          ? [{ name: id(parameter.name, 64), type: cleanString(parameter.type, 32) }]
+          : []
+      ).slice(0, 8)
+    : [];
   const entrypoint = isRecord(value.entrypoint) && value.entrypoint.kind === "function"
-    ? { kind: "function", name: id(value.entrypoint.name, 96) }
+    ? {
+        kind: "function",
+        name: id(value.entrypoint.name, 96),
+        ...(parameters.length ? { parameters } : {}),
+        ...(cleanString(value.entrypoint.returns, 32)
+          ? { returns: cleanString(value.entrypoint.returns, 32) }
+          : {}),
+      }
     : null;
   const samples = Array.isArray(value.samples)
     ? value.samples.flatMap((entry) => {
@@ -378,6 +398,8 @@ function normalizeTrustedChallenge(value) {
     !summary ||
     !prompt ||
     !starterCode ||
+    !language ||
+    !runtime ||
     contentRevision < 1 ||
     judgeRevision < 1 ||
     !entrypoint?.name ||
@@ -386,6 +408,8 @@ function normalizeTrustedChallenge(value) {
     return undefined;
   return {
     key,
+    language,
+    runtime,
     contentRevision,
     judgeRevision,
     title,
@@ -405,7 +429,7 @@ function normalizeTrustedChallenge(value) {
   };
 }
 
-function normalizeTrustedSubmission(value) {
+function normalizeTrustedSubmission(value, challenge) {
   const raw = isRecord(value) && isRecord(value.submission)
     ? value.submission
     : value;
@@ -428,6 +452,7 @@ function normalizeTrustedSubmission(value) {
   const verdicts = new Set([
     "accepted",
     "wrong-answer",
+    "compile-error",
     "runtime-error",
     "time-limit",
     "judge-error",
@@ -439,8 +464,28 @@ function normalizeTrustedSubmission(value) {
   const passed = finiteNumber(raw.result.passed, 0, 0, total, true);
   const authority = raw.result.authority === "server-isolated-python"
     ? "server-isolated-python"
+    : raw.result.authority === "server-isolated-swift"
+      ? "server-isolated-swift"
+      : undefined;
+  const language = raw.result.language === "swift"
+    ? "swift"
+    : raw.result.language === "python"
+      ? "python"
+      : raw.result.authority === "server-isolated-python"
+        ? "python"
+        : undefined;
+  const runtime = cleanString(raw.result.runtime, 80)
+    || (language === "python" ? "python-3.13-linux" : "");
+  const contractDigest = typeof raw.result.contractDigest === "string" && /^[a-f0-9]{64}$/.test(raw.result.contractDigest)
+    ? raw.result.contractDigest
     : undefined;
-  if (total < 1 || !authority) return undefined;
+  if (
+    total < 1 ||
+    !authority ||
+    !language ||
+    !runtime ||
+    (language === "swift") !== (authority === "server-isolated-swift")
+  ) return undefined;
   return {
     id: submissionId,
     status,
@@ -451,8 +496,23 @@ function normalizeTrustedSubmission(value) {
       passed,
       total,
       authority,
-      contentRevision: finiteNumber(raw.result.contentRevision, 1, 1, 1_000_000, true),
-      judgeRevision: finiteNumber(raw.result.judgeRevision, 1, 1, 1_000_000, true),
+      language,
+      runtime,
+      ...(contractDigest ? { contractDigest } : {}),
+      contentRevision: finiteNumber(
+        raw.result.contentRevision,
+        challenge?.contentRevision ?? 1,
+        1,
+        1_000_000,
+        true,
+      ),
+      judgeRevision: finiteNumber(
+        raw.result.judgeRevision,
+        challenge?.judgeRevision ?? 1,
+        1,
+        1_000_000,
+        true,
+      ),
     },
   };
 }
@@ -469,6 +529,11 @@ function normalizeTrustedAssignment(value) {
   const statuses = new Set(["active", "accepted", "expired"]);
   const program = isRecord(raw.program) ? raw.program : {};
   const programId = id(program.id, 96);
+  const programLanguage = program.language === "swift"
+    ? "swift"
+    : program.language === "python"
+      ? "python"
+      : null;
   if (
     !assignmentId ||
     !assignedAt ||
@@ -476,13 +541,19 @@ function normalizeTrustedAssignment(value) {
     !challenge ||
     !statuses.has(raw.status) ||
     !programId ||
+    !programLanguage ||
+    programLanguage !== challenge.language ||
     Date.parse(expiresAt) <= Date.parse(assignedAt)
   )
     return undefined;
   const latestSubmission = raw.latestSubmission === null || raw.latestSubmission === undefined
     ? null
-    : normalizeTrustedSubmission(raw.latestSubmission);
+    : normalizeTrustedSubmission(raw.latestSubmission, challenge);
   if (raw.latestSubmission && !latestSubmission) return undefined;
+  if (
+    latestSubmission?.status === "settled" &&
+    latestSubmission.result?.language !== challenge.language
+  ) return undefined;
   return {
     id: assignmentId,
     program: {
@@ -490,6 +561,7 @@ function normalizeTrustedAssignment(value) {
       revision: finiteNumber(program.revision, 1, 1, 1_000_000, true),
       title: cleanString(program.title, 120, "Verified Python checkpoint"),
       evidenceLabel: cleanString(program.evidenceLabel, 120, "Server-verified code evidence"),
+      language: programLanguage,
     },
     challenge,
     status: raw.status,
@@ -512,10 +584,10 @@ function normalizeTrustedAssignmentList(value) {
         title: cleanString(value.program.title, 120),
         description: cleanString(value.program.description, 600),
         evidenceLabel: cleanString(value.program.evidenceLabel, 120),
-        language: value.program.language === "python" ? "python" : undefined,
+        language: value.program.language === "mixed" ? "mixed" : undefined,
       }
     : null;
-  if (!program?.id || !program.title || program.language !== "python") return undefined;
+  if (!program?.id || !program.title || program.language !== "mixed") return undefined;
   return { program, entries };
 }
 
@@ -930,12 +1002,12 @@ export function createCloudClient(options = {}) {
         normalizeTrustedAssignmentList,
       );
     },
-    issueTrustedAssignment(clientRequestIdInput, { signal } = {}) {
+    issueTrustedAssignment(clientRequestIdInput, { signal, language = "python" } = {}) {
       const clientRequestId = trustedClientId(clientRequestIdInput);
-      return clientRequestId
+      return clientRequestId && (language === "python" || language === "swift")
         ? request(
             "/trusted/assignments",
-            { method: "POST", body: { clientRequestId }, signal },
+            { method: "POST", body: { clientRequestId, language }, signal },
             normalizeTrustedAssignment,
           )
         : Promise.resolve(unavailable("invalid-request"));

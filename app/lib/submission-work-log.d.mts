@@ -1,7 +1,7 @@
 import type { PracticeItem } from "./items";
 import type { SubmissionRecord } from "./product";
 
-export type SubmissionWorkLogStatus = SubmissionRecord["status"] | "pending";
+export type SubmissionWorkLogStatus = SubmissionRecord["status"] | "compile-error" | "pending";
 export type SubmissionWorkLogOrigin = SubmissionRecord["origin"] | "transfer" | "assessment" | "studio";
 export type SubmissionWorkLogLanguage = PracticeItem["language"];
 export type SubmissionWorkLogRevision = "all" | "current" | "older";

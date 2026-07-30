@@ -32,6 +32,11 @@ const callback: CallbackQueueMessage = {
   result: {
     version: "judge.result.v1",
     submissionId: "submission-1",
+    language: "python3",
+    runtime: "python-3.13-linux",
+    contentRevision: 1,
+    judgeRevision: 1,
+    contractDigest: "a".repeat(64),
     verdict: "accepted",
     passed: 1,
     total: 1,

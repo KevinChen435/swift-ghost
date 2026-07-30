@@ -5,7 +5,10 @@ import type { PracticeItem } from "../lib/items";
 import type { TestDesignLane } from "../data/test-design-probes";
 import type { ConceptTransferLane } from "../data/concept-transfer-variants";
 import { CROSS_LANE_REENTRY_BLUEPRINT } from "../lib/assessment-bank.mjs";
-import { TrustedAssessmentPanel } from "./TrustedAssessmentPanel";
+import {
+  TrustedAssessmentPanel,
+  type TrustedAssessmentReceiptEvent,
+} from "./TrustedAssessmentPanel";
 import {
   ASSESSMENT_BLOCKERS,
   ASSESSMENT_PROGRAMS,
@@ -286,6 +289,7 @@ export function AssessmentCenter({
   virtualRoundSummary,
   trustedAssessmentsAvailable,
   trustedAssessmentsAuthenticated,
+  onTrustedReceipt,
   selectedAssessment,
   activeDraft,
   onSelect,
@@ -321,6 +325,7 @@ export function AssessmentCenter({
   };
   trustedAssessmentsAvailable: boolean;
   trustedAssessmentsAuthenticated: boolean;
+  onTrustedReceipt?: (event: TrustedAssessmentReceiptEvent) => void;
   selectedAssessment?: string;
   activeDraft: { assessmentRunId?: string; assessmentProbeId?: string } | null;
   onSelect: (assessmentId?: string) => void;
@@ -392,7 +397,7 @@ export function AssessmentCenter({
           <p>
             Use short, resumable checkpoints to separate Python fluency, algorithmic
             reasoning, and Swift/iOS recall. Local programs stay on this device;
-            verified Python checkpoints use server-owned receipts.
+            verified Python and Swift checkpoints use server-owned receipts.
           </p>
         </div>
         <div className="assessment-trust-card">
@@ -405,6 +410,7 @@ export function AssessmentCenter({
       <TrustedAssessmentPanel
         available={trustedAssessmentsAvailable}
         authenticated={trustedAssessmentsAuthenticated}
+        onReceipt={onTrustedReceipt}
       />
 
       <section className="assessment-program-grid" aria-label="Assessment programs">

@@ -2,9 +2,11 @@ export const CONTRACT_VERSION = "judge.submission.v1" as const;
 export const RESULT_VERSION = "judge.result.v1" as const;
 
 export type ComparisonMode = "exact" | "trim-final-newline";
+export type JudgeLanguage = "python3" | "swift6";
 export type Verdict =
   | "accepted"
   | "wrong-answer"
+  | "compile-error"
   | "runtime-error"
   | "time-limit"
   | "judge-error";
@@ -18,7 +20,11 @@ export interface TestCase {
 export interface SubmissionRequest {
   version: typeof CONTRACT_VERSION;
   submissionId: string;
-  language: "python3";
+  language: JudgeLanguage;
+  runtime: string;
+  contentRevision: number;
+  judgeRevision: number;
+  contractDigest: string;
   source: string;
   comparison: ComparisonMode;
   tests: TestCase[];
@@ -28,6 +34,11 @@ export interface SubmissionRequest {
 export interface JudgeResult {
   version: typeof RESULT_VERSION;
   submissionId: string;
+  language: JudgeLanguage;
+  runtime: string;
+  contentRevision: number;
+  judgeRevision: number;
+  contractDigest: string;
   verdict: Verdict;
   passed: number;
   total: number;
@@ -74,6 +85,7 @@ export interface Env {
   CALLBACK_ALLOWED_ORIGINS: string;
   MAX_REQUEST_BYTES?: string;
   TEST_TIMEOUT_MS?: string;
+  COMPILE_TIMEOUT_MS?: string;
   OUTPUT_LIMIT_BYTES?: string;
   CALLBACK_TIMEOUT_MS?: string;
   SANDBOX_TRANSPORT?: string;

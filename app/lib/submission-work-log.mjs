@@ -5,6 +5,7 @@ const MAX_FILTER_VALUES = 20;
 export const SUBMISSION_WORK_LOG_STATUSES = Object.freeze([
   "accepted",
   "wrong-answer",
+  "compile-error",
   "runtime-error",
   "time-limit",
   "invalid-entrypoint",

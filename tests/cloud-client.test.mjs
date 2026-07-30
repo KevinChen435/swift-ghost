@@ -219,9 +219,12 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
       revision: 1,
       title: "Verified Python checkpoint",
       evidenceLabel: "Server-verified code evidence",
+      language: "python",
     },
     challenge: {
       key: "stable-window",
+      language: "python",
+      runtime: "python-3.13-linux",
       contentRevision: 1,
       judgeRevision: 2,
       title: "Longest Stable Window",
@@ -244,12 +247,12 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
     latestSubmission: null,
   };
   const program = {
-    id: "python-verified-baseline",
-    revision: 1,
-    title: "Verified Python checkpoint",
-    description: "Server-selected Python evidence.",
+    id: "verified-code-lab",
+    revision: 2,
+    title: "Verified Code Lab",
+    description: "Server-selected code evidence.",
     evidenceLabel: "Server-verified code evidence",
-    language: "python",
+    language: "mixed",
   };
   const settled = {
     id: "verified-abc12345",
@@ -261,7 +264,9 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
       passed: 7,
       total: 7,
       durationMs: 83,
-      runtime: "sandbox-python-3.13",
+      language: "python",
+      runtime: "python-3.13-linux",
+      contractDigest: "a".repeat(64),
       authority: "server-isolated-python",
       contentRevision: 1,
       judgeRevision: 2,
@@ -273,6 +278,7 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
     if (call === 2) {
       assert.deepEqual(JSON.parse(init.body), {
         clientRequestId: "assignment-request:abc12345",
+        language: "python",
       });
       return json({ assignment }, 201);
     }
@@ -310,7 +316,9 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
   assert.equal(submitted.data.verdict, "accepted");
   assert.equal(Object.hasOwn(submitted.data.result, "privateCases"), false);
   assert.equal(Object.hasOwn(submitted.data.result, "durationMs"), false);
-  assert.equal(Object.hasOwn(submitted.data.result, "runtime"), false);
+  assert.equal(submitted.data.result.runtime, "python-3.13-linux");
+  assert.equal(submitted.data.result.language, "python");
+  assert.equal(submitted.data.result.contractDigest, "a".repeat(64));
   assert.equal(
     mock.calls[2].url,
     "/api/v1/trusted/assignments/trusted-abc12345/submissions",
@@ -331,6 +339,72 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
     { available: false, reason: "invalid-request" },
   );
   assert.equal(mock.calls.length, 3);
+});
+
+test("legacy Python receipts remain visible with an explicit missing-contract marker", async () => {
+  const legacyAssignment = {
+    id: "trusted-legacy123",
+    program: {
+      id: "python-verified-baseline",
+      revision: 1,
+      title: "Verified Python checkpoint",
+      evidenceLabel: "Server-verified code evidence",
+      language: "python",
+    },
+    challenge: {
+      key: "stable-window",
+      language: "python",
+      runtime: "python-3.13-linux",
+      contentRevision: 1,
+      judgeRevision: 2,
+      title: "Longest Stable Window",
+      difficulty: "Medium",
+      estimatedMinutes: 18,
+      summary: "Find a bounded window.",
+      prompt: "Implement longest_stable_window.",
+      constraints: [],
+      tags: [],
+      starterCode: "def longest_stable_window(nums, gap):\n    pass",
+      entrypoint: { kind: "function", name: "longest_stable_window" },
+      samples: [{ id: "sample-1", name: "sample", args: [[1], 1], expected: 1 }],
+    },
+    status: "accepted",
+    assignedAt: "2026-07-28T12:00:00.000Z",
+    expiresAt: "2026-07-28T14:00:00.000Z",
+    latestSubmission: {
+      id: "verified-legacy123",
+      status: "settled",
+      verdict: "accepted",
+      submittedAt: "2026-07-28T12:05:00.000Z",
+      settledAt: "2026-07-28T12:05:01.000Z",
+      result: {
+        passed: 3,
+        total: 3,
+        authority: "server-isolated-python",
+        contentRevision: 1,
+        judgeRevision: 1,
+      },
+    },
+  };
+  const client = createCloudClient({
+    fetchImpl: async () => json({
+      program: {
+        id: "verified-code-lab",
+        revision: 2,
+        title: "Verified Code Lab",
+        description: "Server-selected code evidence.",
+        evidenceLabel: "Server-verified code evidence",
+        language: "mixed",
+      },
+      entries: [legacyAssignment],
+    }),
+    location: { hostname: "swift.test" },
+  });
+  const result = await client.trustedAssignments();
+  assert.equal(result.available, true);
+  assert.equal(result.data.entries[0].latestSubmission.result.language, "python");
+  assert.equal(result.data.entries[0].latestSubmission.result.runtime, "python-3.13-linux");
+  assert.equal(result.data.entries[0].latestSubmission.result.contractDigest, undefined);
 });
 
 test("study workspace sync is network-quiet on static builds", async () => {

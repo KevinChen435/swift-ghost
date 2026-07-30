@@ -7,6 +7,10 @@ function valid() {
     version: "judge.submission.v1",
     submissionId: "submission-123",
     language: "python3",
+    runtime: "python-3.13-linux",
+    contentRevision: 1,
+    judgeRevision: 1,
+    contractDigest: "a".repeat(64),
     source: "print(input())",
     tests: [{ id: "case-1", input: "hello\n", expectedOutput: "hello\n" }],
     callbackUrl: "https://app.example.com/internal/judge-result",
@@ -17,6 +21,28 @@ test("normalizes a valid submission and defaults to exact comparison", () => {
   const result = parseSubmission(valid(), "https://app.example.com");
   assert.equal(result.comparison, "exact");
   assert.equal(result.tests.length, 1);
+});
+
+test("accepts the pinned Swift runtime and rejects unbound language metadata", () => {
+  const swift = parseSubmission(
+    {
+      ...valid(),
+      language: "swift6",
+      runtime: "swift-6.3.3-linux",
+      source: "print(readLine() ?? \"\")",
+    },
+    "https://app.example.com",
+  );
+  assert.equal(swift.language, "swift6");
+  assert.throws(() =>
+    parseSubmission({ ...valid(), language: "swift5" }, "https://app.example.com"),
+  );
+  assert.throws(() =>
+    parseSubmission({ ...valid(), contractDigest: "not-a-digest" }, "https://app.example.com"),
+  );
+  assert.throws(() =>
+    parseSubmission({ ...valid(), runtime: "swift-6.3.3-linux" }, "https://app.example.com"),
+  );
 });
 
 test("rejects callback SSRF origins and non-HTTPS URLs", () => {

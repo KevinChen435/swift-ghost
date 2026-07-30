@@ -8,12 +8,37 @@ export interface TestExecutionPlan {
   sdkTimeoutMs: number;
 }
 
+export interface PreparationPlan {
+  command: string;
+  sdkTimeoutMs: number;
+}
+
+export function sourcePath(request: SubmissionRequest): string {
+  return request.language === "swift6"
+    ? "/workspace/main.swift"
+    : "/workspace/submission.py";
+}
+
+export function buildPreparationPlan(
+  request: SubmissionRequest,
+  outputLimitBytes: number,
+  compileTimeoutMs = 20_000,
+): PreparationPlan | null {
+  if (request.language !== "swift6") return null;
+  return {
+    command: `/usr/bin/python3 /opt/judge/judge_runner.py swift-compile /workspace/main.swift ${compileTimeoutMs} ${outputLimitBytes}`,
+    sdkTimeoutMs: compileTimeoutMs + 2_000,
+  };
+}
+
 export function buildPlan(
   request: SubmissionRequest,
   timeoutMs: number,
   outputLimitBytes: number,
 ): TestExecutionPlan[] {
-  const command = `/usr/bin/python3 /opt/judge/judge_runner.py python3 /workspace/submission.py ${timeoutMs} ${outputLimitBytes}`;
+  const command = request.language === "swift6"
+    ? `/usr/bin/python3 /opt/judge/judge_runner.py swift-run /tmp/judge/submission ${timeoutMs} ${outputLimitBytes}`
+    : `/usr/bin/python3 /opt/judge/judge_runner.py python3 /workspace/submission.py ${timeoutMs} ${outputLimitBytes}`;
   return request.tests.map((test, caseIndex) => ({
     caseIndex,
     caseId: test.id,

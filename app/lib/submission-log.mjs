@@ -16,6 +16,7 @@ export const SUBMISSION_LOG_LIMITS = Object.freeze({
 export const SUBMISSION_STATUSES = Object.freeze([
   "accepted",
   "wrong-answer",
+  "compile-error",
   "runtime-error",
   "time-limit",
   "invalid-entrypoint",
@@ -40,6 +41,11 @@ export const SUBMISSION_SNAPSHOT_PROVENANCE = Object.freeze([
   "migrated-catalog-fallback",
 ]);
 export const SUBMISSION_JUDGE_KIND = "browser-python-local";
+export const SUBMISSION_JUDGE_KINDS = Object.freeze([
+  "browser-python-local",
+  "server-isolated-python",
+  "server-isolated-swift",
+]);
 export const SUBMISSION_INTERRUPTION_REASON = "interrupted-before-settlement";
 export const SUBMISSION_LOG_STATUSES = SUBMISSION_STATUSES;
 export const SUBMISSION_LOG_LANGUAGES = SUBMISSION_LANGUAGES;
@@ -151,9 +157,9 @@ function normalizeContext(value, { strict = false } = {}) {
 }
 
 function normalizeJudge(value) {
-  if (!isRecord(value) || value.kind !== SUBMISSION_JUDGE_KIND) return null;
+  if (!isRecord(value) || !SUBMISSION_JUDGE_KINDS.includes(value.kind)) return null;
   const revision = positiveInteger(value.revision);
-  return revision ? { kind: SUBMISSION_JUDGE_KIND, revision } : null;
+  return revision ? { kind: value.kind, revision } : null;
 }
 
 function normalizeBaseReceipt(value, itemsById) {
