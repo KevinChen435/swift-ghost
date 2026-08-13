@@ -17,7 +17,7 @@ test("Pattern Academy is a first-class routed workspace with honest handoffs", a
   assert.match(component, /Full ghost opened|guided exposure/i);
   assert.match(component, /Open missing-lines stage/);
   assert.match(component, /Open local solve/);
-  assert.match(component, /Swift execution is not available yet/);
+  assert.match(component, /isolated server judge/);
   assert.doesNotMatch(component, /server verified|mastered|certified/i);
 });
 

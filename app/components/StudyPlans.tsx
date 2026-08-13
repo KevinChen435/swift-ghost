@@ -595,7 +595,8 @@ export function StudyPlans({
                   <dt>Independent</dt>
                   <dd>
                     Current-revision work completed without material help;
-                    Python solving also needs accepted verification.
+                    Runnable Python or server-judged Swift solving also needs an
+                    accepted verification receipt.
                   </dd>
                 </div>
                 <div>

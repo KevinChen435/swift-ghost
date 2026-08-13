@@ -82,7 +82,7 @@ export type TransferRecordSubmissionEvent = TransferRecordEventBase & {
   submissionId: string;
   attemptId?: string;
   lifecycle: "pending" | "settled";
-  status: "accepted" | "wrong-answer" | "runtime-error" | "time-limit" | "invalid-entrypoint" | "judge-error" | null;
+  status: "accepted" | "wrong-answer" | "compile-error" | "runtime-error" | "time-limit" | "invalid-entrypoint" | "judge-error" | null;
   verificationPassed: number | null;
   verificationTotal: number | null;
   contextKind: "practice" | "transfer" | "assessment" | "mock" | "studio" | "round";

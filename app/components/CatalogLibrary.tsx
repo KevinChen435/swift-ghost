@@ -24,6 +24,7 @@ import {
 } from "../lib/catalog-discovery.mjs";
 import { supportsConceptPractice } from "../lib/concept-practice.mjs";
 import {
+  canSolveItem,
   itemDisplayId,
   type ItemId,
   type PracticeItem,
@@ -86,6 +87,7 @@ type CatalogRecordView = CatalogRecord & {
   recommendationReason:
     | "Review due"
     | "Needs independent Python solve"
+    | "Needs independent Swift solve"
     | "Continue current evidence"
     | "New iOS concept"
     | "New Swift recall"
@@ -221,18 +223,21 @@ function CollectionBadges({ titles }: { titles: string[] }) {
 }
 
 function Evidence({ record }: { record: CatalogRecordView }) {
-  const canSolve = record.item.track === "interview" && record.item.language === "python" && Boolean(record.item.verification);
+  const canSolve = canSolveItem(record.item);
+  const solveAuthority = record.item.solveCapability === "server" ? "server" : "local";
   const modalityEvidence = canSolve
     ? record.verifiedSolves
-      ? `${record.verifiedSolves} accepted local solve${record.verifiedSolves === 1 ? "" : "s"}`
-      : "No accepted local solve"
+      ? `${record.verifiedSolves} accepted ${solveAuthority} solve${record.verifiedSolves === 1 ? "" : "s"}`
+      : `No accepted ${solveAuthority} solve`
     : record.item.track === "ios"
       ? record.strongConceptEvidence
         ? `${record.strongConceptEvidence} strong concept recall${record.strongConceptEvidence === 1 ? "" : "s"}`
         : "Self-assessed concept practice"
       : record.highestPracticedStage
         ? `Stage ${record.highestPracticedStage} implementation recall`
-        : "Swift recall · not locally executed";
+        : record.item.solveCapability === "server"
+          ? "Server-judged Swift solve"
+          : "Swift recall · not locally executed";
   const evidenceParts = [
     `Revision ${record.currentRevision}`,
     modalityEvidence,
@@ -271,22 +276,33 @@ function ItemActions({
   const { item } = record;
   const isFavorite = state.favorites.includes(item.itemId);
   const concept = supportsConceptPractice(item);
-  const primaryKind: PracticeKind = concept ? "concept" : "typing";
+  const due = record.statuses.includes("due");
+  const primaryKind: PracticeKind = due
+    ? concept
+      ? "concept"
+      : "typing"
+    : canSolveItem(item)
+      ? "solving"
+      : concept
+        ? "concept"
+        : "typing";
   const primaryLabel = record.statuses.includes("due")
     ? "Recall"
-    : concept
+    : canSolveItem(item)
+      ? "Solve"
+      : concept
       ? "Practice concept"
       : record.lifecycle === "new"
         ? "Start practice"
         : "Continue practice";
   const stage = Math.min(5, Math.max(1, record.highestStage ? record.highestStage + 1 : 1));
-  const canSolve = item.track === "interview" && item.language === "python" && Boolean(item.verification);
+  const canSolve = canSolveItem(item);
   return (
     <div className="catalog-row-actions">
       <button type="button" className="catalog-primary-action" onClick={() => onOpen(item, stage, undefined, undefined, primaryKind)}>
         {primaryLabel}
       </button>
-      {canSolve ? (
+      {canSolve && due ? (
         <button type="button" onClick={() => onOpen(item, 1, undefined, undefined, "solving")}>
           Solve
         </button>
@@ -382,11 +398,13 @@ export function CatalogLibrary({
         const title = state.studyWorkspace.collections.find((collection) => collection.id === id)?.title;
         return title ? [title] : [];
       });
-      const canSolve = item.track === "interview" && item.language === "python" && Boolean(item.verification);
+      const canSolve = canSolveItem(item);
       const recommendationReason: CatalogRecordView["recommendationReason"] = due
         ? "Review due"
         : canSolve && stats.solveCompletions === 0
-          ? "Needs independent Python solve"
+          ? item.language === "swift"
+            ? "Needs independent Swift solve"
+            : "Needs independent Python solve"
           : lifecycle === "learning"
             ? "Continue current evidence"
             : lifecycle === "new"

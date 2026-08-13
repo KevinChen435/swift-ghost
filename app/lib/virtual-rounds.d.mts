@@ -3,6 +3,7 @@ export type VirtualRoundVerdict =
   | "pending"
   | "accepted"
   | "wrong-answer"
+  | "compile-error"
   | "runtime-error"
   | "time-limit"
   | "invalid-entrypoint"

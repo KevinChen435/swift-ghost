@@ -435,6 +435,7 @@ function normalizeTrustedSubmission(value, challenge) {
     : value;
   if (!isRecord(raw)) return undefined;
   const submissionId = id(raw.id, 96);
+  const clientSubmissionId = trustedClientId(raw.clientSubmissionId);
   const submittedAt = isoDateTime(raw.submittedAt);
   if (!submissionId || !submittedAt) return undefined;
   const status = raw.status === "pending" ? "pending" : raw.status === "settled" ? "settled" : null;
@@ -442,6 +443,7 @@ function normalizeTrustedSubmission(value, challenge) {
   if (status === "pending") {
     return {
       id: submissionId,
+      ...(clientSubmissionId ? { clientSubmissionId } : {}),
       status,
       verdict: null,
       submittedAt,
@@ -488,6 +490,7 @@ function normalizeTrustedSubmission(value, challenge) {
   ) return undefined;
   return {
     id: submissionId,
+    ...(clientSubmissionId ? { clientSubmissionId } : {}),
     status,
     verdict: raw.verdict,
     submittedAt,
@@ -1002,12 +1005,27 @@ export function createCloudClient(options = {}) {
         normalizeTrustedAssignmentList,
       );
     },
-    issueTrustedAssignment(clientRequestIdInput, { signal, language = "python" } = {}) {
+    issueTrustedAssignment(
+      clientRequestIdInput,
+      { signal, language = "python", challengeKey: challengeKeyInput } = {},
+    ) {
       const clientRequestId = trustedClientId(clientRequestIdInput);
-      return clientRequestId && (language === "python" || language === "swift")
+      const challengeKey = challengeKeyInput === undefined
+        ? undefined
+        : trustedClientId(challengeKeyInput);
+      return clientRequestId && (language === "python" || language === "swift") &&
+        (challengeKeyInput === undefined || challengeKey)
         ? request(
             "/trusted/assignments",
-            { method: "POST", body: { clientRequestId, language }, signal },
+            {
+              method: "POST",
+              body: {
+                clientRequestId,
+                language,
+                ...(challengeKey ? { challengeKey } : {}),
+              },
+              signal,
+            },
             normalizeTrustedAssignment,
           )
         : Promise.resolve(unavailable("invalid-request"));

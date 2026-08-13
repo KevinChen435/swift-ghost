@@ -217,6 +217,7 @@ export type CloudTrustedChallenge = {
 
 export type CloudTrustedSubmission = {
   id: string;
+  clientSubmissionId?: string;
   status: "pending" | "settled";
   verdict: CloudTrustedJudgeVerdict | null;
   submittedAt: string;
@@ -306,7 +307,11 @@ export type CloudClient = {
   ): Promise<CloudResult<CloudTrustedAssignmentList>>;
   issueTrustedAssignment(
     clientRequestId: string,
-    options?: CloudRequestOptions & { language?: "python" | "swift" },
+    options?: CloudRequestOptions & {
+      language?: "python" | "swift";
+      /** Optional server-allowlisted challenge key (for example, a Swift catalog solve). */
+      challengeKey?: string;
+    },
   ): Promise<CloudResult<CloudTrustedAssignment>>;
   submitTrustedAssignment(
     assignmentId: string,

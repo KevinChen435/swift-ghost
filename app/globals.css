@@ -9985,6 +9985,391 @@ kbd {
 .trusted-assessment-empty h3 {
   margin: 0;
 }
+
+/* Server-judged Swift solve console */
+.swift-solve-console {
+  display: grid;
+  gap: 20px;
+  width: 100%;
+  max-width: 1100px;
+  min-width: 0;
+  margin: 22px 0 0;
+  padding: clamp(18px, 3vw, 28px);
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 27%, var(--border-soft));
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 90% 0%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 36%),
+    color-mix(in srgb, var(--panel) 94%, var(--bg));
+  box-shadow: var(--shadow);
+}
+
+.swift-solve-console-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: start;
+}
+
+.swift-solve-console-header h3 {
+  max-width: 720px;
+  margin: 7px 0 8px;
+  color: var(--text);
+  font-size: clamp(1.15rem, 2vw, 1.55rem);
+  line-height: 1.18;
+  letter-spacing: -0.025em;
+}
+
+.swift-solve-console-header p {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.swift-judge-status {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 7px;
+  justify-self: end;
+  padding: 6px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  color: var(--muted);
+  font: 700 0.63rem/1.3 var(--font-code);
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.swift-judge-status::before {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+}
+
+.swift-judge-status.online {
+  border-color: color-mix(in srgb, var(--success) 46%, var(--border-soft));
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+}
+
+.swift-judge-status.offline {
+  border-color: color-mix(in srgb, var(--warning) 44%, var(--border-soft));
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+}
+
+.swift-solve-console-empty,
+.swift-solve-console-status {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 18px;
+  border: 1px dashed var(--border);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--bg-raised) 72%, transparent);
+}
+
+.swift-solve-console-empty strong {
+  color: var(--text);
+  font-size: 0.86rem;
+}
+
+.swift-solve-console-empty p {
+  max-width: 700px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.swift-solve-console-empty .primary-button,
+.swift-solve-console-empty .outline-button {
+  justify-self: start;
+  margin-top: 3px;
+}
+
+.swift-solve-console-status {
+  color: var(--muted);
+  font: 600 0.74rem/1.5 var(--font-code);
+}
+
+.swift-solve-console-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: 13px;
+  background: var(--border-soft);
+}
+
+.swift-solve-console-meta > span {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--bg-raised) 84%, var(--panel));
+}
+
+.swift-solve-console-meta small {
+  color: var(--faint);
+  font: 700 0.61rem/1.3 var(--font-code);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.swift-solve-console-meta strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.swift-solve-console-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.swift-solve-console-actions .primary-button {
+  min-height: 42px;
+  padding-inline: 17px;
+}
+
+.swift-solve-console-actions .primary-button:not(:disabled):hover {
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+}
+
+.swift-solve-console-actions small {
+  flex: 1 1 240px;
+  min-width: 0;
+  color: var(--faint);
+  font: 600 0.64rem/1.45 var(--font-code);
+  text-align: right;
+}
+
+.swift-solve-console-actions button:focus-visible,
+.swift-solve-console-empty button:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.swift-solve-verdict {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 13px 15px;
+  border: 1px solid var(--border-soft);
+  border-left-width: 3px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--bg-raised) 80%, transparent);
+}
+
+.swift-solve-verdict strong {
+  font-size: 0.82rem;
+  letter-spacing: 0.01em;
+}
+
+.swift-solve-verdict span {
+  color: var(--muted);
+  font: 600 0.68rem/1.45 var(--font-code);
+  text-align: right;
+}
+
+.swift-solve-verdict.accepted {
+  border-color: color-mix(in srgb, var(--success) 45%, var(--border-soft));
+  border-left-color: var(--success);
+  background: color-mix(in srgb, var(--success) 8%, var(--bg-raised));
+}
+
+.swift-solve-verdict.accepted strong {
+  color: var(--success);
+}
+
+.swift-solve-verdict.failed {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border-soft));
+  border-left-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg-raised));
+}
+
+.swift-solve-verdict.failed strong {
+  color: var(--danger);
+}
+
+.swift-solve-samples {
+  display: grid;
+  gap: 14px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.swift-solve-samples > div:first-child {
+  display: grid;
+  gap: 5px;
+}
+
+.swift-solve-samples > div:first-child p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
+.swift-solve-sample-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.swift-solve-sample-grid article {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  padding: 13px;
+  border: 1px solid var(--border-soft);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--bg-raised) 72%, transparent);
+}
+
+.swift-solve-sample-grid article strong {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 0.75rem;
+}
+
+.swift-solve-sample-grid article code {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--border-soft) 78%, transparent);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--muted);
+  font: 0.65rem/1.45 var(--font-code);
+  white-space: pre-wrap;
+}
+
+.swift-solve-console-message {
+  margin: 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+  .swift-solve-console {
+    margin-top: 18px;
+    padding: 18px 16px;
+    border-radius: 15px;
+  }
+
+  .swift-solve-console-header {
+    grid-template-columns: 1fr;
+    gap: 13px;
+  }
+
+  .swift-judge-status {
+    justify-self: start;
+  }
+
+  .swift-solve-console-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .swift-solve-console-meta > span:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .swift-solve-console-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .swift-solve-console-actions .primary-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .swift-solve-console-actions small {
+    flex-basis: auto;
+    text-align: left;
+  }
+
+  .swift-solve-verdict span {
+    text-align: left;
+  }
+}
+
+@media (max-width: 470px) {
+  .swift-solve-console {
+    gap: 16px;
+    padding: 16px 13px;
+  }
+
+  .swift-solve-console-meta,
+  .swift-solve-sample-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .swift-solve-console-meta > span:last-child {
+    grid-column: auto;
+  }
+
+  .swift-solve-console-meta > span,
+  .swift-solve-sample-grid article {
+    padding: 12px;
+  }
+}
+
+@media (forced-colors: active) {
+  .swift-solve-console,
+  .swift-solve-console-meta,
+  .swift-solve-console-meta > span,
+  .swift-solve-console-empty,
+  .swift-solve-console-status,
+  .swift-solve-verdict,
+  .swift-solve-sample-grid article,
+  .swift-solve-sample-grid article code {
+    border-color: CanvasText;
+    background: Canvas;
+    box-shadow: none;
+  }
+
+  .swift-judge-status.online,
+  .swift-judge-status.offline,
+  .swift-solve-verdict.accepted,
+  .swift-solve-verdict.failed {
+    border-color: CanvasText;
+    color: CanvasText;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .swift-solve-console,
+  .swift-solve-console * {
+    scroll-behavior: auto;
+    transition-duration: 0.01ms;
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+  }
+}
 .trusted-new-actions,
 .trusted-empty-actions {
   display: flex;

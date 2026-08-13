@@ -165,7 +165,8 @@ export function PracticeEditor(props: PracticeEditorProps) {
             tabSize={props.settings.tabSize}
             isMock={props.isMock}
             readOnly={props.readOnly}
-            ariaLabel={`Solve ${props.item.title} in Python. Press Escape, then Tab, to leave the editor.`}
+            language={props.item.language}
+            ariaLabel={`Solve ${props.item.title} in ${language.label}. Press Escape, then Tab, to leave the editor.`}
             onChange={props.onChange}
             onRunExamples={props.onRunExamples}
             onSubmit={props.onSubmit}

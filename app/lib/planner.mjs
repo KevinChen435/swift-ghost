@@ -152,7 +152,11 @@ function activityFor(item) {
   if (supportsConceptPractice(item)) return "concept";
   if (item.language === "python" && item.pattern === "Python Fluency")
     return "syntax";
-  if (item.language === "python" && item.verification) return "solve";
+  if (
+    (item.language === "python" && item.verification) ||
+    (item.language === "swift" && item.solveCapability === "server" && item.trustedChallengeKey)
+  )
+    return "solve";
   return "syntax";
 }
 

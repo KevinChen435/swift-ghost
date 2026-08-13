@@ -102,6 +102,7 @@ type TrustedAssignmentRow = {
   purge_after: number;
   judge_payload_json?: string;
   submission_id?: string | null;
+  submission_client_id?: string | null;
   submission_status?: "pending" | "settled" | null;
   submission_verdict?: TrustedSubmissionVerdict | null;
   submission_result_json?: string | null;
@@ -746,8 +747,13 @@ function trustedSubmissionProjection(row: TrustedSubmissionRow | TrustedAssignme
       : null;
   const settledAt = "submission_settled_at" in row
     ? row.submission_settled_at
-    : "settled_at" in row
-      ? row.settled_at
+      : "settled_at" in row
+        ? row.settled_at
+        : null;
+  const clientSubmissionId = "client_submission_id" in row
+    ? row.client_submission_id
+    : "submission_client_id" in row
+      ? row.submission_client_id
       : null;
   let result: Record<string, unknown> | null = null;
   if (status === "settled") {
@@ -759,6 +765,7 @@ function trustedSubmissionProjection(row: TrustedSubmissionRow | TrustedAssignme
   }
   return {
     id,
+    ...(clientSubmissionId ? { clientSubmissionId } : {}),
     status,
     verdict: status === "settled" ? verdict : null,
     submittedAt: new Date(Number(submittedAt)).toISOString(),
@@ -815,7 +822,8 @@ async function trustedAssignmentByClientRequest(
 ) {
   return db.prepare(`
     SELECT a.*,
-           s.id AS submission_id, s.status AS submission_status,
+           s.id AS submission_id, s.client_submission_id AS submission_client_id,
+           s.status AS submission_status,
            s.verdict AS submission_verdict, s.result_json AS submission_result_json,
            s.submitted_at AS submission_submitted_at,
            s.settled_at AS submission_settled_at
@@ -864,7 +872,8 @@ async function listTrustedAssignments(request: Request, env: Env, url: URL) {
   const limit = limitFrom(url, 20, 50);
   const rows = await env.DB.prepare(`
     SELECT a.*,
-           s.id AS submission_id, s.status AS submission_status,
+           s.id AS submission_id, s.client_submission_id AS submission_client_id,
+           s.status AS submission_status,
            s.verdict AS submission_verdict, s.result_json AS submission_result_json,
            s.submitted_at AS submission_submitted_at,
            s.settled_at AS submission_settled_at
@@ -928,10 +937,37 @@ async function issueTrustedAssignment(request: Request, env: Env) {
       "INVALID_REQUEST_ID",
       "Provide a stable client request ID.",
     );
+  const hasChallengeKey = isRecord(body) && Object.hasOwn(body, "challengeKey");
+  const challengeKey = hasChallengeKey
+    ? cleanTrustedId(isRecord(body) ? body.challengeKey : undefined)
+    : null;
+  if (hasChallengeKey && !challengeKey)
+    return errorResponse(
+      request,
+      400,
+      "INVALID_CHALLENGE_KEY",
+      "Provide an allowlisted challenge for the selected language.",
+    );
+  const requestedChallenge = challengeKey
+    ? trustedChallengeForKey(challengeKey)
+    : null;
+  if (
+    challengeKey &&
+    (!requestedChallenge ||
+      requestedChallenge.programId !== program.id ||
+      requestedChallenge.language !== program.language)
+  )
+    return errorResponse(
+      request,
+      400,
+      "INVALID_CHALLENGE_KEY",
+      "Provide an allowlisted challenge for the selected language.",
+    );
   const requestHash = await sha256(JSON.stringify({
     clientRequestId,
     programId: program.id,
     programRevision: program.revision,
+    ...(challengeKey ? { challengeKey } : {}),
   }));
   const existing = await trustedAssignmentByClientRequest(
     env.DB,
@@ -951,13 +987,16 @@ async function issueTrustedAssignment(request: Request, env: Env) {
 
   const now = Date.now();
   await ensurePrivateProfile(env.DB, user, now);
-  const count = await env.DB.prepare(
-    "SELECT COUNT(*) AS count FROM trusted_assignments WHERE user_id = ? AND program_id = ?",
-  ).bind(user.userId, program.id).first<{ count: number }>();
-  const challenge = trustedChallengeForSequence(
-    Number(count?.count ?? 0),
-    program.language,
-  );
+  let challenge = requestedChallenge;
+  if (!challenge) {
+    const count = await env.DB.prepare(
+      "SELECT COUNT(*) AS count FROM trusted_assignments WHERE user_id = ? AND program_id = ?",
+    ).bind(user.userId, program.id).first<{ count: number }>();
+    challenge = trustedChallengeForSequence(
+      Number(count?.count ?? 0),
+      program.language,
+    );
+  }
   const publicPayloadJson = JSON.stringify(publicTrustedChallenge(challenge));
   const judgePayloadJson = JSON.stringify(privateJudgeSpec(challenge));
   const assignmentId = `trusted-${crypto.randomUUID().replace(/-/g, "")}`;

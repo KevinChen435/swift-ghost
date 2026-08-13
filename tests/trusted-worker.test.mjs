@@ -517,6 +517,10 @@ test("Worker queues callable checkpoints and settles only signed idempotent call
     const listed = await listedResponse.json();
     assert.equal(listed.entries[0].status, "accepted");
     assert.equal(listed.entries[0].latestSubmission.id, accepted.id);
+    assert.equal(
+      listed.entries[0].latestSubmission.clientSubmissionId,
+      "submission:alice-second",
+    );
     assert.equal(Object.hasOwn(listed.entries[0].challenge, "hiddenCases"), false);
 
     const swiftIssuedResponse = await worker.fetch(
@@ -532,6 +536,62 @@ test("Worker queues callable checkpoints and settles only signed idempotent call
     assert.equal(swiftIssued.program.language, "swift");
     assert.equal(swiftIssued.challenge.language, "swift");
     assert.equal(swiftIssued.challenge.key, "swift-two-sum");
+    const swiftCatalogIssueBody = {
+      clientRequestId: "assignment-request:swift-product12345",
+      language: "swift",
+      challengeKey: "swift-product-except-self",
+    };
+    const swiftCatalogIssuedResponse = await worker.fetch(
+      workerRequest("/trusted/assignments", swiftCatalogIssueBody),
+      env,
+      context,
+    );
+    assert.equal(swiftCatalogIssuedResponse.status, 201);
+    const swiftCatalogIssued = (await swiftCatalogIssuedResponse.json()).assignment;
+    assert.equal(swiftCatalogIssued.program.language, "swift");
+    assert.equal(swiftCatalogIssued.challenge.key, "swift-product-except-self");
+    const swiftCatalogReplayResponse = await worker.fetch(
+      workerRequest("/trusted/assignments", swiftCatalogIssueBody),
+      env,
+      context,
+    );
+    assert.equal(swiftCatalogReplayResponse.status, 200);
+    assert.equal(
+      (await swiftCatalogReplayResponse.json()).assignment.id,
+      swiftCatalogIssued.id,
+    );
+    const swiftCatalogConflictResponse = await worker.fetch(
+      workerRequest("/trusted/assignments", {
+        clientRequestId: swiftCatalogIssueBody.clientRequestId,
+        language: "swift",
+      }),
+      env,
+      context,
+    );
+    assert.equal(swiftCatalogConflictResponse.status, 409);
+    assert.equal(
+      (await swiftCatalogConflictResponse.json()).error.code,
+      "IDEMPOTENCY_CONFLICT",
+    );
+    for (const [clientRequestId, challengeKey] of [
+      ["assignment-request:swift-unknown123", "swift-not-allowlisted"],
+      ["assignment-request:swift-python123", "stable-window"],
+    ]) {
+      const invalidChallengeResponse = await worker.fetch(
+        workerRequest("/trusted/assignments", {
+          clientRequestId,
+          language: "swift",
+          challengeKey,
+        }),
+        env,
+        context,
+      );
+      assert.equal(invalidChallengeResponse.status, 400);
+      assert.equal(
+        (await invalidChallengeResponse.json()).error.code,
+        "INVALID_CHALLENGE_KEY",
+      );
+    }
     const swiftSource = "import Foundation\nfunc twoSum(_ nums: [Int], _ target: Int) -> [Int] { [0, 1] }";
     const swiftQueuedResponse = await worker.fetch(
       workerRequest(`/trusted/assignments/${swiftIssued.id}/submissions`, {

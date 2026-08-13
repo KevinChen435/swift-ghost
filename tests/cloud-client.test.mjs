@@ -256,6 +256,7 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
   };
   const settled = {
     id: "verified-abc12345",
+    clientSubmissionId: "submission:abc12345",
     status: "settled",
     verdict: "accepted",
     submittedAt: "2026-07-28T12:05:00.000Z",
@@ -273,6 +274,30 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
       privateCases: ["must be dropped"],
     },
   };
+  const swiftAssignment = {
+    ...assignment,
+    id: "trusted-swift12345",
+    program: {
+      ...assignment.program,
+      id: "swift-verified-baseline",
+      title: "Verified Swift checkpoint",
+      language: "swift",
+    },
+    challenge: {
+      ...assignment.challenge,
+      key: "swift-product-except-self",
+      language: "swift",
+      runtime: "swift-6.3.3-linux",
+      title: "Product Except Self in Swift",
+      starterCode: "import Foundation\n\nfunc productExceptSelf(_ nums: [Int]) -> [Int] { return [] }",
+      entrypoint: {
+        kind: "function",
+        name: "productExceptSelf",
+        parameters: [{ name: "nums", type: "[Int]" }],
+        returns: "[Int]",
+      },
+    },
+  };
   const mock = recorder((url, init, call) => {
     if (call === 1) return json({ program, entries: [assignment] });
     if (call === 2) {
@@ -281,6 +306,14 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
         language: "python",
       });
       return json({ assignment }, 201);
+    }
+    if (call === 3) {
+      assert.deepEqual(JSON.parse(init.body), {
+        clientRequestId: "assignment-request:swift12345",
+        language: "swift",
+        challengeKey: "swift-product-except-self",
+      });
+      return json({ assignment: swiftAssignment }, 201);
     }
     assert.deepEqual(JSON.parse(init.body), {
       clientSubmissionId: "submission:abc12345",
@@ -305,6 +338,13 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
   assert.equal(issued.available, true);
   assert.equal(mock.calls[1].init.method, "POST");
 
+  const swiftIssued = await client.issueTrustedAssignment(
+    "assignment-request:swift12345",
+    { language: "swift", challengeKey: "swift-product-except-self" },
+  );
+  assert.equal(swiftIssued.available, true);
+  assert.equal(swiftIssued.data.challenge.key, "swift-product-except-self");
+
   const submitted = await client.submitTrustedAssignment(
     assignment.id,
     {
@@ -319,9 +359,18 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
   assert.equal(submitted.data.result.runtime, "python-3.13-linux");
   assert.equal(submitted.data.result.language, "python");
   assert.equal(submitted.data.result.contractDigest, "a".repeat(64));
+  assert.equal(submitted.data.clientSubmissionId, "submission:abc12345");
   assert.equal(
-    mock.calls[2].url,
+    mock.calls[3].url,
     "/api/v1/trusted/assignments/trusted-abc12345/submissions",
+  );
+
+  assert.deepEqual(
+    await client.issueTrustedAssignment(
+      "assignment-request:invalid12345",
+      { language: "swift", challengeKey: "not a key" },
+    ),
+    { available: false, reason: "invalid-request" },
   );
 
   assert.deepEqual(
@@ -338,7 +387,7 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
     }),
     { available: false, reason: "invalid-request" },
   );
-  assert.equal(mock.calls.length, 3);
+  assert.equal(mock.calls.length, 4);
 });
 
 test("legacy Python receipts remain visible with an explicit missing-contract marker", async () => {

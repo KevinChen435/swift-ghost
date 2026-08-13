@@ -483,9 +483,18 @@ export function recoverInterruptedSubmissions(log, options = {}) {
   if (!isRecord(log) || !Array.isArray(log.receipts)) return createSubmissionLog();
   const settledAt = canonicalIso(options.now);
   if (!settledAt) throw new Error("A valid recovery time is required");
+  const preservedJudgeKinds = new Set(
+    Array.isArray(options.preservePendingJudgeKinds)
+      ? options.preservePendingJudgeKinds.filter((kind) => SUBMISSION_JUDGE_KINDS.includes(kind))
+      : [],
+  );
   return buildLog(
     log.receipts.map((receipt) => {
-      if (receipt.lifecycle !== "pending") return receipt;
+      if (
+        receipt.lifecycle !== "pending" ||
+        preservedJudgeKinds.has(receipt.judge.kind)
+      )
+        return receipt;
       const at = Date.parse(settledAt) < Date.parse(receipt.requestedAt)
         ? receipt.requestedAt
         : settledAt;

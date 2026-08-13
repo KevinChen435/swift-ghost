@@ -40,6 +40,7 @@ export const VIRTUAL_ROUND_LIMITS = Object.freeze({
 const SUBMISSION_VERDICTS = Object.freeze([
   "accepted",
   "wrong-answer",
+  "compile-error",
   "runtime-error",
   "time-limit",
   "invalid-entrypoint",

@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("solve workbench ships accessible split and mobile panel controls", async () => {
-  const [workbench, consoleUi, submissionInspector, app, css] = await Promise.all([
+  const [workbench, consoleUi, submissionInspector, product, app, css] = await Promise.all([
     readFile(
       new URL("../app/components/SolveWorkbench.tsx", import.meta.url),
       "utf8",
@@ -16,6 +16,7 @@ test("solve workbench ships accessible split and mobile panel controls", async (
       new URL("../app/components/SubmissionInspector.tsx", import.meta.url),
       "utf8",
     ),
+    readFile(new URL("../app/lib/product.ts", import.meta.url), "utf8"),
     readFile(
       new URL("../app/components/SwiftGhostApp.tsx", import.meta.url),
       "utf8",
@@ -48,6 +49,8 @@ test("solve workbench ships accessible split and mobile panel controls", async (
   assert.match(app, /setMobileWorkspacePane\("tests"\)/);
 
   assert.match(submissionInspector, /challenge-console-submission-list/);
+  assert.match(submissionInspector, /"compile-error": "Compile error"/);
+  assert.match(product, /\| "compile-error"/);
   assert.match(consoleUi, /Unshown judge details stay out of the interface/);
   assert.doesNotMatch(consoleUi, /<pre>\{submission\.source\}<\/pre>/);
   assert.match(consoleUi, /availableTabs\.includes\(consoleTab\)/);

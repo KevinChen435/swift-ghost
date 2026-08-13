@@ -447,8 +447,14 @@ function matchesTemplateItem(item, template) {
   if (selector.track && item.track !== selector.track) return false;
   if (selector.excludeHard && item.difficulty === "Hard") return false;
   if (selector.excludePatterns?.includes(item.pattern)) return false;
-  if (template.id === "back-to-interview-shape") return item.language === "python" || item.track === "ios";
-  if (template.id === "interview-simulation") return (item.language === "python" && item.verification) || item.track === "ios";
+  if (template.id === "back-to-interview-shape")
+    return item.language === "python" ||
+      (item.language === "swift" && item.solveCapability === "server") ||
+      item.track === "ios";
+  if (template.id === "interview-simulation")
+    return (item.language === "python" && item.verification) ||
+      (item.language === "swift" && item.solveCapability === "server") ||
+      item.track === "ios";
   return true;
 }
 
@@ -556,7 +562,8 @@ function itemEvidence(item, attempts, events, now, typingProgress) {
   const last = current.at(-1);
   const activityKind = supportsConceptPractice(item)
     ? "concept"
-    : item.language === "python" && item.verification
+    : (item.language === "python" && item.verification) ||
+        (item.language === "swift" && item.solveCapability === "server")
       ? "solve"
       : null;
   const review = activityKind

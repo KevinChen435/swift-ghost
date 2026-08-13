@@ -7,6 +7,11 @@ import {
   getPythonChallenge,
   type PythonChallengeMetadata,
 } from "../data/python-challenges";
+import {
+  SWIFT_CHALLENGES,
+  type SwiftChallengeKey,
+  type SwiftChallengeMetadata,
+} from "../data/swift-challenges";
 import type { PythonVerification } from "./python-runner.mjs";
 import {
   deriveCustomChallengeRevisions,
@@ -21,9 +26,13 @@ export type CodeLanguage = "swift" | "python";
 export type ItemId =
   | `builtin:${number}`
   | `python:${number}`
+  | `swift:${string}`
   | `transfer:${number}`
   | `ios:${string}`
   | `custom:${string}`;
+
+/** The execution authority used by an item's solve surface. */
+export type SolveCapability = "local" | "server";
 
 export type TransferMetadata = {
   id: string;
@@ -43,6 +52,8 @@ export type PracticeItem = Omit<Problem, "swiftNote"> & {
   source: "builtin" | "custom";
   tags: string[];
   contentRevision: number;
+  solveCapability?: SolveCapability;
+  trustedChallengeKey?: SwiftChallengeKey;
   createdAt?: string;
   updatedAt?: string;
   archivedAt?: string;
@@ -100,6 +111,7 @@ export const PYTHON_ITEMS: PracticeItem[] = [
   language: "python",
   source: "builtin",
   contentRevision: 1,
+  solveCapability: "local",
 }));
 
 export const TRANSFER_ITEMS: PracticeItem[] = TRANSFER_PROBLEMS.map(
@@ -114,6 +126,7 @@ export const TRANSFER_ITEMS: PracticeItem[] = TRANSFER_PROBLEMS.map(
     language: "python",
     source: "builtin",
     contentRevision: 1,
+    solveCapability: "local",
     transfer: {
       ...problem.transfer,
       sourceItemIds: problem.transfer.sourceItemIds as readonly ItemId[],
@@ -143,12 +156,83 @@ export const IOS_ITEMS: PracticeItem[] = FUNDAMENTALS.map(
   }),
 );
 
+const SWIFT_SOLVE_PATTERN: Record<SwiftChallengeKey, Pattern> = {
+  "swift-two-sum": "Arrays & Hashing",
+  "swift-valid-parentheses": "Stack",
+  "swift-stable-window": "Sliding Window",
+  "swift-merge-intervals": "Intervals",
+  "swift-first-complete-group": "Arrays & Hashing",
+  "swift-binary-search": "Binary Search",
+  "swift-max-profit": "Greedy",
+  "swift-product-except-self": "Arrays & Hashing",
+};
+
+export const SWIFT_SOLVE_ITEM_IDS = SWIFT_CHALLENGES.map(
+  (challenge) => `swift:${challenge.key}` as ItemId,
+);
+
+function swiftSolveCue(challenge: SwiftChallengeMetadata) {
+  return `Read the contract first, then submit ${challenge.entrypoint.name} to the isolated Swift judge.`;
+}
+
+function swiftSolveInvariant(challenge: SwiftChallengeMetadata) {
+  return `Every accepted submission must satisfy the visible examples and the sealed cases for ${challenge.entrypoint.name}.`;
+}
+
+function swiftSolveComplexity(challenge: SwiftChallengeMetadata) {
+  return (
+    challenge.constraints.find((constraint) => /\b(?:O\(|Use O|Aim for O)/i.test(constraint)) ??
+    "Choose an implementation that respects the stated input bounds."
+  );
+}
+
+/** Public catalog projections for the worker-owned trusted Swift bank. */
+export const SWIFT_SOLVE_ITEMS: PracticeItem[] = SWIFT_CHALLENGES.map(
+  (challenge, index) => ({
+    id: 30001 + index,
+    itemId: SWIFT_SOLVE_ITEM_IDS[index],
+    track: "interview",
+    language: "swift",
+    source: "builtin",
+    title: challenge.title,
+    slug: challenge.key,
+    difficulty: challenge.difficulty,
+    pattern: SWIFT_SOLVE_PATTERN[challenge.key],
+    summary: challenge.summary,
+    cue: swiftSolveCue(challenge),
+    invariant: swiftSolveInvariant(challenge),
+    complexity: swiftSolveComplexity(challenge),
+    languageNote:
+      "Portable Swift 6.3.3/Linux execution is isolated on the server. Visible samples are public; sealed cases stay server-only.",
+    estimatedMinutes: challenge.estimatedMinutes,
+    code: challenge.starterCode,
+    starterCode: challenge.starterCode,
+    isCustom: false,
+    tags: [...challenge.tags],
+    contentRevision: challenge.contentRevision,
+    solveCapability: "server",
+    trustedChallengeKey: challenge.key,
+  }),
+);
+
 export const BUILTIN_ITEMS: PracticeItem[] = [
   ...PYTHON_ITEMS,
   ...INTERVIEW_ITEMS,
   ...IOS_ITEMS,
   ...TRANSFER_ITEMS,
+  ...SWIFT_SOLVE_ITEMS,
 ];
+
+export function canSolveItem(item: PracticeItem) {
+  if (item.solveCapability === "server")
+    return item.language === "swift" && Boolean(item.trustedChallengeKey);
+  if (item.solveCapability === "local")
+    return item.language === "python" && Boolean(item.verification);
+  // Keep imported/legacy Python items solveable while they migrate to the
+  // explicit capability field. Swift snippets never become runnable by
+  // virtue of carrying a local verification payload.
+  return item.language === "python" && Boolean(item.verification);
+}
 
 export function itemIdFor(problem: Pick<PracticeItem, "itemId">) {
   return problem.itemId;
@@ -161,6 +245,12 @@ export function itemDisplayId(item: PracticeItem) {
       (candidate) => candidate.itemId === item.itemId,
     );
     return `Transfer ${String(index + 1).padStart(2, "0")}`;
+  }
+  if (item.solveCapability === "server") {
+    const index = SWIFT_SOLVE_ITEMS.findIndex(
+      (candidate) => candidate.itemId === item.itemId,
+    );
+    return `Swift solve ${String(index + 1).padStart(2, "0")}`;
   }
   if (item.language === "python")
     return item.id >= 10000
@@ -254,6 +344,7 @@ export function makeCustomItem(input: CustomItemInput): PracticeItem {
     createdAt: now,
     updatedAt: now,
     ...(challengeBundle ?? {}),
+    solveCapability: challengeBundle ? "local" : undefined,
   };
 }
 
@@ -332,5 +423,7 @@ export function updateCustomItem(
     challenge: nextBundle?.challenge,
     verification: nextBundle?.verification,
     starterCode: nextBundle?.starterCode,
+    solveCapability: nextBundle ? "local" : undefined,
+    trustedChallengeKey: undefined,
   };
 }

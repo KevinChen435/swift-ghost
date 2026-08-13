@@ -214,6 +214,20 @@ test("interrupted pending receipts recover once as explicit judge errors", () =>
   );
 });
 
+test("server judge receipts can remain pending across a local reload", () => {
+  const pending = requestedLog({
+    id: "server-pending",
+    judge: { kind: "server-isolated-swift", revision: 4 },
+    language: "swift",
+    itemId: "swift:two-sum",
+  });
+  const recovered = recoverInterruptedSubmissions(pending, {
+    now: "2026-07-28T12:01:00Z",
+    preservePendingJudgeKinds: ["server-isolated-swift"],
+  });
+  assert.deepEqual(recovered, pending);
+});
+
 test("normalization repairs malformed settlements and missing pending sources fail closed", () => {
   const pending = requestedLog();
   const malformed = {

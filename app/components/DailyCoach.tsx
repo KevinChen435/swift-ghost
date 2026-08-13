@@ -18,7 +18,10 @@ function nearestBudget(minutes: number) {
 }
 
 function taskLabel(item: PracticeItem | undefined, entry: SessionQueueEntry) {
-  if (entry.practiceKind === "solving") return "Independent Python solve";
+  if (entry.practiceKind === "solving")
+    return item?.language === "swift"
+      ? "Independent Swift solve"
+      : "Independent Python solve";
   if (entry.practiceKind === "concept") return "iOS concept recall";
   if (item?.pattern === "Python Fluency") return "Python fluency warm-up";
   return entry.stage === 5 ? "Blank-editor recall" : `Stage ${entry.stage} recall`;

@@ -183,7 +183,10 @@ export function settleSubmission(
 ): SubmissionLog;
 export function recoverInterruptedSubmissions(
   log: SubmissionLog,
-  options: { now: string | number | Date },
+  options: {
+    now: string | number | Date;
+    preservePendingJudgeKinds?: readonly SubmissionJudge["kind"][];
+  },
 ): SubmissionLog;
 export function normalizeSubmissionLog(
   raw: unknown,

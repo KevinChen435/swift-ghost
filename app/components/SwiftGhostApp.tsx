@@ -5,6 +5,7 @@ import {
   ClipboardEvent as ReactClipboardEvent,
   KeyboardEvent,
   useEffect,
+  useCallback,
   useMemo,
   useRef,
   useState,
@@ -96,6 +97,7 @@ import {
 } from "./InterviewStudioPanel";
 import { PracticeEditor } from "./PracticeEditor";
 import { ChallengeConsole } from "./ChallengeConsole";
+import { SwiftSolveConsole } from "./SwiftSolveConsole";
 import {
   ConceptPractice,
   type ConceptCompletionInput,
@@ -112,6 +114,7 @@ import {
 } from "../lib/python-runner.mjs";
 import {
   BUILTIN_ITEMS,
+  canSolveItem,
   itemDisplayId,
   makeCustomItem,
   updateCustomItem,
@@ -158,6 +161,8 @@ import {
   type CloudDailyChallenge,
   type CloudItemLeaderboard,
   type CloudSession,
+  type CloudTrustedAssignment,
+  type CloudTrustedSubmission,
 } from "../lib/cloud.mjs";
 import {
   assessCommunityComparability,
@@ -559,6 +564,7 @@ function coercePracticeKind(
     PracticeItem,
     | "language"
     | "verification"
+    | "trustedChallengeKey"
     | "track"
     | "recallChecks"
     | "conceptAnswers"
@@ -569,8 +575,8 @@ function coercePracticeKind(
   if (item.transfer) return "solving";
   if (
     requested === "solving" &&
-    item.language === "python" &&
-    item.verification
+    ((item.language === "python" && item.verification) ||
+      (item.language === "swift" && item.trustedChallengeKey))
   )
     return "solving";
   const supportsConcept = supportsConceptPractice(item);
@@ -4389,11 +4395,11 @@ export default function SwiftGhostApp() {
       setToast("This session step has a fixed practice mode");
       return;
     }
-    if (nextKind === "solving" && (!item.verification || draft.challengeDate)) {
+    if (nextKind === "solving" && (!canSolveItem(item) || draft.challengeDate)) {
       setToast(
-        item.verification
+        canSolveItem(item)
           ? "Solve mode is unavailable during Daily Type"
-          : "Solve mode currently supports verified Python exercises",
+          : "Solve mode currently supports verified Python or server-judged Swift exercises",
       );
       return;
     }
@@ -5300,6 +5306,49 @@ export default function SwiftGhostApp() {
     );
   }
 
+  function finishTrustedSolve(
+    source: string,
+    judgeRevision: number,
+    passed: number,
+    total: number,
+    submissionId?: string,
+  ) {
+    const liveDraft = stateRef.current.draft;
+    if (
+      practiceKind !== "solving" ||
+      !canSolveItem(item) ||
+      item.language !== "swift" ||
+      !liveDraft ||
+      liveDraft.itemId !== item.itemId ||
+      liveDraft.itemRevision !== item.contentRevision ||
+      liveDraft.practiceKind !== "solving" ||
+      liveDraft.value !== source ||
+      passed !== total ||
+      total <= 0
+    )
+      return;
+    const next: Draft = {
+      ...liveDraft,
+      practiceKind: "solving",
+      stage: 5,
+      value: source,
+      startedAt: liveDraft.startedAt ?? Date.now(),
+      testRuns: Math.max(liveDraft.testRuns, 1),
+      submissions: Math.max(liveDraft.submissions, 1),
+    };
+    finish(
+      next,
+      {
+        revision: judgeRevision,
+        passed,
+        total,
+        runs: Math.max(1, next.testRuns),
+        submissions: Math.max(1, next.submissions),
+      },
+      submissionId,
+    );
+  }
+
   function insertAtCursor(input: HTMLTextAreaElement, text: string) {
     const start = input.selectionStart;
     const end = input.selectionEnd;
@@ -5614,7 +5663,7 @@ export default function SwiftGhostApp() {
       if (mode === "practice") {
         const entries: SessionQueueEntry[] = selected.map((item) => {
           const practiceKind: PracticeKind =
-            item.language === "python" && item.verification
+            canSolveItem(item)
               ? "solving"
               : supportsConceptPractice(item)
                 ? "concept"
@@ -8425,6 +8474,7 @@ export default function SwiftGhostApp() {
           onInterviewRunnerEvidence={recordActiveInterviewRunnerEvidence}
           onFinishInterview={finishActiveInterview}
           onSolveComplete={finishSolve}
+          onTrustedSolveComplete={finishTrustedSolve}
           onConceptChange={updateConceptResponse}
           onConceptReveal={revealConceptAnswer}
           onConceptComplete={finishConcept}
@@ -8451,6 +8501,8 @@ export default function SwiftGhostApp() {
           }}
           onSkipSession={skipSessionEntry}
           onEndSession={endSession}
+          trustedJudgeAvailable={cloud.capabilities?.trustedAssessments === true}
+          trustedJudgeAuthenticated={cloud.session?.authenticated === true}
         />
       )}
       {view === "sessions" && (
@@ -9334,6 +9386,13 @@ type PracticeProps = {
     purpose?: "submit" | "full",
     submissionId?: string,
   ) => void;
+  onTrustedSolveComplete: (
+    source: string,
+    judgeRevision: number,
+    passed: number,
+    total: number,
+    submissionId?: string,
+  ) => void;
   onConceptChange: (value: string) => void;
   onConceptReveal: (assisted: boolean, responseSnapshot: string) => void;
   onConceptComplete: (input: ConceptCompletionInput) => void;
@@ -9346,6 +9405,8 @@ type PracticeProps = {
   onSession: () => void;
   onSkipSession: () => void;
   onEndSession: () => void;
+  trustedJudgeAvailable: boolean;
+  trustedJudgeAuthenticated: boolean;
 };
 
 function PracticeView(props: PracticeProps) {
@@ -9421,6 +9482,11 @@ function PracticeView(props: PracticeProps) {
       : null;
   const isVirtualRound = Boolean(activeVirtualRound);
   const isTransfer = Boolean(props.item.transfer);
+  const isTrustedSwiftSolve = Boolean(
+    props.practiceKind === "solving" &&
+      props.item.language === "swift" &&
+      props.item.trustedChallengeKey,
+  );
   const isLocked = isMock || isAssessment || isVirtualRound;
   const activeStudio =
     props.interviewStudio?.format === "python-coding" &&
@@ -9428,6 +9494,246 @@ function PracticeView(props: PracticeProps) {
       ? props.interviewStudio
       : null;
   const isStudio = Boolean(activeStudio);
+  const [swiftAssignment, setSwiftAssignment] =
+    useState<CloudTrustedAssignment | null>(null);
+  const [swiftSubmission, setSwiftSubmission] =
+    useState<CloudTrustedSubmission | null>(null);
+  const [swiftLoadState, setSwiftLoadState] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [swiftAction, setSwiftAction] = useState<
+    "idle" | "loading" | "submitting"
+  >("idle");
+  const [swiftMessage, setSwiftMessage] = useState("");
+  const reconciledSwiftSubmissionIds = useRef(new Set<string>());
+  const swiftSubmitInFlight = useRef(false);
+  const onSwiftSubmissionSettled = props.onSubmissionSettled;
+  const onSwiftSolveComplete = props.onTrustedSolveComplete;
+  const swiftItemId = props.item.itemId;
+
+  const persistedSwiftRequestFor = useCallback((
+    assignment: CloudTrustedAssignment,
+  ): SubmissionRequest | null => {
+    const remoteClientSubmissionId = assignment.latestSubmission?.clientSubmissionId;
+    if (!remoteClientSubmissionId) return null;
+    const pending = props.state.submissionLog.receipts
+      .filter(
+        (receipt) =>
+          receipt.lifecycle === "pending" &&
+          receipt.itemId === props.item.itemId &&
+          receipt.id === remoteClientSubmissionId &&
+          receipt.judge.kind === "server-isolated-swift" &&
+          receipt.context.kind === "practice",
+      )
+      .slice()
+      .sort((left, right) => right.requestedAt.localeCompare(left.requestedAt));
+    const receipt = pending[0];
+    if (!receipt) return null;
+    const source = resolveSubmissionSource(props.state.submissionLog, receipt.id);
+    if (!source) return null;
+    return {
+      id: receipt.id,
+      itemId: receipt.itemId,
+      titleSnapshot: receipt.titleSnapshot,
+      language: "swift",
+      itemRevision: receipt.itemRevision,
+      requestedAt: receipt.requestedAt,
+      source,
+      judge: {
+        kind: "server-isolated-swift",
+        revision: receipt.judge.revision || assignment.challenge.judgeRevision,
+      },
+      context: { kind: "practice" },
+      assistance: receipt.assistance,
+    };
+  }, [props.item.itemId, props.state.submissionLog]);
+
+  const reconcileSettledSwiftAssignment = useCallback((
+    assignment: CloudTrustedAssignment,
+  ) => {
+    const latest = assignment.latestSubmission;
+    if (
+      !latest ||
+      latest.status !== "settled" ||
+      reconciledSwiftSubmissionIds.current.has(latest.id)
+    )
+      return;
+    const pending =
+      activeSubmissionRequest.current ?? persistedSwiftRequestFor(assignment);
+    if (!pending || pending.itemId !== props.item.itemId) return;
+    if (latest.clientSubmissionId !== pending.id) return;
+    const resultPayload = latest.result;
+    const settled = compatibleSubmissionRecord(pending, {
+      status: latest.verdict ?? "judge-error",
+      durationMs: Math.max(
+        0,
+        Date.parse(latest.settledAt ?? pending.requestedAt.toString()) -
+          Date.parse(latest.submittedAt),
+      ),
+      passed: resultPayload?.passed ?? 0,
+      total: resultPayload?.total ?? 0,
+    });
+    reconciledSwiftSubmissionIds.current.add(latest.id);
+    activeSubmissionRequest.current = null;
+    swiftSubmitInFlight.current = false;
+    onSwiftSubmissionSettled(settled);
+    if (
+      settled.status === "accepted" &&
+      resultPayload &&
+      resultPayload.passed === resultPayload.total
+    ) {
+      onSwiftSolveComplete(
+        pending.source,
+        resultPayload.judgeRevision,
+        resultPayload.passed,
+        resultPayload.total,
+        pending.id,
+      );
+    }
+  }, [
+    onSwiftSolveComplete,
+    onSwiftSubmissionSettled,
+    persistedSwiftRequestFor,
+    props.item.itemId,
+  ]);
+
+  const loadSwiftAssignment = useCallback(async () => {
+    if (!isTrustedSwiftSolve) return;
+    if (!props.trustedJudgeAvailable || !props.trustedJudgeAuthenticated) {
+      setSwiftLoadState("idle");
+      setSwiftAssignment(null);
+      setSwiftSubmission(null);
+      return;
+    }
+    const challengeKey = props.item.trustedChallengeKey;
+    if (!challengeKey) return;
+    setSwiftLoadState("loading");
+    setSwiftMessage("");
+    const listed = await cloudClient.trustedAssignments({ limit: 50 });
+    if (listed.available) {
+      const matching = listed.data.entries.find(
+        (entry) =>
+          entry.challenge.key === challengeKey && entry.status === "active",
+      );
+      if (matching) {
+        setSwiftAssignment(matching);
+        setSwiftSubmission(matching.latestSubmission);
+        reconcileSettledSwiftAssignment(matching);
+        setSwiftLoadState("ready");
+        return;
+      }
+      const settledHistory = listed.data.entries.find(
+        (entry) =>
+          entry.challenge.key === challengeKey &&
+          entry.latestSubmission?.status === "settled",
+      );
+      if (settledHistory) reconcileSettledSwiftAssignment(settledHistory);
+    }
+    const issued = await cloudClient.issueTrustedAssignment(
+      `practice:${props.item.itemId}:${makeId()}`,
+      { language: "swift", challengeKey },
+    );
+    if (!issued.available) {
+      setSwiftLoadState("error");
+      setSwiftMessage(
+        issued.reason === "unauthorized"
+          ? "Sign in again before starting a verified Swift solve."
+          : "The isolated Swift judge could not issue this assignment.",
+      );
+      return;
+    }
+    setSwiftAssignment(issued.data);
+    setSwiftSubmission(issued.data.latestSubmission);
+    setSwiftLoadState("ready");
+  }, [
+    isTrustedSwiftSolve,
+    props.item.itemId,
+    props.item.trustedChallengeKey,
+    props.trustedJudgeAuthenticated,
+    props.trustedJudgeAvailable,
+    reconcileSettledSwiftAssignment,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!isTrustedSwiftSolve) return;
+    const timer = window.setTimeout(() => {
+      void loadSwiftAssignment().catch((error) => {
+        if (cancelled) return;
+        setSwiftLoadState("error");
+        setSwiftMessage(
+          error instanceof Error
+            ? error.message
+            : "The isolated Swift judge could not be reached.",
+        );
+      });
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isTrustedSwiftSolve, loadSwiftAssignment]);
+
+  const trustedJudgeAvailable = props.trustedJudgeAvailable;
+  const trustedJudgeAuthenticated = props.trustedJudgeAuthenticated;
+
+  useEffect(() => {
+    if (
+      !isTrustedSwiftSolve ||
+      !trustedJudgeAvailable ||
+      !trustedJudgeAuthenticated ||
+      !swiftAssignment ||
+      swiftSubmission?.status !== "pending"
+    )
+      return;
+    const controller = new AbortController();
+    let timer: number | undefined;
+    let cancelled = false;
+    async function pollSwiftSubmission() {
+      const result = await cloudClient.trustedAssignments({
+        limit: 50,
+        signal: controller.signal,
+      });
+      if (cancelled) return;
+      if (result.available) {
+        const refreshed = result.data.entries.find(
+          (entry) => entry.id === swiftAssignment?.id,
+        );
+        if (refreshed) {
+          setSwiftAssignment(refreshed);
+          setSwiftSubmission(refreshed.latestSubmission);
+          if (refreshed.latestSubmission?.status === "settled") {
+            reconcileSettledSwiftAssignment(refreshed);
+            setSwiftMessage(
+              refreshed.latestSubmission.verdict === "accepted"
+                ? "Accepted. Swift evidence was sealed by the server."
+                : refreshed.latestSubmission.verdict === "compile-error"
+                  ? "The server could not compile this Swift source. Fix the signature or syntax and submit again."
+                  : "The server returned aggregate feedback; sealed cases remain private.",
+            );
+            return;
+          }
+        }
+      }
+      timer = window.setTimeout(() => void pollSwiftSubmission(), 1_500);
+    }
+    timer = window.setTimeout(() => void pollSwiftSubmission(), 1_500);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [
+    isTrustedSwiftSolve,
+    swiftItemId,
+    onSwiftSubmissionSettled,
+    onSwiftSolveComplete,
+    trustedJudgeAuthenticated,
+    trustedJudgeAvailable,
+    swiftAssignment,
+    swiftSubmission?.status,
+    reconcileSettledSwiftAssignment,
+  ]);
   const mockRemainingMs = isMock
     ? (mockInterviewRemainingMs(props.activeSession, props.now) ?? 0)
     : null;
@@ -9460,7 +9766,7 @@ function PracticeView(props: PracticeProps) {
     return () => {
       disposed.current = true;
       const pendingRequest = activeSubmissionRequest.current;
-      if (pendingRequest) {
+      if (pendingRequest && pendingRequest.judge.kind !== "server-isolated-swift") {
         const interrupted = compatibleSubmissionRecord(pendingRequest, {
           status: "judge-error",
           durationMs: 0,
@@ -9514,6 +9820,108 @@ function PracticeView(props: PracticeProps) {
         : lastRunnableSource?.itemId === props.item.itemId
           ? lastRunnableSource.source
           : "";
+
+  async function runSwiftSubmit() {
+    if (
+      !isTrustedSwiftSolve ||
+      isLocked ||
+      !swiftAssignment ||
+      swiftAssignment.status !== "active" ||
+      swiftSubmission?.status === "pending" ||
+      swiftAction !== "idle" ||
+      swiftSubmitInFlight.current ||
+      !runnerSource.trim()
+    )
+      return;
+    swiftSubmitInFlight.current = true;
+    const submissionRequest: SubmissionRequest = {
+      id: makeId(),
+      itemId: props.item.itemId,
+      titleSnapshot: props.item.title,
+      language: "swift",
+      itemRevision: props.item.contentRevision,
+      requestedAt: new Date().toISOString(),
+      source: runnerSource,
+      judge: {
+        kind: "server-isolated-swift",
+        revision: swiftAssignment.challenge.judgeRevision,
+      },
+      context: { kind: "practice" },
+      assistance: props.draft.peeks > 0 ? "used" : "none-recorded",
+    };
+    if (!props.onSubmissionRequested(submissionRequest)) {
+      swiftSubmitInFlight.current = false;
+      return;
+    }
+    activeSubmissionRequest.current = submissionRequest;
+    props.onSubmissionRun();
+    setSwiftAction("submitting");
+    setSwiftMessage("");
+    const result = await cloudClient.submitTrustedAssignment(
+      swiftAssignment.id,
+      { clientSubmissionId: submissionRequest.id, source: runnerSource },
+    );
+    setSwiftAction("idle");
+    if (!result.available) {
+      const interrupted = compatibleSubmissionRecord(submissionRequest, {
+        status: "judge-error",
+        durationMs: 0,
+        passed: 0,
+        total: 0,
+      });
+      activeSubmissionRequest.current = null;
+      swiftSubmitInFlight.current = false;
+      props.onSubmissionSettled(interrupted);
+      setSwiftMessage(
+        result.reason === "unauthorized"
+          ? "Sign in again before submitting Swift code."
+          : "The submission did not reach the isolated Swift judge.",
+      );
+      return;
+    }
+    setSwiftSubmission(result.data);
+    setSwiftAssignment((current) =>
+      current ? { ...current, latestSubmission: result.data } : current,
+    );
+    if (result.data.status === "pending") {
+      setSwiftMessage("Queued. The isolated judge is compiling and running your source.");
+      return;
+    }
+    const resultPayload = result.data.result;
+    const settled = compatibleSubmissionRecord(submissionRequest, {
+      status: result.data.verdict ?? "judge-error",
+      durationMs: Math.max(
+        0,
+        Date.parse(result.data.settledAt ?? result.data.submittedAt) -
+          Date.parse(result.data.submittedAt),
+      ),
+      passed: resultPayload?.passed ?? 0,
+      total: resultPayload?.total ?? 0,
+    });
+    activeSubmissionRequest.current = null;
+    swiftSubmitInFlight.current = false;
+    props.onSubmissionSettled(settled);
+    if (
+      settled.status === "accepted" &&
+      resultPayload &&
+      resultPayload.passed === resultPayload.total
+    ) {
+      props.onTrustedSolveComplete(
+        submissionRequest.source,
+        resultPayload.judgeRevision,
+        resultPayload.passed,
+        resultPayload.total,
+        submissionRequest.id,
+      );
+    }
+    setSwiftMessage(
+      result.data.verdict === "accepted"
+        ? "Accepted. Swift evidence was sealed by the server."
+        : result.data.verdict === "compile-error"
+          ? "The server could not compile this Swift source."
+          : "The server returned aggregate feedback; sealed cases remain private.",
+    );
+  }
   const customCaseInput =
     props.state.customCaseInputs[props.item.itemId] ??
     props.draft.customCaseInput;
@@ -9561,7 +9969,7 @@ function PracticeView(props: PracticeProps) {
 
   function cancelPythonRun() {
     const pendingRequest = activeSubmissionRequest.current;
-    if (pendingRequest) {
+    if (pendingRequest && pendingRequest.judge.kind !== "server-isolated-swift") {
       const interrupted = compatibleSubmissionRecord(pendingRequest, {
         status: "judge-error",
         durationMs: 0,
@@ -9994,6 +10402,11 @@ function PracticeView(props: PracticeProps) {
       event.key === "Enter"
     ) {
       event.preventDefault();
+      if (isTrustedSwiftSolve) {
+        if (event.shiftKey) void runSwiftSubmit();
+        else void loadSwiftAssignment();
+        return;
+      }
       if (event.shiftKey && (!isMock || isStudio)) {
         void runPythonChecks("submit");
       } else {
@@ -10507,7 +10920,7 @@ function PracticeView(props: PracticeProps) {
             className={props.practiceKind === "solving" ? "active" : ""}
             aria-pressed={props.practiceKind === "solving"}
             disabled={
-              !props.item.verification ||
+              !canSolveItem(props.item) ||
               Boolean(props.draft.challengeDate || props.draft.sessionId)
             }
             onClick={() => props.onChoosePracticeKind("solving")}
@@ -10518,9 +10931,11 @@ function PracticeView(props: PracticeProps) {
                 ? props.practiceKind === "solving"
                   ? "Planned independent solve"
                   : "This session step uses recall typing"
-                : props.item.verification
-                ? "Write any passing Python solution"
-                : "Verified Python exercises only"}
+                : canSolveItem(props.item)
+                ? props.item.language === "swift"
+                  ? "Submit to the isolated Swift judge"
+                  : "Write any passing Python solution"
+                : "Verified exercises only"}
             </small>
           </button>
           <button
@@ -10556,7 +10971,7 @@ function PracticeView(props: PracticeProps) {
             onReveal={props.onConceptReveal}
             onComplete={props.onConceptComplete}
           />
-        ) : props.practiceKind === "solving" && props.item.verification ? (
+        ) : props.practiceKind === "solving" && canSolveItem(props.item) ? (
           <SolveWorkbench
             mobilePane={mobileWorkspacePane}
             onMobilePaneChange={setMobileWorkspacePane}
@@ -10747,16 +11162,36 @@ function PracticeView(props: PracticeProps) {
                 onFocusMode={props.onFocusMode}
                 onChange={handleEditorChange}
                 onRunExamples={() =>
-                  void runPythonChecks(
-                    isStudio ? "examples" : isMock ? "full" : "examples",
-                  )
+                  isTrustedSwiftSolve
+                    ? void loadSwiftAssignment()
+                    : void runPythonChecks(
+                        isStudio ? "examples" : isMock ? "full" : "examples",
+                      )
                 }
-                onSubmit={() => void runPythonChecks("submit")}
+                onSubmit={() =>
+                  isTrustedSwiftSolve
+                    ? void runSwiftSubmit()
+                    : void runPythonChecks("submit")
+                }
                 onKeyDown={handleEditorKeyDown}
                 onPaste={props.onPaste}
               />
             }
             tests={
+              isTrustedSwiftSolve ? (
+                <SwiftSolveConsole
+                  item={props.item}
+                  assignment={swiftAssignment}
+                  submission={swiftSubmission}
+                  loadState={swiftLoadState}
+                  action={swiftAction}
+                  message={swiftMessage}
+                  available={props.trustedJudgeAvailable}
+                  authenticated={props.trustedJudgeAuthenticated}
+                  onRequestAssignment={() => void loadSwiftAssignment()}
+                  onSubmit={() => void runSwiftSubmit()}
+                />
+              ) : (
               <ChallengeConsole
                 practiceKind={props.practiceKind}
                 isMock={isLocked}
@@ -10767,7 +11202,7 @@ function PracticeView(props: PracticeProps) {
                 onConsoleTabChange={setConsoleTab}
                 customCaseInput={customCaseInput}
                 defaultCustomCaseInput={defaultCustomCaseInput(
-                  props.item.verification,
+                  props.item.verification!,
                 )}
                 onCustomCaseInputChange={changeCustomCaseInput}
                 onLoadDefaultCustomCase={() =>
@@ -10827,7 +11262,7 @@ function PracticeView(props: PracticeProps) {
                 customExecutionState={visibleCustomExecutionState}
                 verificationState={visibleVerificationState}
                 exampleExpectedValues={challengeVerificationForPurpose(
-                  props.item.verification,
+                  props.item.verification!,
                   "examples",
                 ).cases.map((testCase) => testCase.expected)}
                 onRunExamples={() => runPythonChecks("examples")}
@@ -10838,7 +11273,7 @@ function PracticeView(props: PracticeProps) {
                   (submission) => submission.itemId === props.item.itemId,
                 )}
                 currentItemRevision={props.item.contentRevision}
-                currentVerificationRevision={props.item.verification.revision ?? 1}
+                currentVerificationRevision={props.item.verification!.revision ?? 1}
                 currentSource={runnerSource}
                 onInspectSubmission={inspectSubmission}
                 onRestoreSubmission={restoreSubmission}
@@ -10864,6 +11299,7 @@ function PracticeView(props: PracticeProps) {
                   );
                 }}
               />
+              )
             }
           />
         ) : (

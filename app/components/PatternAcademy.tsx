@@ -17,7 +17,7 @@ import type {
   PracticeKind,
 } from "../lib/product";
 import type { RetrievalGrade } from "../lib/learning-state.mjs";
-import type { PracticeItem } from "../lib/items";
+import { canSolveItem, type PracticeItem } from "../lib/items";
 
 type Props = {
   lessons: readonly PatternLesson[];
@@ -531,7 +531,7 @@ export function PatternAcademy({
                 {workedItem ? <article><span>1 · Worked · guided exposure</span><h3>{workedItem.title}</h3><p>Type with the complete ghost visible. Notice control flow and state shape.</p><button className="secondary-button" onClick={() => onStartPractice(workedItem, 1, "typing")}>Open full ghost</button></article> : null}
                 {guidedItem ? <article><span>2 · Reconstruct</span><h3>{guidedItem.title}</h3><p>Recover missing lines with structure still available.</p><button className="secondary-button" onClick={() => onStartPractice(guidedItem, 3, "typing")}>Open missing-lines stage</button></article> : null}
                 {coldItem ? <article><span>3 · Blank solve</span><h3>{coldItem.title}</h3><p>Use the local Python judge from a blank editor. Prior lesson exposure remains visible in your history.</p><button className="primary-button" onClick={() => onStartPractice(coldItem, 5, "solving")}>Open local solve</button></article> : null}
-                {swiftItem ? <article><span>Swift bridge</span><h3>{swiftItem.title}</h3><p>Reconstruct the Swift implementation. Swift execution is not available yet, so this remains typing evidence.</p><button className="secondary-button" onClick={() => onStartPractice(swiftItem, 3, "typing")}>Open Swift reconstruction</button></article> : null}
+                {swiftItem ? <article><span>Swift bridge</span><h3>{swiftItem.title}</h3><p>{canSolveItem(swiftItem) ? "Submit a portable Swift implementation to the isolated server judge; sealed cases stay private." : "Reconstruct the authored Swift implementation. This card remains typing evidence."}</p><button className={canSolveItem(swiftItem) ? "primary-button" : "secondary-button"} onClick={() => onStartPractice(swiftItem, canSolveItem(swiftItem) ? 5 : 3, canSolveItem(swiftItem) ? "solving" : "typing")}>{canSolveItem(swiftItem) ? "Open Swift solve" : "Open Swift reconstruction"}</button></article> : null}
               </div>
               <div className="academy-practice-actions">
                 <button className="text-button" onClick={() => onBrowsePattern(lesson)}>Browse all {lesson.pattern} problems</button>

@@ -9,6 +9,7 @@ const MAX_VISIBLE_SUBMISSIONS = 50;
 const STATUS_LABELS: Readonly<Record<SubmissionRecord["status"], string>> = {
   accepted: "Accepted",
   "wrong-answer": "Wrong answer",
+  "compile-error": "Compile error",
   "runtime-error": "Runtime error",
   "time-limit": "Time limit exceeded",
   "invalid-entrypoint": "Invalid entrypoint",

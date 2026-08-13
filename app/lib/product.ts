@@ -1,5 +1,6 @@
 import {
   BUILTIN_ITEMS,
+  canSolveItem,
   type CodeLanguage,
   type ItemId,
   type PracticeItem,
@@ -213,6 +214,7 @@ export type VerificationSummary = {
 export type SubmissionStatus =
   | "accepted"
   | "wrong-answer"
+  | "compile-error"
   | "runtime-error"
   | "time-limit"
   | "invalid-entrypoint"
@@ -784,7 +786,7 @@ function normalizeCustomItems(
 function itemIdFromRaw(value: unknown): ItemId | null {
   if (
     typeof value === "string" &&
-    /^(builtin:\d+|python:\d+|transfer:\d+|ios:[\w-]+|custom:[\w-]+)$/.test(value)
+    /^(builtin:\d+|python:\d+|swift:[\w-]+|transfer:\d+|ios:[\w-]+|custom:[\w-]+)$/.test(value)
   )
     return value as ItemId;
   if (typeof value === "number" && Number.isFinite(value))
@@ -1325,7 +1327,7 @@ export function normalizeState(value: unknown): AppState {
   const supportsSolving = new Map<ItemId, boolean>(
     [...BUILTIN_ITEMS, ...customItems].map((item) => [
       item.itemId,
-      Boolean(item.language === "python" && item.verification),
+      canSolveItem(item),
     ]),
   );
   const supportsConcept = new Map<ItemId, boolean>(
@@ -1353,7 +1355,7 @@ export function normalizeState(value: unknown): AppState {
       );
       if (
         raw.practiceKind === "solving" &&
-        !(item?.language === "python" && item.verification)
+        (!item || !canSolveItem(item))
       )
         return [];
       if (
@@ -1471,9 +1473,7 @@ export function normalizeState(value: unknown): AppState {
         (candidate) => candidate.itemId === draftItemId,
       )
     : undefined;
-  const draftSupportsSolve = Boolean(
-    draftItem?.language === "python" && draftItem.verification,
-  );
+  const draftSupportsSolve = Boolean(draftItem && canSolveItem(draftItem));
   const draftSupportsConcept = Boolean(
     supportsConceptPractice(draftItem),
   );
@@ -1709,7 +1709,13 @@ export function normalizeState(value: unknown): AppState {
             : undefined,
       },
     ),
-    { now: submissionNow },
+    {
+      now: submissionNow,
+      preservePendingJudgeKinds: [
+        "server-isolated-python",
+        "server-isolated-swift",
+      ],
+    },
   );
   const submissionAnnotations = normalizeSubmissionAnnotations(
     Number(value.version) >= 23 ? value.submissionAnnotations : undefined,
