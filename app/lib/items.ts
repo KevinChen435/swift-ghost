@@ -54,6 +54,8 @@ export type PracticeItem = Omit<Problem, "swiftNote"> & {
   contentRevision: number;
   solveCapability?: SolveCapability;
   trustedChallengeKey?: SwiftChallengeKey;
+  /** Current sealed-judge revision for server-backed challenges. */
+  trustedJudgeRevision?: number;
   createdAt?: string;
   updatedAt?: string;
   archivedAt?: string;
@@ -165,6 +167,16 @@ const SWIFT_SOLVE_PATTERN: Record<SwiftChallengeKey, Pattern> = {
   "swift-binary-search": "Binary Search",
   "swift-max-profit": "Greedy",
   "swift-product-except-self": "Arrays & Hashing",
+  "swift-contains-duplicate": "Arrays & Hashing",
+  "swift-longest-consecutive": "Arrays & Hashing",
+  "swift-subarray-sum-count": "Arrays & Hashing",
+  "swift-three-sum": "Two Pointers",
+  "swift-valid-palindrome": "Two Pointers",
+  "swift-daily-temperatures": "Stack",
+  "swift-search-rotated": "Binary Search",
+  "swift-koko-bananas": "Binary Search",
+  "swift-erase-overlap-intervals": "Intervals",
+  "swift-minimum-size-window": "Sliding Window",
 };
 
 export const SWIFT_SOLVE_ITEM_IDS = SWIFT_CHALLENGES.map(
@@ -212,6 +224,7 @@ export const SWIFT_SOLVE_ITEMS: PracticeItem[] = SWIFT_CHALLENGES.map(
     contentRevision: challenge.contentRevision,
     solveCapability: "server",
     trustedChallengeKey: challenge.key,
+    trustedJudgeRevision: challenge.judgeRevision,
   }),
 );
 

@@ -114,6 +114,9 @@ function laneFor(item) {
 }
 
 function judgeRevisionFor(item) {
+  if (Number.isInteger(item?.trustedJudgeRevision) && item.trustedJudgeRevision >= 1) {
+    return item.trustedJudgeRevision;
+  }
   if (!isRecord(item?.verification)) return null;
   return item.verification.revision === undefined
     ? 1

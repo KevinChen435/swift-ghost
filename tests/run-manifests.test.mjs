@@ -111,6 +111,40 @@ test("snapshots the implicit revision-one contract for runnable judges", () => {
   );
 });
 
+test("snapshots the sealed judge revision for runnable Swift items", () => {
+  const swiftRegistry = [
+    item(1, {
+      itemId: "swift:swift-two-sum",
+      language: "swift",
+      trustedChallengeKey: "swift-two-sum",
+      trustedJudgeRevision: 7,
+      verification: undefined,
+    }),
+    item(2, {
+      itemId: "swift:swift-binary-search",
+      language: "swift",
+      trustedChallengeKey: "swift-binary-search",
+      trustedJudgeRevision: 9,
+      verification: undefined,
+    }),
+  ];
+  const workspace = createRunManifest(
+    createRunManifestWorkspace(),
+    {
+      title: "Swift sealed set",
+      source: "catalog",
+      mode: "practice",
+      itemIds: ["swift:swift-two-sum", "swift:swift-binary-search"],
+    },
+    swiftRegistry,
+    { id: "swift-sealed", now: NOW },
+  );
+  assert.deepEqual(
+    workspace.manifests[0].entries.map((entry) => entry.judgeRevision),
+    [7, 9],
+  );
+});
+
 test("requires 2-12 distinct entries and only current built-in non-transfer registry items", () => {
   assert.throws(() => create({ itemIds: ["python:1"] }), /between 2 and 12/i);
   assert.throws(() => create({ itemIds: Array.from({ length: 13 }, (_, index) => `x:${index}`) }), /between 2 and 12/i);

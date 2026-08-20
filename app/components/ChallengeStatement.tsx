@@ -2,6 +2,7 @@
 
 import { useId, useState, type KeyboardEvent } from "react";
 import { challengeSpecForItem } from "../lib/challenge-lab.mjs";
+import { getSwiftChallenge } from "../data/swift-challenges";
 import type { PracticeItem } from "../lib/items";
 
 type ChallengeStatementProps = {
@@ -29,7 +30,38 @@ export function ChallengeStatement({
     `${idPrefix}-${value}-tab`;
   const panelId = (value: (typeof CHALLENGE_TABS)[number]) =>
     `${idPrefix}-${value}-panel`;
-  const challenge = challengeSpecForItem(item);
+  const localChallenge = challengeSpecForItem(item);
+  const swiftChallenge = item.trustedChallengeKey
+    ? getSwiftChallenge(item.trustedChallengeKey)
+    : undefined;
+  const challenge = localChallenge ?? (swiftChallenge
+    ? {
+        statement: swiftChallenge.prompt,
+        entrypoint: `${swiftChallenge.entrypoint.name}(${swiftChallenge.entrypoint.parameters
+          .map((parameter) => `${parameter.name}: ${parameter.type}`)
+          .join(", ")})`,
+        parameters: swiftChallenge.entrypoint.parameters.map((parameter) => ({
+          name: parameter.name,
+          type: parameter.type,
+          description: "",
+        })),
+        returns: swiftChallenge.entrypoint.returns,
+        notes: [
+          `Swift ${swiftChallenge.runtime} · ${swiftChallenge.tags.join(" · ")}`,
+        ],
+        examples: swiftChallenge.samples.map((sample) => ({
+          name: sample.name,
+          args: sample.args,
+          expected: sample.expected,
+          explanation: undefined,
+        })),
+        constraints: [...swiftChallenge.constraints],
+        visibleCaseCount: swiftChallenge.samples.length,
+        // The worker keeps the sealed-case count private. The header below
+        // intentionally uses a non-numeric label for this server-backed lane.
+        hiddenCaseCount: 0,
+      }
+    : null);
   if (!challenge) return null;
 
   function selectAdjacentTab(
@@ -67,8 +99,11 @@ export function ChallengeStatement({
           <h2 id={titleId}>{challenge.entrypoint}</h2>
         </div>
         <span className="hidden-check-count">
-          {challenge.hiddenCaseCount} unshown check
-          {challenge.hiddenCaseCount === 1 ? "" : "s"}
+          {swiftChallenge
+            ? "Private sealed judge"
+            : `${challenge.hiddenCaseCount} unshown check${
+                challenge.hiddenCaseCount === 1 ? "" : "s"
+              }`}
         </span>
       </header>
       <div className="challenge-tabs" role="tablist" aria-label="Challenge details">

@@ -15,7 +15,7 @@ test("the Library is promoted into a lane-aware Problems workspace", async () =>
   assert.match(catalog, /aria-label="Problem lanes"/);
   assert.match(catalog, /Self-assessed concept practice/);
   assert.match(catalog, /Swift recall · not locally executed/);
-  assert.match(catalog, /accepted local solve/);
+  assert.match(catalog, /accepted \$\{solveAuthority\} solve/);
 });
 
 test("problem notes are structured, focus-contained, and saved durably before closing", async () => {

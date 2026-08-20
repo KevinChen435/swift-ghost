@@ -585,6 +585,10 @@ function coercePracticeKind(
   return "typing";
 }
 
+function currentJudgeRevision(item: Pick<PracticeItem, "trustedJudgeRevision" | "verification">) {
+  return item.trustedJudgeRevision ?? item.verification?.revision ?? 1;
+}
+
 function matchesLane(
   item: Pick<PracticeItem, "track" | "language">,
   value: "All" | "python" | "swift" | "ios",
@@ -3336,10 +3340,8 @@ export default function SwiftGhostApp() {
           candidate.itemId === entry?.itemId &&
           candidate.contentRevision === snapshot?.contentRevision &&
           (snapshot?.judgeRevision === undefined
-            ? !candidate.verification
-            : Boolean(candidate.verification) &&
-              (candidate.verification?.revision ?? 1) ===
-                snapshot.judgeRevision),
+            ? !candidate.verification && !candidate.trustedChallengeKey
+            : currentJudgeRevision(candidate) === snapshot.judgeRevision),
       );
       if (!entry || !item) {
         throw new Error(
@@ -3842,8 +3844,8 @@ export default function SwiftGhostApp() {
     const itemToRetry = attempt
       ? allItems.find((candidate) => candidate.itemId === attempt.itemId)
       : undefined;
-    if (!itemToRetry?.verification || itemToRetry.language !== "python") {
-      setToast("This reviewed item no longer has a runnable Python judge");
+    if (!itemToRetry || !canSolveItem(itemToRetry)) {
+      setToast("This reviewed item no longer has a runnable judge");
       return;
     }
     mutateState((latest) => {
@@ -3990,8 +3992,8 @@ export default function SwiftGhostApp() {
           (candidate) => candidate.itemId === closure.anchor.itemId,
         )
       : undefined;
-    if (!closure || !itemToRetry?.verification || itemToRetry.language !== "python") {
-      setToast("This closure no longer has a runnable current Python problem");
+    if (!closure || !itemToRetry || !canSolveItem(itemToRetry)) {
+      setToast("This closure no longer has a runnable current problem");
       return;
     }
     if (closure.status !== "due") {
@@ -4024,8 +4026,8 @@ export default function SwiftGhostApp() {
       setToast("Finish or archive the active virtual round before restoring saved source");
       return;
     }
-    if (!itemToOpen.verification || itemToOpen.language !== "python") {
-      setToast("This item no longer has a runnable local judge");
+    if (!canSolveItem(itemToOpen)) {
+      setToast("This item no longer has a runnable judge");
       return;
     }
     const meaningfulDraft = Boolean(
@@ -4037,8 +4039,8 @@ export default function SwiftGhostApp() {
       receipt.itemRevision !== itemToOpen.contentRevision
         ? `Saved prompt revision ${receipt.itemRevision}; current revision ${itemToOpen.contentRevision}.`
         : "",
-      receipt.judge.revision !== (itemToOpen.verification.revision ?? 1)
-        ? `Saved judge revision ${receipt.judge.revision}; current revision ${itemToOpen.verification.revision ?? 1}.`
+      receipt.judge.revision !== currentJudgeRevision(itemToOpen)
+        ? `Saved judge revision ${receipt.judge.revision}; current revision ${currentJudgeRevision(itemToOpen)}.`
         : "",
       meaningfulDraft
         ? "Your current draft will be saved as abandoned before this source is opened."
@@ -4734,7 +4736,7 @@ export default function SwiftGhostApp() {
   function restoreSubmissionSource(submission: SubmissionRecord) {
     if (
       practiceKind !== "solving" ||
-      !item.verification ||
+      !canSolveItem(item) ||
       submission.itemId !== item.itemId
     ) {
       return;
@@ -8886,8 +8888,11 @@ function TodayView({
       preferredInterviewItems.length ? preferredInterviewItems : interviewItems,
       todayDate,
     );
-  const dailyAvailable =
-    cloudStatus === "local" || Boolean(cloudDaily && remoteDaily);
+  // The hosted edition may expose cloud capabilities while the learner is
+  // signed out. Keep the deterministic local fallback startable in that
+  // state; a missing remote benchmark should not disable the core practice
+  // loop.
+  const dailyAvailable = Boolean(daily);
   const iosDaily = dailyItem(
     iosItems,
     new Date(todayDate.getTime() + 86400000),

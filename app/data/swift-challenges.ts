@@ -397,6 +397,338 @@ export const SWIFT_CHALLENGES = [
       },
     ],
   }),
+  swiftChallenge({
+    language: "swift",
+    key: "swift-contains-duplicate",
+    runtime: "swift-6.3.3-linux",
+    contentRevision: 1,
+    judgeRevision: 1,
+    title: "Contains Duplicate in Swift",
+    difficulty: "Easy",
+    estimatedMinutes: 10,
+    summary: "Detect whether any value appears more than once.",
+    prompt:
+      "Implement containsDuplicate(_ nums: [Int]) -> Bool. Return true when at least one value occurs two or more times, otherwise return false.",
+    constraints: [
+      "0 <= nums.count <= 100,000",
+      "-1,000,000 <= nums[i] <= 1,000,000",
+      "Return false for an empty or one-element input.",
+      "Aim for O(n) time.",
+    ],
+    tags: ["swift", "hash-set", "arrays"],
+    starterCode:
+      "import Foundation\n\nfunc containsDuplicate(_ nums: [Int]) -> Bool {\n    // Track values seen so far.\n    return false\n}",
+    entrypoint: {
+      kind: "function",
+      name: "containsDuplicate",
+      parameters: [{ name: "nums", type: "[Int]" }],
+      returns: "Bool",
+    },
+    samples: [
+      { id: "sample-1", name: "repeated value", args: [[1, 2, 3, 1]], expected: true },
+      { id: "sample-2", name: "all distinct", args: [[1, 2, 3, 4]], expected: false },
+    ],
+  }),
+  swiftChallenge({
+    language: "swift",
+    key: "swift-longest-consecutive",
+    runtime: "swift-6.3.3-linux",
+    contentRevision: 1,
+    judgeRevision: 1,
+    title: "Longest Consecutive Sequence in Swift",
+    difficulty: "Medium",
+    estimatedMinutes: 18,
+    summary: "Find the longest run of consecutive integers in any order.",
+    prompt:
+      "Implement longestConsecutive(_ nums: [Int]) -> Int. Return the length of the longest sequence of consecutive integers. Values may appear in any order and duplicates do not extend a sequence.",
+    constraints: [
+      "0 <= nums.count <= 100,000",
+      "-1,000,000,000 <= nums[i] <= 1,000,000,000",
+      "A duplicate value counts once.",
+      "Aim for O(n) average time.",
+    ],
+    tags: ["swift", "hash-set", "arrays"],
+    starterCode:
+      "import Foundation\n\nfunc longestConsecutive(_ nums: [Int]) -> Int {\n    // Start counting only at the beginning of a run.\n    return 0\n}",
+    entrypoint: {
+      kind: "function",
+      name: "longestConsecutive",
+      parameters: [{ name: "nums", type: "[Int]" }],
+      returns: "Int",
+    },
+    samples: [
+      { id: "sample-1", name: "unordered run", args: [[100, 4, 200, 1, 3, 2]], expected: 4 },
+      { id: "sample-2", name: "duplicate values", args: [[0, 3, 7, 2, 5, 8, 4, 6, 0, 1]], expected: 9 },
+    ],
+  }),
+  swiftChallenge({
+    language: "swift",
+    key: "swift-subarray-sum-count",
+    runtime: "swift-6.3.3-linux",
+    contentRevision: 1,
+    judgeRevision: 1,
+    title: "Subarray Sum Count in Swift",
+    difficulty: "Medium",
+    estimatedMinutes: 18,
+    summary: "Count contiguous subarrays whose values add to a target.",
+    prompt:
+      "Implement subarraySumCount(_ nums: [Int], _ target: Int) -> Int. Return the number of non-empty contiguous subarrays whose sum equals target. Values may be negative, zero, or positive.",
+    constraints: [
+      "0 <= nums.count <= 20,000",
+      "-1,000,000 <= nums[i], target <= 1,000,000",
+      "The answer fits in a signed 64-bit integer and this judge's Int.",
+      "Aim for O(n) time.",
+    ],
+    tags: ["swift", "prefix-sum", "hash-map"],
+    starterCode:
+      "import Foundation\n\nfunc subarraySumCount(_ nums: [Int], _ target: Int) -> Int {\n    // Count equal prefix-sum differences.\n    return 0\n}",
+    entrypoint: {
+      kind: "function",
+      name: "subarraySumCount",
+      parameters: [
+        { name: "nums", type: "[Int]" },
+        { name: "target", type: "Int" },
+      ],
+      returns: "Int",
+    },
+    samples: [
+      { id: "sample-1", name: "two matching ranges", args: [[1, 1, 1], 2], expected: 2 },
+      { id: "sample-2", name: "negative values", args: [[1, -1, 0], 0], expected: 3 },
+    ],
+  }),
+  swiftChallenge({
+    language: "swift",
+    key: "swift-three-sum",
+    runtime: "swift-6.3.3-linux",
+    contentRevision: 1,
+    judgeRevision: 1,
+    title: "Three Sum in Swift",
+    difficulty: "Medium",
+    estimatedMinutes: 24,
+    summary: "Return unique triplets that add to zero with sorted two pointers.",
+    prompt:
+      "Implement threeSum(_ nums: [Int]) -> [[Int]]. Return every unique triplet [a, b, c] whose values sum to zero. Each triplet must be non-decreasing, and return the triplets in lexicographic order. Do not reuse an index.",
+    constraints: [
+      "0 <= nums.count <= 300",
+      "-100,000 <= nums[i] <= 100,000",
+      "Do not return duplicate triplets.",
+      "Aim for O(n²) time after sorting.",
+    ],
+    tags: ["swift", "two-pointers", "sorting"],
+    starterCode:
+      "import Foundation\n\nfunc threeSum(_ nums: [Int]) -> [[Int]] {\n    // Sort a copy, then sweep the remaining pair with two pointers.\n    return []\n}",
+    entrypoint: {
+      kind: "function",
+      name: "threeSum",
+      parameters: [{ name: "nums", type: "[Int]" }],
+      returns: "[[Int]]",
+    },
+    samples: [
+      { id: "sample-1", name: "two unique triplets", args: [[-1, 0, 1, 2, -1, -4]], expected: [[-1, -1, 2], [-1, 0, 1]] },
+      { id: "sample-2", name: "no zero sum", args: [[0, 1, 1]], expected: [] },
+    ],
+  }),
+  swiftChallenge({
+    language: "swift",
+    key: "swift-valid-palindrome",
+    runtime: "swift-6.3.3-linux",
+    contentRevision: 1,
+    judgeRevision: 1,
+    title: "Valid Palindrome in Swift",
+    difficulty: "Easy",
+    estimatedMinutes: 12,
+    summary: "Compare alphanumeric characters from both ends of a string.",
+    prompt:
+      "Implement isValidPalindrome(_ text: String) -> Bool. Ignore ASCII punctuation and spaces, compare ASCII letters case-insensitively, and return whether the remaining sequence reads the same forward and backward.",
+    constraints: [
+      "0 <= text.count <= 100,000",
+      "text contains printable ASCII characters.",
+      "Only ASCII letters and digits participate in the comparison.",
+      "Aim for O(n) time and O(1) extra space apart from String indexing.",
+    ],
+    tags: ["swift", "two-pointers", "string"],
+    starterCode:
+      "import Foundation\n\nfunc isValidPalindrome(_ text: String) -> Bool {\n    // Compare the next alphanumeric character from each side.\n    return false\n}",
+    entrypoint: {
+      kind: "function",
+      name: "isValidPalindrome",
+      parameters: [{ name: "text", type: "String" }],
+      returns: "Bool",
+    },
+    samples: [
+      { id: "sample-1", name: "punctuation ignored", args: ["A man, a plan, a canal: Panama"], expected: true },
+      { id: "sample-2", name: "mismatched ends", args: ["race a car"], expected: false },
+    ],
+  }),
+  swiftChallenge({
+    language: "swift",
+    key: "swift-daily-temperatures",
+    runtime: "swift-6.3.3-linux",
+    contentRevision: 1,
+    judgeRevision: 1,
+    title: "Daily Temperatures in Swift",
+    difficulty: "Medium",
+    estimatedMinutes: 18,
+    summary: "Use a monotonic stack to find each next warmer day.",
+    prompt:
+      "Implement dailyTemperatures(_ temperatures: [Int]) -> [Int]. For each day, return how many days must pass before a strictly warmer temperature occurs, or 0 if none occurs.",
+    constraints: [
+      "0 <= temperatures.count <= 100,000",
+      "30 <= temperatures[i] <= 100",
+      "The output has the same length as the input.",
+      "Aim for O(n) time.",
+    ],
+    tags: ["swift", "stack", "monotonic-stack"],
+    starterCode:
+      "import Foundation\n\nfunc dailyTemperatures(_ temperatures: [Int]) -> [Int] {\n    // Keep unresolved indices in decreasing temperature order.\n    return []\n}",
+    entrypoint: {
+      kind: "function",
+      name: "dailyTemperatures",
+      parameters: [{ name: "temperatures", type: "[Int]" }],
+      returns: "[Int]",
+    },
+    samples: [
+      { id: "sample-1", name: "mixed forecast", args: [[73, 74, 75, 71, 69, 72, 76, 73]], expected: [1, 1, 4, 2, 1, 1, 0, 0] },
+      { id: "sample-2", name: "no warmer day", args: [[80, 79, 78]], expected: [0, 0, 0] },
+    ],
+  }),
+  swiftChallenge({
+    language: "swift",
+    key: "swift-search-rotated",
+    runtime: "swift-6.3.3-linux",
+    contentRevision: 1,
+    judgeRevision: 1,
+    title: "Search Rotated Array in Swift",
+    difficulty: "Medium",
+    estimatedMinutes: 18,
+    summary: "Binary-search a sorted array after one rotation.",
+    prompt:
+      "Implement searchRotated(_ nums: [Int], _ target: Int) -> Int. nums contains unique values from an ascending array rotated at an unknown pivot. Return the target index or -1 when absent.",
+    constraints: [
+      "0 <= nums.count <= 100,000",
+      "nums contains unique integers.",
+      "The original array was strictly increasing.",
+      "Aim for O(log n) time.",
+    ],
+    tags: ["swift", "binary-search", "arrays"],
+    starterCode:
+      "import Foundation\n\nfunc searchRotated(_ nums: [Int], _ target: Int) -> Int {\n    // Identify which half remains sorted at each step.\n    return -1\n}",
+    entrypoint: {
+      kind: "function",
+      name: "searchRotated",
+      parameters: [
+        { name: "nums", type: "[Int]" },
+        { name: "target", type: "Int" },
+      ],
+      returns: "Int",
+    },
+    samples: [
+      { id: "sample-1", name: "target after pivot", args: [[4, 5, 6, 7, 0, 1, 2], 0], expected: 4 },
+      { id: "sample-2", name: "target absent", args: [[4, 5, 6, 7, 0, 1, 2], 3], expected: -1 },
+    ],
+  }),
+  swiftChallenge({
+    language: "swift",
+    key: "swift-koko-bananas",
+    runtime: "swift-6.3.3-linux",
+    contentRevision: 1,
+    judgeRevision: 1,
+    title: "Koko Eating Bananas in Swift",
+    difficulty: "Medium",
+    estimatedMinutes: 20,
+    summary: "Binary-search the smallest speed that meets a deadline.",
+    prompt:
+      "Implement minEatingSpeed(_ piles: [Int], _ hours: Int) -> Int. At speed k, one pile takes ceil(pile / k) hours. Return the smallest positive integer k that finishes every pile within hours.",
+    constraints: [
+      "1 <= piles.count <= 100,000",
+      "1 <= piles[i] <= 1,000,000,000",
+      "piles.count <= hours <= 1,000,000,000",
+      "Aim for O(n log max(piles)) time.",
+    ],
+    tags: ["swift", "binary-search", "search-space"],
+    starterCode:
+      "import Foundation\n\nfunc minEatingSpeed(_ piles: [Int], _ hours: Int) -> Int {\n    // Search the smallest speed whose required hours fit the limit.\n    return 0\n}",
+    entrypoint: {
+      kind: "function",
+      name: "minEatingSpeed",
+      parameters: [
+        { name: "piles", type: "[Int]" },
+        { name: "hours", type: "Int" },
+      ],
+      returns: "Int",
+    },
+    samples: [
+      { id: "sample-1", name: "three piles", args: [[3, 6, 7, 11], 8], expected: 4 },
+      { id: "sample-2", name: "one hour per pile", args: [[30, 11, 23, 4, 20], 5], expected: 30 },
+    ],
+  }),
+  swiftChallenge({
+    language: "swift",
+    key: "swift-erase-overlap-intervals",
+    runtime: "swift-6.3.3-linux",
+    contentRevision: 1,
+    judgeRevision: 1,
+    title: "Erase Overlapping Intervals in Swift",
+    difficulty: "Medium",
+    estimatedMinutes: 16,
+    summary: "Keep the largest compatible set of non-overlapping intervals.",
+    prompt:
+      "Implement eraseOverlapIntervals(_ intervals: [[Int]]) -> Int. Each interval is [start, end] with start < end. Return the minimum number of intervals to remove so the remaining intervals do not overlap. Touching endpoints are allowed.",
+    constraints: [
+      "0 <= intervals.count <= 100,000",
+      "Every interval contains exactly two integers with start < end.",
+      "-1,000,000 <= start < end <= 1,000,000",
+      "Aim for O(n log n) time.",
+    ],
+    tags: ["swift", "intervals", "greedy"],
+    starterCode:
+      "import Foundation\n\nfunc eraseOverlapIntervals(_ intervals: [[Int]]) -> Int {\n    // Keep the interval with the earliest finishing boundary.\n    return 0\n}",
+    entrypoint: {
+      kind: "function",
+      name: "eraseOverlapIntervals",
+      parameters: [{ name: "intervals", type: "[[Int]]" }],
+      returns: "Int",
+    },
+    samples: [
+      { id: "sample-1", name: "remove one overlap", args: [[[1, 2], [2, 3], [3, 4], [1, 3]]], expected: 1 },
+      { id: "sample-2", name: "keep disjoint intervals", args: [[[1, 2], [2, 3]]], expected: 0 },
+    ],
+  }),
+  swiftChallenge({
+    language: "swift",
+    key: "swift-minimum-size-window",
+    runtime: "swift-6.3.3-linux",
+    contentRevision: 1,
+    judgeRevision: 1,
+    title: "Minimum Size Window in Swift",
+    difficulty: "Medium",
+    estimatedMinutes: 16,
+    summary: "Shrink a positive sliding window to its shortest valid length.",
+    prompt:
+      "Implement minSubarrayLength(_ target: Int, _ nums: [Int]) -> Int. nums contains positive integers. Return the minimum length of a contiguous subarray whose sum is at least target, or 0 if no such subarray exists.",
+    constraints: [
+      "1 <= target <= 1,000,000,000",
+      "0 <= nums.count <= 100,000",
+      "1 <= nums[i] <= 100,000",
+      "Aim for O(n) time.",
+    ],
+    tags: ["swift", "sliding-window", "positive-array"],
+    starterCode:
+      "import Foundation\n\nfunc minSubarrayLength(_ target: Int, _ nums: [Int]) -> Int {\n    // Expand until valid, then shrink from the left.\n    return 0\n}",
+    entrypoint: {
+      kind: "function",
+      name: "minSubarrayLength",
+      parameters: [
+        { name: "target", type: "Int" },
+        { name: "nums", type: "[Int]" },
+      ],
+      returns: "Int",
+    },
+    samples: [
+      { id: "sample-1", name: "short middle window", args: [7, [2, 3, 1, 2, 4, 3]], expected: 2 },
+      { id: "sample-2", name: "no valid window", args: [11, [1, 1, 1, 1]], expected: 0 },
+    ],
+  }),
 ] as const;
 
 export type SwiftChallengeKey = (typeof SWIFT_CHALLENGES)[number]["key"];
