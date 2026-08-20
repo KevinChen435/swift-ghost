@@ -9481,6 +9481,7 @@ function PracticeView(props: PracticeProps) {
   const [consoleTab, setConsoleTab] = useState<
     "examples" | "custom" | "output" | "submissions"
   >("examples");
+  const [swiftRetryAvailable, setSwiftRetryAvailable] = useState(false);
   const [mobileWorkspacePane, setMobileWorkspacePane] =
     useState<MobilePane>("problem");
   const [runnerActive, setRunnerActive] = useState(false);
@@ -9610,6 +9611,7 @@ function PracticeView(props: PracticeProps) {
     });
     reconciledSwiftSubmissionIds.current.add(latest.id);
     activeSubmissionRequest.current = null;
+    setSwiftRetryAvailable(false);
     swiftSubmitInFlight.current = false;
     onSwiftSubmissionSettled(settled);
     if (
@@ -9638,10 +9640,12 @@ function PracticeView(props: PracticeProps) {
       setSwiftLoadState("idle");
       setSwiftAssignment(null);
       setSwiftSubmission(null);
+      setSwiftRetryAvailable(false);
       return;
     }
     const challengeKey = props.item.trustedChallengeKey;
     if (!challengeKey) return;
+    setSwiftRetryAvailable(false);
     setSwiftLoadState("loading");
     setSwiftMessage("");
     const listed = await cloudClient.trustedAssignments({
@@ -9881,6 +9885,7 @@ function PracticeView(props: PracticeProps) {
         activeRequest.judge.kind !== "server-isolated-swift")
     ) {
       activeSubmissionRequest.current = null;
+      setSwiftRetryAvailable(false);
     }
     const retryRequest = activeSubmissionRequest.current;
     if (retryRequest && retryRequest.source !== runnerSource) {
@@ -9890,6 +9895,7 @@ function PracticeView(props: PracticeProps) {
       return;
     }
     swiftSubmitInFlight.current = true;
+    setSwiftRetryAvailable(false);
     const submissionRequest: SubmissionRequest = retryRequest ?? {
       id: makeId(),
       itemId: props.item.itemId,
@@ -9923,6 +9929,7 @@ function PracticeView(props: PracticeProps) {
     if (!result.available) {
       if (result.reason === "judge-enqueue-unavailable") {
         swiftSubmitInFlight.current = false;
+        setSwiftRetryAvailable(true);
         setSwiftMessage(
           "The judge is temporarily busy. Your source is safely saved as a pending receipt; retry with the same code in a moment.",
         );
@@ -9935,6 +9942,7 @@ function PracticeView(props: PracticeProps) {
         total: 0,
       });
       activeSubmissionRequest.current = null;
+      setSwiftRetryAvailable(false);
       swiftSubmitInFlight.current = false;
       props.onSubmissionSettled(interrupted);
       setSwiftMessage(
@@ -9964,6 +9972,7 @@ function PracticeView(props: PracticeProps) {
       total: resultPayload?.total ?? 0,
     });
     activeSubmissionRequest.current = null;
+    setSwiftRetryAvailable(false);
     swiftSubmitInFlight.current = false;
     props.onSubmissionSettled(settled);
     if (
@@ -11254,7 +11263,7 @@ function PracticeView(props: PracticeProps) {
                   available={props.trustedJudgeAvailable}
                   authenticated={props.trustedJudgeAuthenticated}
                   sourcePresent={Boolean(runnerSource.trim())}
-                  retryAvailable={Boolean(activeSubmissionRequest.current)}
+                  retryAvailable={swiftRetryAvailable}
                   onRequestAssignment={() => void loadSwiftAssignment()}
                   onSubmit={() => void runSwiftSubmit()}
                 />
