@@ -5922,6 +5922,15 @@ export default function SwiftGhostApp() {
     }
     const runId = `virtual-round-${makeId()}`;
     const startedAt = new Date().toISOString();
+    const manifestDuration = RUN_MANIFEST_DURATIONS.includes(
+      preset.durationMinutes as RunManifestDuration,
+    )
+      ? (preset.durationMinutes as RunManifestDuration)
+      : null;
+    if (manifestDuration === null) {
+      setToast("That round duration is unavailable in Records");
+      return;
+    }
     const snapshots = selected.map(({ item: candidate }) => ({
       itemId: candidate.itemId,
       itemRevision: candidate.contentRevision,
@@ -5943,7 +5952,7 @@ export default function SwiftGhostApp() {
           title: `Virtual Round · ${preset.title}`,
           source: "catalog",
           mode: "timed",
-          durationMinutes: preset.durationMinutes as RunManifestDuration,
+          durationMinutes: manifestDuration,
           itemIds: selected.map(({ item }) => item.itemId),
           execution: { kind: "virtual-round", id: runId },
         },
