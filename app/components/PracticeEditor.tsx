@@ -1,6 +1,6 @@
 "use client";
 
-import type { ClipboardEvent, CSSProperties, KeyboardEvent } from "react";
+import { useId, type ClipboardEvent, type CSSProperties, type KeyboardEvent } from "react";
 import { problemLineCount } from "../data/problems";
 import type { PracticeItem } from "../lib/items";
 import { SolveCodeEditor } from "./SolveCodeEditor";
@@ -52,6 +52,23 @@ const LANGUAGE_META = {
 
 export function PracticeEditor(props: PracticeEditorProps) {
   const language = LANGUAGE_META[props.item.language];
+  const typingGuideId = useId().replace(/:/g, "");
+  const typingGuide =
+    props.practiceKind === "typing"
+      ? {
+          label: `Stage ${props.draft.stage} of 5`,
+          copy:
+            props.draft.stage === 1
+              ? "Full ghost: the answer is already visible in grey. Type it once, then hide it with Peek when you want to test recall."
+              : props.draft.stage === 2
+                ? "Gaps: most of the answer stays visible, but the missing pieces are on you."
+                : props.draft.stage === 3
+                  ? "Lines: rebuild the missing steps from the faded reference."
+                  : props.draft.stage === 4
+                    ? "Skeleton: only the structure remains. Fill in the body from memory."
+                    : "Blank recall: no ghost text. Recreate the solution from memory."
+        }
+      : null;
   return (
     <div className="editor-card">
       <div className="editor-toolbar">
@@ -89,6 +106,12 @@ export function PracticeEditor(props: PracticeEditorProps) {
           </button>
         </div>
       </div>
+      {typingGuide && (
+        <div className="practice-ghost-note" id={typingGuideId}>
+          <strong>{typingGuide.label}</strong>
+          <span>{typingGuide.copy}</span>
+        </div>
+      )}
       <div className="metric-strip">
         {props.practiceKind === "typing" ? (
           <>
@@ -205,7 +228,8 @@ export function PracticeEditor(props: PracticeEditorProps) {
               spellCheck={false}
               autoCapitalize="off"
               autoComplete="off"
-              aria-label={`Type the ${language.label} solution for ${props.item.title}. Press Escape to leave the editor.`}
+              aria-describedby={typingGuide ? typingGuideId : undefined}
+              aria-label={`Type the ${language.label} solution for ${props.item.title}. The greyed-out code is the target answer. Press Escape to leave the editor.`}
             />
           </>
         )}

@@ -1603,6 +1603,26 @@ textarea:focus-visible {
   background: var(--bg-raised);
   padding: 0 12px;
 }
+.practice-ghost-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  align-items: baseline;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel-soft));
+}
+.practice-ghost-note strong {
+  color: var(--accent);
+  font: 700 8px var(--font-code);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.practice-ghost-note span {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
 .window-dots {
   display: flex;
   gap: 5px;
@@ -10395,6 +10415,122 @@ kbd {
   font: 0.7rem/1.5 var(--font-code);
 }
 
+.swift-submission-dossier {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--border-soft) 74%, transparent);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 68%, transparent);
+}
+
+.swift-submission-dossier.ready,
+.swift-submission-dossier.accepted {
+  border-left-color: var(--success);
+}
+
+.swift-submission-dossier.repair,
+.swift-submission-dossier.warm,
+.swift-submission-dossier.pending {
+  border-left-color: var(--warning);
+}
+
+.swift-submission-dossier.blocked {
+  border-left-color: var(--danger);
+}
+
+.swift-submission-dossier > header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.swift-submission-dossier > header div {
+  display: grid;
+  gap: 4px;
+}
+
+.swift-submission-dossier small,
+.swift-dossier-next strong {
+  color: var(--faint);
+  font: 700 0.58rem/1.35 var(--font-code);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.swift-submission-dossier > header strong {
+  color: var(--text);
+  font: 700 0.78rem/1.35 var(--font-code);
+}
+
+.swift-submission-dossier > header span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 5px 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  color: var(--muted);
+  font: 700 0.58rem/1.2 var(--font-code);
+}
+
+.swift-dossier-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.swift-dossier-grid article {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, var(--border-soft) 72%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+}
+
+.swift-dossier-grid article.is-ready {
+  border-color: color-mix(in srgb, var(--success) 38%, var(--border-soft));
+}
+
+.swift-dossier-grid article.is-pending {
+  border-color: color-mix(in srgb, var(--warning) 40%, var(--border-soft));
+}
+
+.swift-dossier-grid article strong {
+  color: var(--text);
+  font: 700 0.68rem/1.35 var(--font-code);
+}
+
+.swift-dossier-grid article p,
+.swift-dossier-next p,
+.swift-dossier-gaps {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.65rem;
+  line-height: 1.45;
+}
+
+.swift-dossier-next {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border-soft));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.swift-dossier-gaps {
+  display: grid;
+  gap: 5px;
+  padding-left: 17px;
+}
+
 .swift-solve-verdict {
   display: flex;
   flex-wrap: wrap;
@@ -10572,7 +10708,8 @@ kbd {
   }
 
   .swift-preflight-grid,
-  .swift-explanation-notes {
+  .swift-explanation-notes,
+  .swift-dossier-grid {
     grid-template-columns: 1fr;
   }
 
@@ -10593,6 +10730,7 @@ kbd {
 
   .swift-solve-console-meta,
   .swift-solve-sample-grid,
+  .swift-dossier-grid,
   .swift-sample-trace-board [role="radiogroup"] {
     grid-template-columns: 1fr;
   }
@@ -10615,6 +10753,9 @@ kbd {
   .swift-solve-console-status,
   .swift-solve-verdict,
   .swift-solve-preflight,
+  .swift-submission-dossier,
+  .swift-dossier-grid article,
+  .swift-dossier-next,
   .swift-contract-card,
   .swift-preflight-checklist label,
   .swift-sample-trace-board article,

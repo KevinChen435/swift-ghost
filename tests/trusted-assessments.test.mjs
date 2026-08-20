@@ -129,7 +129,7 @@ test("callable challenges translate into the bounded stdin/stdout gateway contra
 });
 
 test("Swift challenges generate typed harnesses without embedding sealed cases", async () => {
-  assert.equal(TRUSTED_SWIFT_CHALLENGE_COUNT, 8);
+  assert.equal(TRUSTED_SWIFT_CHALLENGE_COUNT, 18);
   const challenge = trustedChallengeForSequence(0, "swift");
   const publicProjection = publicTrustedChallenge(challenge);
   const judgeSpec = privateJudgeSpec(challenge);

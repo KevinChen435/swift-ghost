@@ -124,9 +124,24 @@ test("practice resume requires the frozen prompt and judge revisions", async () 
   assert.notEqual(start, -1);
   assert.match(resume, /candidate\.contentRevision === snapshot\?\.contentRevision/);
   assert.match(resume, /snapshot\?\.judgeRevision === undefined/);
-  assert.match(resume, /candidate\.verification\?\.revision \?\? 1/);
+  assert.match(resume, /currentJudgeRevision\(candidate\) === snapshot\.judgeRevision/);
   assert.match(resume, /snapshot\.judgeRevision/);
   assert.match(resume, /frozen problem revision is unavailable/i);
+});
+
+test("direct Virtual Round launches are linked into the durable activity ledger", async () => {
+  const app = await readFile(
+    new URL("../app/components/SwiftGhostApp.tsx", import.meta.url),
+    "utf8",
+  );
+  const start = app.indexOf("function startVirtualRoundPreset");
+  const end = app.indexOf("function resumeVirtualRound", start);
+  const launch = app.slice(start, end);
+  assert.notEqual(start, -1);
+  assert.match(launch, /createRunManifest\(/);
+  assert.match(launch, /execution: \{ kind: "virtual-round", id: runId \}/);
+  assert.match(launch, /startRunManifest\(/);
+  assert.match(launch, /runManifests,\s*$/m);
 });
 
 test("Challenge Set activity and catalog launch styling cover responsive, touch, focus, and forced colors", () => {

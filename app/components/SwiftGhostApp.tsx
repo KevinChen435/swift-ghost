@@ -390,6 +390,7 @@ import {
   type ActiveVirtualRoundRun,
 } from "../lib/virtual-rounds.mjs";
 import {
+  RUN_MANIFEST_DURATIONS,
   archiveRunManifest,
   createRunManifest,
   deriveRunManifestReport,
@@ -397,6 +398,7 @@ import {
   resumeRunManifest,
   startRunManifest,
   type RunManifestMode,
+  type RunManifestDuration,
   type RunManifestExecution,
   type RunManifestWorkspace,
 } from "../lib/run-manifests.mjs";
@@ -5933,6 +5935,25 @@ export default function SwiftGhostApp() {
     const next = commitStateImmediately((latest) => {
       const base = recordAbandon(latest);
       const previous = base.activeSession;
+      let runManifests = endActiveRunManifest(base.runManifests, startedAt);
+      runManifests = createRunManifest(
+        runManifests,
+        {
+          id: runId,
+          title: `Virtual Round · ${preset.title}`,
+          source: "catalog",
+          mode: "timed",
+          durationMinutes: preset.durationMinutes as RunManifestDuration,
+          itemIds: selected.map(({ item }) => item.itemId),
+          execution: { kind: "virtual-round", id: runId },
+        },
+        curriculumItems,
+        { now: startedAt },
+      );
+      runManifests = startRunManifest(runManifests, runId, {
+        now: startedAt,
+        execution: { kind: "virtual-round", id: runId },
+      });
       return {
         ...base,
         activeSession: null,
@@ -5947,7 +5968,7 @@ export default function SwiftGhostApp() {
           startedAt,
           "ended",
         ),
-        runManifests: endActiveRunManifest(base.runManifests, startedAt),
+        runManifests,
         virtualRoundWorkspace: startVirtualRound(
           base.virtualRoundWorkspace,
           presetId,

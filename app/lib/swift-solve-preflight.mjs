@@ -64,6 +64,123 @@ export function summarizeSwiftReadiness(input = {}) {
   };
 }
 
+function hasMeaningfulNote(value, minimum = 12) {
+  return typeof value === "string" && value.trim().replace(/\s+/g, " ").length >= minimum;
+}
+
+function dossierRow(id, label, state, detail) {
+  return { id, label, state, detail };
+}
+
+export function buildSwiftSubmissionDossier(input = {}) {
+  const completedChecks = Math.max(0, Number(input.completedChecks) || 0);
+  const totalChecks = Math.max(completedChecks, Number(input.totalChecks) || 0);
+  const tracedSamples = Math.max(0, Number(input.tracedSamples) || 0);
+  const totalSamples = Math.max(tracedSamples, Number(input.totalSamples) || 0);
+  const sourcePresent = input.sourcePresent === true;
+  const verdict = typeof input.verdict === "string" ? input.verdict : null;
+  const status = typeof input.status === "string" ? input.status : null;
+  const notes = input.notes && typeof input.notes === "object" ? input.notes : {};
+  const approachReady = hasMeaningfulNote(notes.approach);
+  const complexityReady = hasMeaningfulNote(notes.complexity);
+  const boundaryReady = hasMeaningfulNote(notes.boundary);
+  const explanationReady = approachReady && complexityReady && boundaryReady;
+  const checklistReady = totalChecks > 0 && completedChecks >= totalChecks;
+  const samplesReady = totalSamples === 0 || tracedSamples >= totalSamples;
+  const gaps = [
+    !sourcePresent ? "Type a Swift implementation." : null,
+    !checklistReady ? "Finish the contract, sample, boundary, and complexity checklist." : null,
+    !samplesReady ? "Mark every visible sample trace as matched or find the mismatch first." : null,
+    !approachReady ? "Write the approach in your own words." : null,
+    !complexityReady ? "Commit the time and space costs before submitting." : null,
+    !boundaryReady ? "Name the boundary case you expect sealed tests to probe." : null,
+  ].filter(Boolean);
+
+  const evidenceLocked =
+    Number(sourcePresent) +
+    Number(checklistReady) +
+    Number(samplesReady) +
+    Number(approachReady) +
+    Number(complexityReady) +
+    Number(boundaryReady);
+  const evidenceTotal = 6;
+
+  let tone = "warm";
+  let nextAction = "Close the open rehearsal gaps before using another sealed submission.";
+  if (status === "pending") {
+    tone = "pending";
+    nextAction = "Wait for the isolated judge result before editing the source.";
+  } else if (verdict === "accepted") {
+    tone = "accepted";
+    nextAction = "Move to teach-back: explain the invariant, costs, and one variant without reading the code.";
+  } else if (verdict) {
+    tone = "repair";
+    nextAction = "Repair from the verdict, then submit a smaller current-revision change.";
+  } else if (!sourcePresent) {
+    tone = "blocked";
+    nextAction = "Type an implementation first.";
+  } else if (!gaps.length) {
+    tone = "ready";
+    nextAction = "Submit once, then keep the receipt as the evidence anchor.";
+  }
+
+  return {
+    tone,
+    label: `${evidenceLocked}/${evidenceTotal} evidence locked`,
+    nextAction,
+    gaps,
+    rows: [
+      dossierRow(
+        "contract",
+        "Contract",
+        checklistReady ? "ready" : "open",
+        `${completedChecks}/${totalChecks} checklist items complete`,
+      ),
+      dossierRow(
+        "samples",
+        "Visible samples",
+        samplesReady ? "ready" : "open",
+        `${tracedSamples}/${totalSamples} public traces matched`,
+      ),
+      dossierRow(
+        "approach",
+        "Approach",
+        approachReady ? "ready" : "open",
+        approachReady ? "Reasoning note is written" : "Missing own-words plan",
+      ),
+      dossierRow(
+        "complexity",
+        "Complexity",
+        complexityReady ? "ready" : "open",
+        complexityReady ? "Cost explanation is committed" : "Missing time/space statement",
+      ),
+      dossierRow(
+        "boundary",
+        "Boundary",
+        boundaryReady ? "ready" : "open",
+        boundaryReady ? "Sealed-test risk is named" : "Missing edge-case forecast",
+      ),
+      dossierRow(
+        "verdict",
+        "Verdict",
+        status === "pending"
+          ? "pending"
+          : verdict === "accepted"
+            ? "ready"
+            : verdict
+              ? "open"
+              : "open",
+        status === "pending"
+          ? "Judge run is queued"
+          : verdict
+            ? swiftVerdictGuidance(verdict).title
+            : "No sealed submission yet",
+      ),
+    ],
+    explanationReady,
+  };
+}
+
 export function swiftVerdictGuidance(verdict) {
   switch (verdict) {
     case "accepted":

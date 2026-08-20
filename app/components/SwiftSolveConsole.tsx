@@ -5,6 +5,7 @@ import type { CloudTrustedAssignment, CloudTrustedSubmission } from "../lib/clou
 import type { PracticeItem } from "../lib/items";
 import {
   SWIFT_PREFLIGHT_CHECKS,
+  buildSwiftSubmissionDossier,
   formatSwiftEntrypoint,
   summarizeSwiftReadiness,
   swiftVerdictGuidance,
@@ -97,6 +98,16 @@ export function SwiftSolveConsole({
     tracedSamples,
     totalSamples: challenge?.samples.length ?? 0,
     sourcePresent,
+  });
+  const dossier = buildSwiftSubmissionDossier({
+    completedChecks,
+    totalChecks: SWIFT_PREFLIGHT_CHECKS.length,
+    tracedSamples,
+    totalSamples: challenge?.samples.length ?? 0,
+    sourcePresent,
+    verdict: submission?.verdict,
+    status: submission?.status,
+    notes,
   });
   const verdictGuidance = swiftVerdictGuidance(submission?.verdict);
   const canSubmit = Boolean(
@@ -274,6 +285,35 @@ export function SwiftSolveConsole({
                 />
               </label>
             </div>
+            <section className={`swift-submission-dossier ${dossier.tone}`} aria-label="Swift submission dossier">
+              <header>
+                <div>
+                  <small>Submission dossier</small>
+                  <strong>{dossier.label}</strong>
+                </div>
+                <span>{dossier.tone === "accepted" ? "Teach-back" : dossier.tone === "repair" ? "Repair" : dossier.tone === "ready" ? "Ready" : dossier.tone === "pending" ? "Queued" : "Prep"}</span>
+              </header>
+              <div className="swift-dossier-grid">
+                {dossier.rows.map((row) => (
+                  <article className={`is-${row.state}`} key={row.id}>
+                    <small>{row.label}</small>
+                    <strong>{row.state === "ready" ? "Ready" : row.state === "pending" ? "Pending" : "Open"}</strong>
+                    <p>{row.detail}</p>
+                  </article>
+                ))}
+              </div>
+              <div className="swift-dossier-next">
+                <strong>Next action</strong>
+                <p>{dossier.nextAction}</p>
+              </div>
+              {dossier.gaps.length ? (
+                <ul className="swift-dossier-gaps" aria-label="Open dossier gaps">
+                  {dossier.gaps.slice(0, 3).map((gap) => (
+                    <li key={gap}>{gap}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </section>
           </section>
           <div className="swift-solve-console-actions">
             <button
