@@ -1,7 +1,14 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import type { CloudTrustedAssignment, CloudTrustedSubmission } from "../lib/cloud.mjs";
 import type { PracticeItem } from "../lib/items";
+import {
+  SWIFT_PREFLIGHT_CHECKS,
+  formatSwiftEntrypoint,
+  summarizeSwiftReadiness,
+  swiftVerdictGuidance,
+} from "../lib/swift-solve-preflight.mjs";
 
 type SwiftSolveConsoleProps = {
   item: PracticeItem;
@@ -12,9 +19,33 @@ type SwiftSolveConsoleProps = {
   message: string;
   available: boolean;
   authenticated: boolean;
+  sourcePresent: boolean;
+  retryAvailable: boolean;
   onRequestAssignment: () => void;
   onSubmit: () => void;
 };
+
+type SampleTraceState = "untried" | "matched" | "mismatch";
+type SwiftPreflightNotes = {
+  approach: string;
+  complexity: string;
+  boundary: string;
+};
+
+const SAMPLE_TRACE_OPTIONS: ReadonlyArray<{
+  id: SampleTraceState;
+  label: string;
+}> = [
+  { id: "untried", label: "Untried" },
+  { id: "matched", label: "Trace matches" },
+  { id: "mismatch", label: "Mismatch" },
+];
+
+const EMPTY_NOTES = Object.freeze({
+  approach: "",
+  complexity: "",
+  boundary: "",
+} satisfies SwiftPreflightNotes);
 
 function valueLabel(value: unknown) {
   try {
@@ -42,16 +73,39 @@ export function SwiftSolveConsole({
   message,
   available,
   authenticated,
+  sourcePresent,
+  retryAvailable,
   onRequestAssignment,
   onSubmit,
 }: SwiftSolveConsoleProps) {
   const challenge = assignment?.challenge;
+  const challengeKey = challenge?.key ?? "none";
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [sampleTrace, setSampleTrace] = useState<Record<string, SampleTraceState>>({});
+  const [notesByChallenge, setNotesByChallenge] = useState<Record<string, SwiftPreflightNotes>>({});
+  const notes = notesByChallenge[challengeKey] ?? EMPTY_NOTES;
+
+  const entrypointSignature = useMemo(
+    () => formatSwiftEntrypoint(challenge?.entrypoint),
+    [challenge?.entrypoint],
+  );
+  const completedChecks = SWIFT_PREFLIGHT_CHECKS.filter((check) => checked[`${challengeKey}:${check.id}`]).length;
+  const tracedSamples = challenge?.samples.filter((sample) => sampleTrace[`${challengeKey}:${sample.id}`] === "matched").length ?? 0;
+  const readiness = summarizeSwiftReadiness({
+    completedChecks,
+    totalChecks: SWIFT_PREFLIGHT_CHECKS.length,
+    tracedSamples,
+    totalSamples: challenge?.samples.length ?? 0,
+    sourcePresent,
+  });
+  const verdictGuidance = swiftVerdictGuidance(submission?.verdict);
   const canSubmit = Boolean(
     assignment?.status === "active" &&
-      submission?.status !== "pending" &&
+      (submission?.status !== "pending" || retryAvailable) &&
       action === "idle" &&
       available &&
-      authenticated,
+      authenticated &&
+      sourcePresent,
   );
   const statusLabel = submission?.status === "pending"
     ? "Queued in isolated Swift judge"
@@ -99,6 +153,128 @@ export function SwiftSolveConsole({
             <span><small>Runtime</small><strong>{challenge.runtime}</strong></span>
             <span><small>Status</small><strong>{statusLabel}</strong></span>
           </div>
+          <section className="swift-solve-preflight" aria-label="Swift pre-submit rehearsal">
+            <header>
+              <div>
+                <span className="eyebrow">Pre-submit board</span>
+                <strong>Trace the public contract before using the sealed judge.</strong>
+              </div>
+              <span className={`swift-readiness-pill ${readiness.tone}`}>
+                {readiness.label}
+              </span>
+            </header>
+            <div className="swift-contract-card">
+              <small>Entrypoint contract</small>
+              <code>{entrypointSignature}</code>
+              <p>{readiness.detail}</p>
+            </div>
+            <div className="swift-preflight-grid">
+              <fieldset className="swift-preflight-checklist">
+                <legend>Checklist</legend>
+                {SWIFT_PREFLIGHT_CHECKS.map((check) => (
+                  <label key={check.id}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(checked[`${challengeKey}:${check.id}`])}
+                      onChange={(event) =>
+                        setChecked((current) => ({
+                          ...current,
+                          [`${challengeKey}:${check.id}`]: event.target.checked,
+                        }))
+                      }
+                    />
+                    <span>
+                      <strong>{check.label}</strong>
+                      <small>{check.detail}</small>
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
+              <div className="swift-sample-trace-board">
+                <div>
+                  <small>Public trace state</small>
+                  <strong>{tracedSamples}/{challenge.samples.length} examples matched</strong>
+                </div>
+                {challenge.samples.map((sample) => (
+                  <article key={sample.id}>
+                    <div>
+                      <strong>{sample.name}</strong>
+                      <small>Expected {valueLabel(sample.expected)}</small>
+                    </div>
+                    <div role="radiogroup" aria-label={`${sample.name} trace state`}>
+                      {SAMPLE_TRACE_OPTIONS.map((option) => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={(sampleTrace[`${challengeKey}:${sample.id}`] ?? "untried") === option.id}
+                          className={(sampleTrace[`${challengeKey}:${sample.id}`] ?? "untried") === option.id ? "is-active" : undefined}
+                          onClick={() =>
+                            setSampleTrace((current) => ({
+                              ...current,
+                              [`${challengeKey}:${sample.id}`]: option.id,
+                            }))
+                          }
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+            <div className="swift-explanation-notes">
+              <label>
+                Approach
+                <textarea
+                  rows={3}
+                  value={notes.approach}
+                  onChange={(event) =>
+                    setNotesByChallenge((current) => ({
+                      ...current,
+                      [challengeKey]: {
+                        ...(current[challengeKey] ?? EMPTY_NOTES),
+                        approach: event.target.value,
+                      },
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                Complexity
+                <textarea
+                  rows={3}
+                  value={notes.complexity}
+                  onChange={(event) =>
+                    setNotesByChallenge((current) => ({
+                      ...current,
+                      [challengeKey]: {
+                        ...(current[challengeKey] ?? EMPTY_NOTES),
+                        complexity: event.target.value,
+                      },
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                Boundary case
+                <textarea
+                  rows={3}
+                  value={notes.boundary}
+                  onChange={(event) =>
+                    setNotesByChallenge((current) => ({
+                      ...current,
+                      [challengeKey]: {
+                        ...(current[challengeKey] ?? EMPTY_NOTES),
+                        boundary: event.target.value,
+                      },
+                    }))
+                  }
+                />
+              </label>
+            </div>
+          </section>
           <div className="swift-solve-console-actions">
             <button
               className="primary-button"
@@ -106,15 +282,31 @@ export function SwiftSolveConsole({
               disabled={!canSubmit}
               onClick={onSubmit}
             >
-              {action === "submitting" ? "Queueing…" : submission?.status === "pending" ? "Judge running…" : "Submit to Swift judge"}
+              {action === "submitting"
+                ? "Queueing…"
+                : submission?.status === "pending"
+                  ? retryAvailable
+                    ? "Retry queue"
+                    : "Judge running…"
+                  : "Submit to Swift judge"}
             </button>
             <small>{item.title} · sealed cases stay server-side</small>
           </div>
           {submission?.status === "settled" && submission.result ? (
-            <div className={`swift-solve-verdict ${submission.verdict === "accepted" ? "accepted" : "failed"}`} role="status">
-              <strong>{verdictLabel(submission.verdict)}</strong>
-              <span>{submission.result.passed}/{submission.result.total} public + sealed cases passed</span>
-            </div>
+            <>
+              <div className={`swift-solve-verdict ${submission.verdict === "accepted" ? "accepted" : "failed"}`} role="status">
+                <strong>{verdictLabel(submission.verdict)}</strong>
+                <span>{submission.result.passed}/{submission.result.total} public + sealed cases passed</span>
+              </div>
+              <section className="swift-verdict-guidance" aria-label="Verdict review">
+                <strong>{verdictGuidance.title}</strong>
+                <ol>
+                  {verdictGuidance.actions.map((actionItem) => (
+                    <li key={actionItem}>{actionItem}</li>
+                  ))}
+                </ol>
+              </section>
+            </>
           ) : null}
           <div className="swift-solve-samples">
             <div>

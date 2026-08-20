@@ -870,6 +870,17 @@ async function listTrustedAssignments(request: Request, env: Env, url: URL) {
   if (hasTrustedCallback(env))
     await maintainTrustedSubmissions(env.DB);
   const limit = limitFrom(url, 20, 50);
+  const rawChallengeKey = url.searchParams.get("challengeKey");
+  const challengeKey = rawChallengeKey === null
+    ? null
+    : cleanTrustedId(rawChallengeKey);
+  if (rawChallengeKey !== null && !challengeKey)
+    return errorResponse(
+      request,
+      400,
+      "INVALID_CHALLENGE_KEY",
+      "Provide an allowlisted challenge key.",
+    );
   const rows = await env.DB.prepare(`
     SELECT a.*,
            s.id AS submission_id, s.client_submission_id AS submission_client_id,
@@ -884,9 +895,12 @@ async function listTrustedAssignments(request: Request, env: Env, url: URL) {
       ORDER BY latest.submitted_at DESC, latest.id DESC LIMIT 1
     )
     WHERE a.user_id = ?
+      ${challengeKey ? "AND a.challenge_key = ?" : ""}
     ORDER BY a.assigned_at DESC, a.id DESC
     LIMIT ?
-  `).bind(user.userId, limit).all<TrustedAssignmentRow>();
+  `)
+    .bind(...(challengeKey ? [user.userId, challengeKey, limit] : [user.userId, limit]))
+    .all<TrustedAssignmentRow>();
   return json(request, {
     program: TRUSTED_CODE_LAB_PROGRAM,
     entries: rows.results.map((row) => trustedAssignmentProjection(row)),

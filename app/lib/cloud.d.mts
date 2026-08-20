@@ -10,7 +10,8 @@ export type CloudUnavailableReason =
   | "invalid-request"
   | "invalid-response"
   | "aborted"
-  | "offline";
+  | "offline"
+  | "judge-enqueue-unavailable";
 
 export type CloudResult<T> =
   | { available: true; data: T; status: number }
@@ -279,6 +280,10 @@ export type CloudListOptions = CloudRequestOptions & {
   limit?: number;
   cursor?: string;
 };
+export type CloudTrustedAssignmentListOptions = CloudListOptions & {
+  /** Optional server-side allowlisted challenge key filter. */
+  challengeKey?: string;
+};
 export type CloudItemLeaderboardOptions = CloudListOptions & {
   itemRevision?: number;
   stage?: number;
@@ -303,7 +308,7 @@ export type CloudClient = {
     options: CloudRequestOptions & { baseRevision: number },
   ): Promise<CloudResult<CloudStudyWorkspace>>;
   trustedAssignments(
-    options?: CloudListOptions,
+    options?: CloudTrustedAssignmentListOptions,
   ): Promise<CloudResult<CloudTrustedAssignmentList>>;
   issueTrustedAssignment(
     clientRequestId: string,

@@ -9614,7 +9614,10 @@ function PracticeView(props: PracticeProps) {
     if (!challengeKey) return;
     setSwiftLoadState("loading");
     setSwiftMessage("");
-    const listed = await cloudClient.trustedAssignments({ limit: 50 });
+    const listed = await cloudClient.trustedAssignments({
+      limit: 50,
+      challengeKey,
+    });
     if (listed.available) {
       const matching = listed.data.entries.find(
         (entry) =>
@@ -9681,6 +9684,7 @@ function PracticeView(props: PracticeProps) {
 
   const trustedJudgeAvailable = props.trustedJudgeAvailable;
   const trustedJudgeAuthenticated = props.trustedJudgeAuthenticated;
+  const trustedChallengeKey = props.item.trustedChallengeKey;
 
   useEffect(() => {
     if (
@@ -9697,6 +9701,7 @@ function PracticeView(props: PracticeProps) {
     async function pollSwiftSubmission() {
       const result = await cloudClient.trustedAssignments({
         limit: 50,
+        challengeKey: trustedChallengeKey,
         signal: controller.signal,
       });
       if (cancelled) return;
@@ -9735,6 +9740,7 @@ function PracticeView(props: PracticeProps) {
     onSwiftSolveComplete,
     trustedJudgeAuthenticated,
     trustedJudgeAvailable,
+    trustedChallengeKey,
     swiftAssignment,
     swiftSubmission?.status,
     reconcileSettledSwiftAssignment,
@@ -9832,14 +9838,29 @@ function PracticeView(props: PracticeProps) {
       isLocked ||
       !swiftAssignment ||
       swiftAssignment.status !== "active" ||
-      swiftSubmission?.status === "pending" ||
+      (swiftSubmission?.status === "pending" && !activeSubmissionRequest.current) ||
       swiftAction !== "idle" ||
       swiftSubmitInFlight.current ||
       !runnerSource.trim()
     )
       return;
+    const activeRequest = activeSubmissionRequest.current;
+    if (
+      activeRequest &&
+      (activeRequest.itemId !== props.item.itemId ||
+        activeRequest.judge.kind !== "server-isolated-swift")
+    ) {
+      activeSubmissionRequest.current = null;
+    }
+    const retryRequest = activeSubmissionRequest.current;
+    if (retryRequest && retryRequest.source !== runnerSource) {
+      setSwiftMessage(
+        "A previous queue attempt is still safe to retry. Restore that exact source before retrying.",
+      );
+      return;
+    }
     swiftSubmitInFlight.current = true;
-    const submissionRequest: SubmissionRequest = {
+    const submissionRequest: SubmissionRequest = retryRequest ?? {
       id: makeId(),
       itemId: props.item.itemId,
       titleSnapshot: props.item.title,
@@ -9854,12 +9875,14 @@ function PracticeView(props: PracticeProps) {
       context: { kind: "practice" },
       assistance: props.draft.peeks > 0 ? "used" : "none-recorded",
     };
-    if (!props.onSubmissionRequested(submissionRequest)) {
-      swiftSubmitInFlight.current = false;
-      return;
+    if (!retryRequest) {
+      if (!props.onSubmissionRequested(submissionRequest)) {
+        swiftSubmitInFlight.current = false;
+        return;
+      }
+      activeSubmissionRequest.current = submissionRequest;
+      props.onSubmissionRun();
     }
-    activeSubmissionRequest.current = submissionRequest;
-    props.onSubmissionRun();
     setSwiftAction("submitting");
     setSwiftMessage("");
     const result = await cloudClient.submitTrustedAssignment(
@@ -9868,6 +9891,13 @@ function PracticeView(props: PracticeProps) {
     );
     setSwiftAction("idle");
     if (!result.available) {
+      if (result.reason === "judge-enqueue-unavailable") {
+        swiftSubmitInFlight.current = false;
+        setSwiftMessage(
+          "The judge is temporarily busy. Your source is safely saved as a pending receipt; retry with the same code in a moment.",
+        );
+        return;
+      }
       const interrupted = compatibleSubmissionRecord(submissionRequest, {
         status: "judge-error",
         durationMs: 0,
@@ -11193,6 +11223,8 @@ function PracticeView(props: PracticeProps) {
                   message={swiftMessage}
                   available={props.trustedJudgeAvailable}
                   authenticated={props.trustedJudgeAuthenticated}
+                  sourcePresent={Boolean(runnerSource.trim())}
+                  retryAvailable={Boolean(activeSubmissionRequest.current)}
                   onRequestAssignment={() => void loadSwiftAssignment()}
                   onSubmit={() => void runSwiftSubmit()}
                 />

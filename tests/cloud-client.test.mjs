@@ -390,6 +390,53 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
   assert.equal(mock.calls.length, 4);
 });
 
+test("trusted assignment lookup can target one challenge and preserves enqueue retry semantics", async () => {
+  const mock = recorder((url) => {
+    assert.equal(url, "/api/v1/trusted/assignments?limit=50&challengeKey=swift-two-sum");
+    return json({
+      program: {
+        id: "verified-code-lab",
+        revision: 1,
+        title: "Verified Swift checkpoint",
+        description: "Server-selected Swift evidence.",
+        evidenceLabel: "Server-verified code evidence",
+        language: "mixed",
+      },
+      entries: [],
+    });
+  });
+  const client = createCloudClient({
+    fetchImpl: mock.fetchImpl,
+    location: { hostname: "swift.test" },
+  });
+  const result = await client.trustedAssignments({
+    limit: 50,
+    challengeKey: "swift-two-sum",
+  });
+  assert.equal(result.available, true);
+
+  const enqueueFailure = createCloudClient({
+    fetchImpl: async () =>
+      json(
+        {
+          error: {
+            code: "JUDGE_ENQUEUE_UNAVAILABLE",
+            message: "retry",
+          },
+        },
+        503,
+      ),
+    location: { hostname: "swift.test" },
+  });
+  assert.deepEqual(
+    await enqueueFailure.submitTrustedAssignment("trusted-abc12345", {
+      clientSubmissionId: "submission:retry12345",
+      source: "func twoSum(_ nums: [Int], _ target: Int) -> [Int] { [] }",
+    }),
+    { available: false, reason: "judge-enqueue-unavailable", status: 503 },
+  );
+});
+
 test("legacy Python receipts remain visible with an explicit missing-contract marker", async () => {
   const legacyAssignment = {
     id: "trusted-legacy123",

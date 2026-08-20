@@ -573,6 +573,19 @@ test("Worker queues callable checkpoints and settles only signed idempotent call
       (await swiftCatalogConflictResponse.json()).error.code,
       "IDEMPOTENCY_CONFLICT",
     );
+    const filteredSwiftListResponse = await worker.fetch(
+      workerRequest("/trusted/assignments?challengeKey=swift-product-except-self"),
+      env,
+      context,
+    );
+    assert.equal(filteredSwiftListResponse.status, 200);
+    const filteredSwiftList = await filteredSwiftListResponse.json();
+    assert.ok(filteredSwiftList.entries.length >= 1);
+    assert.ok(
+      filteredSwiftList.entries.every(
+        (entry) => entry.challenge.key === "swift-product-except-self",
+      ),
+    );
     for (const [clientRequestId, challengeKey] of [
       ["assignment-request:swift-unknown123", "swift-not-allowlisted"],
       ["assignment-request:swift-python123", "stable-window"],

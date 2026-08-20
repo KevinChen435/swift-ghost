@@ -10159,9 +10159,240 @@ kbd {
 }
 
 .swift-solve-console-actions button:focus-visible,
-.swift-solve-console-empty button:focus-visible {
+.swift-solve-console-empty button:focus-visible,
+.swift-sample-trace-board button:focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 3px;
+}
+
+.swift-solve-preflight {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border-soft);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--bg-raised) 78%, transparent);
+}
+
+.swift-solve-preflight > header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: start;
+  justify-content: space-between;
+}
+
+.swift-solve-preflight > header > div {
+  display: grid;
+  min-width: min(100%, 260px);
+  gap: 5px;
+}
+
+.swift-solve-preflight > header strong {
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.swift-readiness-pill {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  color: var(--muted);
+  font: 700 0.61rem/1.2 var(--font-code);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.swift-readiness-pill.ready {
+  border-color: color-mix(in srgb, var(--success) 50%, var(--border-soft));
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+}
+
+.swift-readiness-pill.warm {
+  border-color: color-mix(in srgb, var(--warning) 48%, var(--border-soft));
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
+}
+
+.swift-readiness-pill.blocked {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--border-soft));
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+.swift-contract-card {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--border-soft) 76%, transparent);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.swift-contract-card small,
+.swift-sample-trace-board > div small,
+.swift-explanation-notes label,
+.swift-preflight-checklist legend {
+  color: var(--faint);
+  font: 700 0.61rem/1.35 var(--font-code);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.swift-contract-card code {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font: 700 0.72rem/1.5 var(--font-code);
+}
+
+.swift-contract-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.swift-preflight-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(0, 1.1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.swift-preflight-checklist {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.swift-preflight-checklist label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border-soft) 74%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
+}
+
+.swift-preflight-checklist input {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.swift-preflight-checklist span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.swift-preflight-checklist strong,
+.swift-sample-trace-board article strong {
+  color: var(--text);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.swift-preflight-checklist small,
+.swift-sample-trace-board article small {
+  color: var(--muted);
+  font-size: 0.64rem;
+  line-height: 1.45;
+}
+
+.swift-sample-trace-board {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.swift-sample-trace-board > div:first-child {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.swift-sample-trace-board > div:first-child strong {
+  color: var(--muted);
+  font: 700 0.66rem/1.35 var(--font-code);
+  text-align: right;
+}
+
+.swift-sample-trace-board article {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border-soft) 74%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
+}
+
+.swift-sample-trace-board article > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.swift-sample-trace-board [role="radiogroup"] {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.swift-sample-trace-board button {
+  min-height: 30px;
+  padding: 6px 7px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  color: var(--muted);
+  font: 700 0.58rem/1.2 var(--font-code);
+  cursor: pointer;
+}
+
+.swift-sample-trace-board button.is-active {
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--border-soft));
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 11%, var(--bg));
+}
+
+.swift-explanation-notes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.swift-explanation-notes label {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.swift-explanation-notes textarea {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: var(--bg);
+  color: var(--text);
+  font: 0.7rem/1.5 var(--font-code);
 }
 
 .swift-solve-verdict {
@@ -10206,6 +10437,30 @@ kbd {
 
 .swift-solve-verdict.failed strong {
   color: var(--danger);
+}
+
+.swift-verdict-guidance {
+  display: grid;
+  gap: 10px;
+  padding: 13px 15px;
+  border: 1px solid var(--border-soft);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--bg-raised) 80%, transparent);
+}
+
+.swift-verdict-guidance strong {
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.swift-verdict-guidance ol {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 20px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.5;
 }
 
 .swift-solve-samples {
@@ -10315,6 +10570,19 @@ kbd {
   .swift-solve-verdict span {
     text-align: left;
   }
+
+  .swift-preflight-grid,
+  .swift-explanation-notes {
+    grid-template-columns: 1fr;
+  }
+
+  .swift-sample-trace-board > div:first-child {
+    display: grid;
+  }
+
+  .swift-sample-trace-board > div:first-child strong {
+    text-align: left;
+  }
 }
 
 @media (max-width: 470px) {
@@ -10324,7 +10592,8 @@ kbd {
   }
 
   .swift-solve-console-meta,
-  .swift-solve-sample-grid {
+  .swift-solve-sample-grid,
+  .swift-sample-trace-board [role="radiogroup"] {
     grid-template-columns: 1fr;
   }
 
@@ -10345,6 +10614,12 @@ kbd {
   .swift-solve-console-empty,
   .swift-solve-console-status,
   .swift-solve-verdict,
+  .swift-solve-preflight,
+  .swift-contract-card,
+  .swift-preflight-checklist label,
+  .swift-sample-trace-board article,
+  .swift-explanation-notes textarea,
+  .swift-verdict-guidance,
   .swift-solve-sample-grid article,
   .swift-solve-sample-grid article code {
     border-color: CanvasText;

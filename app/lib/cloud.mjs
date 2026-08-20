@@ -84,7 +84,12 @@ function unavailable(reason, status, retryAfterSeconds) {
   };
 }
 
-function responseFailure(response, notFoundReason) {
+function responseFailure(response, notFoundReason, payload) {
+  const errorCode = isRecord(payload) && isRecord(payload.error)
+    ? cleanString(payload.error.code, 80)
+    : "";
+  if (errorCode === "JUDGE_ENQUEUE_UNAVAILABLE")
+    return unavailable("judge-enqueue-unavailable", response.status);
   const retryAfter = Number(response.headers?.get?.("retry-after"));
   if (response.status === 401 || response.status === 403)
     return unavailable("unauthorized", response.status);
@@ -929,8 +934,8 @@ export function createCloudClient(options = {}) {
         ...(init.signal ? { signal: init.signal } : {}),
       });
       if (!response.ok) {
+        const payload = await readJson(response);
         if (response.status === 409 && init.normalizeConflict) {
-          const payload = await readJson(response);
           const conflict = init.normalizeConflict(payload);
           if (conflict !== undefined)
             return {
@@ -940,7 +945,7 @@ export function createCloudClient(options = {}) {
               conflict,
             };
         }
-        return responseFailure(response, init.notFoundReason);
+        return responseFailure(response, init.notFoundReason, payload);
       }
       const payload = await readJson(response);
       if (payload === undefined)
@@ -997,10 +1002,17 @@ export function createCloudClient(options = {}) {
         },
       );
     },
-    trustedAssignments({ limit = 20, signal } = {}) {
+    trustedAssignments({ limit = 20, challengeKey, signal } = {}) {
       const boundedLimit = listLimit(limit, 20, 50);
+      const normalizedChallengeKey = challengeKey === undefined
+        ? ""
+        : trustedClientId(challengeKey);
+      if (challengeKey !== undefined && !normalizedChallengeKey)
+        return Promise.resolve(unavailable("invalid-request"));
+      const query = new URLSearchParams({ limit: String(boundedLimit) });
+      if (normalizedChallengeKey) query.set("challengeKey", normalizedChallengeKey);
       return request(
-        `/trusted/assignments?limit=${boundedLimit}`,
+        `/trusted/assignments?${query.toString()}`,
         { signal },
         normalizeTrustedAssignmentList,
       );
