@@ -1326,7 +1326,10 @@ const PUBLIC_CASE_STATUSES = new Set([
   "judge-error",
   "not-run",
 ]);
-const MAX_PUBLIC_CASE_OUTPUT_BYTES = 4_096;
+// The gateway permits a larger per-case envelope, but the settled D1 row is
+// capped at 8 KiB. Keep the persisted projection smaller so two public Swift
+// samples plus verdict metadata always fit that schema bound.
+const MAX_PUBLIC_CASE_OUTPUT_BYTES = 2_048;
 
 function cleanPublicCaseText(value, limit = MAX_PUBLIC_CASE_OUTPUT_BYTES) {
   if (typeof value !== "string") return undefined;
@@ -1335,7 +1338,16 @@ function cleanPublicCaseText(value, limit = MAX_PUBLIC_CASE_OUTPUT_BYTES) {
     .trim();
   const bytes = new TextEncoder().encode(clean);
   if (bytes.byteLength <= limit) return clean;
-  return new TextDecoder().decode(bytes.slice(0, limit));
+  const codePoints = Array.from(clean);
+  let low = 0;
+  let high = codePoints.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    const candidate = codePoints.slice(0, middle).join("");
+    if (new TextEncoder().encode(candidate).byteLength <= limit) low = middle;
+    else high = middle - 1;
+  }
+  return codePoints.slice(0, low).join("");
 }
 
 /**

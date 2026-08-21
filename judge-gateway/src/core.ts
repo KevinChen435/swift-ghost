@@ -30,8 +30,17 @@ function publicOutput(value: string): string {
   if (bytes.byteLength <= PUBLIC_OUTPUT_LIMIT_BYTES) return clean;
   const suffix = "\n[… output truncated]";
   const suffixBytes = new TextEncoder().encode(suffix).byteLength;
-  const prefix = new TextDecoder().decode(bytes.slice(0, Math.max(0, PUBLIC_OUTPUT_LIMIT_BYTES - suffixBytes)));
-  return `${prefix}${suffix}`;
+  const prefixLimit = Math.max(0, PUBLIC_OUTPUT_LIMIT_BYTES - suffixBytes);
+  const codePoints = Array.from(clean);
+  let low = 0;
+  let high = codePoints.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    const candidate = codePoints.slice(0, middle).join("");
+    if (new TextEncoder().encode(candidate).byteLength <= prefixLimit) low = middle;
+    else high = middle - 1;
+  }
+  return `${codePoints.slice(0, low).join("")}${suffix}`;
 }
 
 export async function judgeSubmission(

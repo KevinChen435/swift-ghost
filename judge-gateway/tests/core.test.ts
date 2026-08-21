@@ -161,6 +161,26 @@ test("truncates and sanitizes public stdout independently of the runner cap", as
   assert.match(output, /output truncated/);
 });
 
+test("keeps multibyte public stdout within the byte cap", async () => {
+  const request: SubmissionRequest = {
+    ...submission(),
+    tests: [{ id: "sample", input: "", expectedOutput: "", visibility: "sample" }],
+  };
+  const result = await judgeSubmission(request, {
+    create() {
+      return {
+        async writeFile() {},
+        async exec() { return runner("🙂".repeat(4_000)); },
+        async destroy() {},
+      };
+    },
+  }, { timeoutMs: 4_000, outputLimitBytes: 16_000 });
+  const output = result.publicCaseResults?.[0]?.actualOutput ?? "";
+  assert.ok(new TextEncoder().encode(output).byteLength <= 4_096);
+  assert.doesNotMatch(output, /�/);
+  assert.match(output, /output truncated/);
+});
+
 test("compiles Swift exactly once before running cases and returns compile-error separately", async () => {
   const request: SubmissionRequest = {
     ...submission(),

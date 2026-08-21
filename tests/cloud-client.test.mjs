@@ -360,7 +360,6 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
                 actual: [0, 0, 0],
                 diagnostic: "sample output differs",
               },
-              { id: "hidden-case-1", status: "passed", actual: "drop me" },
             ],
             hiddenOutput: "must be dropped",
           },
@@ -435,6 +434,26 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
   ]);
   assert.equal(Object.hasOwn(exampleRun.data.result.publicCaseResults[0], "expected"), false);
   assert.equal(Object.hasOwn(exampleRun.data.result, "hiddenOutput"), false);
+
+  const reordered = {
+    ...exampleRun.data,
+    result: {
+      ...exampleRun.data.result,
+      publicCaseResults: [...exampleRun.data.result.publicCaseResults].reverse(),
+    },
+  };
+  const reorderedMock = recorder(() => json({ exampleRun: reordered }));
+  const reorderedClient = createCloudClient({
+    fetchImpl: reorderedMock.fetchImpl,
+    location: { hostname: "swift.test" },
+  });
+  assert.deepEqual(
+    await reorderedClient.runTrustedExamples(swiftAssignment.id, {
+      clientRunId: "example:reordered123",
+      source: swiftAssignment.challenge.starterCode,
+    }, { challenge: swiftAssignment.challenge }),
+    { available: false, reason: "invalid-response", status: 200 },
+  );
   assert.equal(
     mock.calls[4].url,
     "/api/v1/trusted/assignments/trusted-swift12345/example-runs",

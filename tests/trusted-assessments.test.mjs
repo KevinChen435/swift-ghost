@@ -281,6 +281,29 @@ test("public example case results are sample-bound, bounded, and omit hidden pay
     ),
     null,
   );
+  const bounded = normalizeTrustedPublicCaseResults(
+    {
+      caseResults: publicCaseIds.map((id) => ({
+        id,
+        passed: true,
+        actualOutput: "x".repeat(5_000),
+      })),
+    },
+    publicCaseIds,
+  );
+  assert.ok(bounded.every((entry) => new TextEncoder().encode(entry.actual).byteLength <= 2_048));
+  const unicodeBounded = normalizeTrustedPublicCaseResults(
+    {
+      caseResults: publicCaseIds.map((id) => ({
+        id,
+        passed: true,
+        actualOutput: "🙂".repeat(5_000),
+      })),
+    },
+    publicCaseIds,
+  );
+  assert.ok(unicodeBounded.every((entry) => new TextEncoder().encode(entry.actualOutput).byteLength <= 2_048));
+  assert.ok(unicodeBounded.every((entry) => !entry.actualOutput.includes("�")));
 });
 
 test("aggregate-only example callbacks remain compatible while case results bind revisions", async () => {

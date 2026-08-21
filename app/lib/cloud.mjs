@@ -556,13 +556,13 @@ function normalizeTrustedPublicValue(value, depth = 0) {
 function normalizeTrustedPublicCaseResults(value, samples) {
   if (!Array.isArray(value) || !Array.isArray(samples) || samples.length < 1)
     return undefined;
-  const sampleIds = new Set(samples.map((sample) => sample.id));
-  const seen = new Set();
+  if (value.length !== samples.length) return undefined;
   const results = [];
-  for (const entry of value.slice(0, samples.length)) {
+  for (let index = 0; index < value.length; index += 1) {
+    const entry = value[index];
     if (!isRecord(entry)) return undefined;
     const caseId = id(entry.id ?? entry.caseId, 96);
-    if (!caseId || !sampleIds.has(caseId) || seen.has(caseId)) return undefined;
+    if (!caseId || caseId !== samples[index].id) return undefined;
     const status = TRUSTED_PUBLIC_CASE_STATUSES.has(entry.status)
       ? entry.status
       : null;
@@ -576,7 +576,6 @@ function normalizeTrustedPublicCaseResults(value, samples) {
     if (passed === undefined || (!status && !Object.hasOwn(entry, "passed"))) return undefined;
     if (entry.visibility !== undefined && entry.visibility !== "sample" && entry.visibility !== "public")
       return undefined;
-    seen.add(caseId);
     const actual = Object.hasOwn(entry, "actual")
       ? normalizeTrustedPublicValue(entry.actual)
       : Object.hasOwn(entry, "actualOutput")
