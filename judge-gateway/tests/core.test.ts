@@ -32,8 +32,8 @@ function submission(): SubmissionRequest {
     source: "print(input())",
     comparison: "exact",
     tests: [
-      { id: "one", input: "a\n", expectedOutput: "a\n" },
-      { id: "two", input: "b\n", expectedOutput: "b\n" },
+      { id: "one", input: "a\n", expectedOutput: "a\n", visibility: "hidden" },
+      { id: "two", input: "b\n", expectedOutput: "b\n", visibility: "hidden" },
     ],
     callbackUrl: "https://app.example.com/callback",
   };
@@ -67,6 +67,98 @@ test("uses a fresh sandbox, sends one input per exec, compares outside, and dest
   assert.deepEqual(inputs, ["a\n", "b\n"]);
   assert.equal(result.verdict, "accepted");
   assert.equal(destroyed, true);
+});
+
+test("returns bounded sanitized stdout for sample-only runs and never expected output", async () => {
+  const request: SubmissionRequest = {
+    ...submission(),
+    tests: [
+      { id: "sample-1", input: "a\n", expectedOutput: "answer\u001b[31m\n", visibility: "sample" },
+      { id: "sample-2", input: "b\n", expectedOutput: "unused\n", visibility: "sample" },
+    ],
+  };
+  let executions = 0;
+  const factory: SandboxFactory = {
+    create() {
+      return {
+        async writeFile() {},
+        async exec() {
+          executions += 1;
+          return runner(executions === 1 ? "answer\u001b[31m\n" : "wrong\n");
+        },
+        async destroy() {},
+      };
+    },
+  };
+  const result = await judgeSubmission(request, factory, { timeoutMs: 4_000, outputLimitBytes: 4_096 });
+  assert.equal(result.verdict, "wrong-answer");
+  assert.deepEqual(result.publicCaseResults, [
+    { id: "sample-1", status: "passed", actualOutput: "answer\n" },
+    { id: "sample-2", status: "failed", actualOutput: "wrong\n" },
+  ]);
+  const serialized = JSON.stringify(result);
+  assert.equal(serialized.includes("expectedOutput"), false);
+  assert.equal(serialized.includes("unused"), false);
+  assert.equal(serialized.includes("sample-1"), true);
+});
+
+test("does not include public case output for sealed runs and marks skipped samples not-run", async () => {
+  const request: SubmissionRequest = {
+    ...submission(),
+    tests: [
+      { id: "sample-1", input: "a\n", expectedOutput: "wrong\n", visibility: "sample" },
+      { id: "hidden-1", input: "b\n", expectedOutput: "b\n", visibility: "hidden" },
+    ],
+  };
+  const result = await judgeSubmission(request, {
+    create() {
+      return {
+        async writeFile() {},
+        async exec() { return runner("actual\n"); },
+        async destroy() {},
+      };
+    },
+  }, { timeoutMs: 4_000, outputLimitBytes: 4_096 });
+  assert.equal(result.publicCaseResults, undefined);
+
+  const sampleOnly: SubmissionRequest = {
+    ...request,
+    tests: request.tests.map((test) => ({ ...test, visibility: "sample" as const })),
+  };
+  const stopped = await judgeSubmission(sampleOnly, {
+    create() {
+      return {
+        async writeFile() {},
+        async exec() { return runner("actual\n"); },
+        async destroy() {},
+      };
+    },
+  }, { timeoutMs: 4_000, outputLimitBytes: 4_096 });
+  assert.deepEqual(stopped.publicCaseResults, [
+    { id: "sample-1", status: "failed", actualOutput: "actual\n" },
+    { id: "hidden-1", status: "not-run" },
+  ]);
+});
+
+test("truncates and sanitizes public stdout independently of the runner cap", async () => {
+  const request: SubmissionRequest = {
+    ...submission(),
+    tests: [{ id: "sample", input: "", expectedOutput: "", visibility: "sample" }],
+  };
+  const result = await judgeSubmission(request, {
+    create() {
+      return {
+        async writeFile() {},
+        async exec() { return runner(`${"x".repeat(8_000)}\u0000\u001b[2J`); },
+        async destroy() {},
+      };
+    },
+  }, { timeoutMs: 4_000, outputLimitBytes: 16_000 });
+  const output = result.publicCaseResults?.[0]?.actualOutput ?? "";
+  assert.equal(output.includes("\u0000"), false);
+  assert.equal(output.includes("\u001b"), false);
+  assert.ok(new TextEncoder().encode(output).byteLength <= 4_096);
+  assert.match(output, /output truncated/);
 });
 
 test("compiles Swift exactly once before running cases and returns compile-error separately", async () => {

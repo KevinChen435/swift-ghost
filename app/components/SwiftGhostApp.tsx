@@ -10127,7 +10127,10 @@ function PracticeView(props: PracticeProps) {
     const controller = new AbortController();
     let timer: number | undefined;
     let cancelled = false;
+    let pollAttempts = 0;
+    const maxPollAttempts = 40;
     async function pollSwiftExamples() {
+      pollAttempts += 1;
       const result = await cloudClient.runTrustedExamples(
         pollRequest.assignmentId,
         { clientRunId: pollRequest.clientRunId, source: pollRequest.source },
@@ -10156,10 +10159,30 @@ function PracticeView(props: PracticeProps) {
           return;
         }
       } else if (result.reason !== "aborted") {
+        const retryable = new Set([
+          "judge-enqueue-unavailable",
+          "rate-limited",
+          "offline",
+        ]);
+        if (!retryable.has(result.reason) || pollAttempts >= maxPollAttempts) {
+          activeSwiftExampleRequest.current = null;
+          setSwiftExampleRun(null);
+          setSwiftExampleAction("idle");
+          setSwiftMessage(
+            pollAttempts >= maxPollAttempts
+              ? "The Swift example run took too long to settle. Run examples again."
+              : result.reason === "unauthorized"
+                ? "Your sign-in expired. Sign in again before running Swift examples."
+                : "The Swift example run is no longer available. Run examples again.",
+          );
+          return;
+        }
         setSwiftMessage(
           result.reason === "judge-enqueue-unavailable"
             ? "The Swift example run is still waiting for the isolated judge."
-            : "The Swift example run is still pending; retry examples if it does not settle.",
+            : result.reason === "rate-limited"
+              ? "The isolated judge is rate-limiting retries; waiting before checking again."
+              : "The Swift example run is waiting for the connection to return.",
         );
       }
       timer = window.setTimeout(() => void pollSwiftExamples(), 1_500);

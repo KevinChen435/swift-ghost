@@ -1198,6 +1198,10 @@ export async function trustedGatewaySubmission({
         id: testCase.id,
         input,
         expectedOutput,
+        // The gateway uses this explicit marker to decide whether it may
+        // return bounded observed output. Omitted/unknown visibility fails
+        // closed as hidden at ingress.
+        visibility: testCase.visibility === "sample" ? "sample" : "hidden",
       };
     }),
     callbackUrl: parsedCallback.toString(),
@@ -1298,11 +1302,110 @@ export function normalizeTrustedGatewayExampleResult(
         .trim()
         .slice(0, 2_000)
     : "";
+  const publicCaseResults = normalizeTrustedPublicCaseResults(
+    value,
+    expected.publicCaseIds,
+  );
+  if (expected.publicCaseIds && publicCaseResults === null) return null;
   return {
     ...result,
     ...(failedCaseIndex === null ? {} : { failedCaseIndex }),
     ...(diagnostic ? { diagnostic } : {}),
+    ...(publicCaseResults === undefined ? {} : { publicCaseResults }),
   };
+}
+
+const PUBLIC_CASE_RESULT_KEYS = ["caseResults", "publicCaseResults", "cases", "results"];
+const PUBLIC_CASE_STATUSES = new Set([
+  "passed",
+  "failed",
+  "wrong-answer",
+  "compile-error",
+  "runtime-error",
+  "time-limit",
+  "judge-error",
+  "not-run",
+]);
+const MAX_PUBLIC_CASE_OUTPUT_BYTES = 4_096;
+
+function cleanPublicCaseText(value, limit = MAX_PUBLIC_CASE_OUTPUT_BYTES) {
+  if (typeof value !== "string") return undefined;
+  const clean = value
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+    .trim();
+  const bytes = new TextEncoder().encode(clean);
+  if (bytes.byteLength <= limit) return clean;
+  return new TextDecoder().decode(bytes.slice(0, limit));
+}
+
+/**
+ * Keep only sample-level execution facts from the gateway. The gateway may
+ * use `caseResults`, `cases`, or `results` depending on its result adapter;
+ * the Worker emits one stable, sample-only shape. Expected output, inputs,
+ * and any hidden case are deliberately never copied into this projection.
+ *
+ * `undefined` means the older aggregate-only gateway result did not include
+ * per-case data. `null` means a supplied per-case payload failed validation.
+ */
+export function normalizeTrustedPublicCaseResults(value, publicCaseIds) {
+  if (!Array.isArray(publicCaseIds)) return undefined;
+  if (
+    publicCaseIds.length < 1 ||
+    publicCaseIds.length > 64 ||
+    publicCaseIds.some((id) => !cleanTrustedId(id, 160))
+  )
+    return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+
+  let rawResults;
+  for (const key of PUBLIC_CASE_RESULT_KEYS) {
+    if (Object.hasOwn(value, key)) {
+      rawResults = value[key];
+      break;
+    }
+  }
+  // Keep compatibility with callbacks produced before per-case reporting.
+  if (rawResults === undefined) return undefined;
+  if (!Array.isArray(rawResults) || rawResults.length !== publicCaseIds.length)
+    return null;
+
+  const normalized = [];
+  for (let index = 0; index < rawResults.length; index += 1) {
+    const raw = rawResults[index];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const expectedId = publicCaseIds[index];
+    const id = cleanTrustedId(raw.id ?? raw.caseId, 160);
+    // Require the gateway to return the exact public case set, in order. A
+    // hidden id or an omitted sample therefore fails closed instead of being
+    // accidentally persisted and rendered to the learner.
+    if (id !== expectedId) return null;
+    if (
+      raw.visibility !== undefined &&
+      raw.visibility !== "sample" &&
+      raw.visibility !== "public"
+    )
+      return null;
+    const status = typeof raw.status === "string" && PUBLIC_CASE_STATUSES.has(raw.status)
+      ? raw.status
+      : undefined;
+    if (raw.status !== undefined && !status) return null;
+    const normalizedStatus = status ?? (typeof raw.passed === "boolean"
+      ? raw.passed ? "passed" : "failed"
+      : undefined);
+    if (!normalizedStatus) return null;
+    const actualOutput = cleanPublicCaseText(
+      raw.actualOutput ?? raw.actual ?? raw.output,
+    );
+    const diagnostic = cleanPublicCaseText(raw.diagnostic, 2_000);
+    const entry = {
+      id,
+      status: normalizedStatus,
+      ...(actualOutput ? { actualOutput } : {}),
+      ...(diagnostic ? { diagnostic } : {}),
+    };
+    normalized.push(entry);
+  }
+  return normalized;
 }
 
 export function normalizeTrustedJudgeResult(value, expectedTotal) {

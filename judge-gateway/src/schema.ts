@@ -41,6 +41,14 @@ function parseTest(value: unknown, index: number): TestCase {
   const input = record(value, `tests[${index}]`);
   const id = string(input.id, `tests[${index}].id`, 160);
   if (!ID_PATTERN.test(id)) throw new ValidationError(`tests[${index}].id has invalid characters`);
+  // Older sealed producers did not carry visibility. Treating an omitted
+  // value as hidden preserves their sealed behavior and, importantly, never
+  // opts a case into public output by accident.
+  const visibility = input.visibility === undefined
+    ? "hidden"
+    : input.visibility === "sample" || input.visibility === "hidden"
+      ? input.visibility
+      : (() => { throw new ValidationError(`tests[${index}].visibility must be sample or hidden`); })();
   return {
     id,
     input: string(input.input, `tests[${index}].input`, MAX_TEST_VALUE_BYTES, true),
@@ -50,6 +58,7 @@ function parseTest(value: unknown, index: number): TestCase {
       MAX_TEST_VALUE_BYTES,
       true,
     ),
+    visibility,
   };
 }
 

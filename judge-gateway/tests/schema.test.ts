@@ -21,6 +21,19 @@ test("normalizes a valid submission and defaults to exact comparison", () => {
   const result = parseSubmission(valid(), "https://app.example.com");
   assert.equal(result.comparison, "exact");
   assert.equal(result.tests.length, 1);
+  assert.equal(result.tests[0]?.visibility, "hidden");
+});
+
+test("accepts explicit sample visibility and rejects unknown visibility", () => {
+  const sample = parseSubmission({
+    ...valid(),
+    tests: [{ id: "sample-1", input: "hello\n", expectedOutput: "hello\n", visibility: "sample" }],
+  }, "https://app.example.com");
+  assert.equal(sample.tests[0]?.visibility, "sample");
+  assert.throws(() => parseSubmission({
+    ...valid(),
+    tests: [{ id: "sample-1", input: "hello\n", expectedOutput: "hello\n", visibility: "public" }],
+  }, "https://app.example.com"), ValidationError);
 });
 
 test("accepts the pinned Swift runtime and rejects unbound language metadata", () => {

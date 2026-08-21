@@ -44,7 +44,7 @@ rate limits, Access policy, monitoring, and an incident response process.
   "source": "print(input())",
   "comparison": "exact",
   "tests": [
-    { "id": "sample-1", "input": "hello\n", "expectedOutput": "hello\n" }
+    { "id": "sample-1", "input": "hello\n", "expectedOutput": "hello\n", "visibility": "sample" }
   ],
   "callbackUrl": "https://app.example.com/internal/judge-results"
 }
@@ -98,7 +98,16 @@ The gateway POSTs an immutable `judge.result.v1` object:
 
 Verdicts are `accepted`, `wrong-answer`, `compile-error`, `runtime-error`,
 `time-limit`, and `judge-error`. Failed results can also contain a zero-based `failedCaseIndex`
-and a bounded diagnostic; neither expected output nor test input is returned.
+and a bounded diagnostic; neither expected output nor test input is returned. Every test case
+has a `visibility` of `sample` or `hidden`. Producers that omit it are normalized to `hidden`
+so legacy sealed submissions cannot opt into public output accidentally.
+
+When every test is explicitly marked `sample`, a result may also contain `publicCaseResults`.
+Each entry contains only the case id, a bounded status (`passed`, `failed`, `compile-error`,
+`runtime-error`, `time-limit`, `judge-error`, or `not-run`), and optional sanitized stdout in
+`actualOutput`. Public output is capped at 4,096 UTF-8 bytes per case; ANSI and control bytes
+are removed. `publicCaseResults` is never emitted for a mixed or hidden test set, and it never
+contains expected output, input, or stderr.
 
 Callbacks include:
 

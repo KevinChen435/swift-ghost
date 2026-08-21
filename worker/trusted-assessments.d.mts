@@ -69,7 +69,12 @@ export type TrustedGatewayRequest = Readonly<{
   contractDigest: string;
   source: string;
   comparison: "exact";
-  tests: readonly { id: string; input: string; expectedOutput: string }[];
+  tests: readonly {
+    id: string;
+    input: string;
+    expectedOutput: string;
+    visibility: "sample" | "hidden";
+  }[];
   callbackUrl: string;
 }>;
 
@@ -86,6 +91,22 @@ export type NormalizedTrustedGatewayResult = Readonly<{
 
 export type NormalizedTrustedGatewayExampleResult = NormalizedTrustedGatewayResult & Readonly<{
   failedCaseIndex?: number;
+  diagnostic?: string;
+  publicCaseResults?: readonly NormalizedTrustedPublicCaseResult[];
+}>;
+
+export type NormalizedTrustedPublicCaseResult = Readonly<{
+  id: string;
+  status:
+    | "passed"
+    | "failed"
+    | "wrong-answer"
+    | "compile-error"
+    | "runtime-error"
+    | "time-limit"
+    | "judge-error"
+    | "not-run";
+  actualOutput?: string;
   diagnostic?: string;
 }>;
 
@@ -159,8 +180,12 @@ export function normalizeTrustedGatewayResult(
 export function normalizeTrustedGatewayExampleResult(
   value: unknown,
   submissionId: string,
-  expected: Pick<TrustedJudgeSpec, "language" | "runtime" | "contentRevision" | "judgeRevision"> & { total: number; contractDigest: string },
+  expected: Pick<TrustedJudgeSpec, "language" | "runtime" | "contentRevision" | "judgeRevision"> & { total: number; contractDigest: string; publicCaseIds?: readonly string[] },
 ): NormalizedTrustedGatewayExampleResult | null;
+export function normalizeTrustedPublicCaseResults(
+  value: unknown,
+  publicCaseIds: readonly string[],
+): readonly NormalizedTrustedPublicCaseResult[] | null | undefined;
 export function normalizeTrustedJudgeResult(
   value: unknown,
   expectedTotal: number,

@@ -686,6 +686,13 @@ test("Worker queues callable checkpoints and settles only signed idempotent call
       total: swiftExampleJudgeBody.tests.length,
       failedCaseIndex: 1,
       diagnostic: "public example mismatch",
+      caseResults: swiftExampleJudgeBody.tests.map((entry, index) => ({
+        id: entry.id,
+        visibility: "sample",
+        passed: index === 0,
+        actualOutput: index === 0 ? "[0,1]" : "[1,0]",
+        expected: "should not be returned",
+      })),
     };
     assert.equal(
       (
@@ -711,6 +718,29 @@ test("Worker queues callable checkpoints and settles only signed idempotent call
     assert.equal(settledSwiftExample.result.authority, "server-isolated-swift");
     assert.equal(settledSwiftExample.result.total, swiftIssued.challenge.samples.length);
     assert.equal(settledSwiftExample.result.failedCaseIndex, 1);
+    assert.deepEqual(
+      settledSwiftExample.result.publicCaseResults.map(({ id, status, actualOutput }) => ({
+        id,
+        status,
+        actualOutput,
+      })),
+      [
+        {
+          id: swiftIssued.challenge.samples[0].id,
+          status: "passed",
+          actualOutput: "[0,1]",
+        },
+        {
+          id: swiftIssued.challenge.samples[1].id,
+          status: "failed",
+          actualOutput: "[1,0]",
+        },
+      ],
+    );
+    assert.equal(
+      JSON.stringify(settledSwiftExample.result).includes("should not be returned"),
+      false,
+    );
     assert.equal(
       settledSwiftExample.result.failedCaseId,
       swiftIssued.challenge.samples[1].id,

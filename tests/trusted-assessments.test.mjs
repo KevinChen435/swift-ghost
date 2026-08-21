@@ -10,6 +10,7 @@ import {
   cleanTrustedSource,
   normalizeTrustedGatewayResult,
   normalizeTrustedGatewayExampleResult,
+  normalizeTrustedPublicCaseResults,
   normalizeTrustedJudgeResult,
   privateJudgeSpec,
   publicExampleJudgeSpec,
@@ -217,6 +218,128 @@ test("Swift example contracts include only public samples and expose only public
       failedCaseIndex: 1,
       diagnostic: "bounded public diagnostic",
     },
+  );
+});
+
+test("public example case results are sample-bound, bounded, and omit hidden payloads", () => {
+  const publicCaseIds = ["sample-1", "sample-2"];
+  const normalized = normalizeTrustedPublicCaseResults(
+    {
+      caseResults: [
+        {
+          id: "sample-1",
+          visibility: "sample",
+          status: "passed",
+          actualOutput: "[0,1]",
+          expected: "must never be copied",
+        },
+        {
+          id: "sample-2",
+          visibility: "public",
+          passed: false,
+          actual: "[1,0]",
+          diagnostic: "bounded mismatch",
+          hiddenOutput: "must never be copied",
+        },
+      ],
+      hiddenCases: [{ id: "hidden-secret", actual: "private" }],
+    },
+    publicCaseIds,
+  );
+  assert.deepEqual(normalized, [
+    {
+      id: "sample-1",
+      status: "passed",
+      actualOutput: "[0,1]",
+    },
+    {
+      id: "sample-2",
+      status: "failed",
+      actualOutput: "[1,0]",
+      diagnostic: "bounded mismatch",
+    },
+  ]);
+  assert.equal(JSON.stringify(normalized).includes("hidden"), false);
+  assert.equal(
+    normalizeTrustedPublicCaseResults(
+      { caseResults: [{ id: "hidden-secret", passed: true }, { id: "sample-2", passed: true }] },
+      publicCaseIds,
+    ),
+    null,
+  );
+  assert.equal(
+    normalizeTrustedPublicCaseResults(
+      { caseResults: [{ id: "sample-1", visibility: "hidden", passed: true }, { id: "sample-2", passed: true }] },
+      publicCaseIds,
+    ),
+    null,
+  );
+  assert.equal(
+    normalizeTrustedPublicCaseResults(
+      { caseResults: [{ id: "sample-1", passed: true }] },
+      publicCaseIds,
+    ),
+    null,
+  );
+});
+
+test("aggregate-only example callbacks remain compatible while case results bind revisions", async () => {
+  const challenge = trustedChallengeForSequence(0, "swift");
+  const spec = publicExampleJudgeSpec(challenge);
+  const submission = await trustedGatewaySubmission({
+    submissionId: "example-swift-case-results",
+    source: "func twoSum(_ nums: [Int], _ target: Int) -> [Int] { [0, 1] }",
+    judgeSpec: spec,
+    callbackUrl: "https://swift.example/api/internal/judge-results",
+  });
+  const callback = {
+    version: "judge.result.v1",
+    submissionId: "example-swift-case-results",
+    verdict: "accepted",
+    passed: spec.cases.length,
+    total: spec.cases.length,
+    language: "swift6",
+    runtime: spec.runtime,
+    contentRevision: spec.contentRevision,
+    judgeRevision: spec.judgeRevision,
+    contractDigest: submission.contractDigest,
+    caseResults: spec.cases.map((entry) => ({
+      id: entry.id,
+      visibility: entry.visibility,
+      passed: true,
+      actualOutput: "[0,1]",
+    })),
+  };
+  const normalized = normalizeTrustedGatewayExampleResult(
+    callback,
+    callback.submissionId,
+    {
+      total: spec.cases.length,
+      language: "swift",
+      runtime: spec.runtime,
+      contentRevision: spec.contentRevision,
+      judgeRevision: spec.judgeRevision,
+      contractDigest: submission.contractDigest,
+      publicCaseIds: spec.cases.map((entry) => entry.id),
+    },
+  );
+  assert.equal(normalized.publicCaseResults.length, spec.cases.length);
+  assert.equal(normalized.publicCaseResults[0].actualOutput, "[0,1]");
+  assert.equal(
+    normalizeTrustedGatewayExampleResult(
+      { ...callback, judgeRevision: callback.judgeRevision + 1 },
+      callback.submissionId,
+      {
+        total: spec.cases.length,
+        language: "swift",
+        runtime: spec.runtime,
+        contentRevision: spec.contentRevision,
+        judgeRevision: spec.judgeRevision,
+        contractDigest: submission.contractDigest,
+        publicCaseIds: spec.cases.map((entry) => entry.id),
+      },
+    ),
+    null,
   );
 });
 

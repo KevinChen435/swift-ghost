@@ -63,3 +63,40 @@ test("callback refuses to sign a malformed queue result", async () => {
   delete (malformed.result as unknown as Record<string, unknown>).submissionId;
   await assert.rejects(() => deliverCallback(malformed, env()), /contract validation/);
 });
+
+test("callback accepts bounded public sample results without expected values", async () => {
+  const sample = structuredClone(message) as CallbackQueueMessage;
+  sample.result.publicCaseResults = [
+    { id: "sample-1", status: "passed", actualOutput: "answer\n" },
+    { id: "sample-2", status: "not-run" },
+  ];
+  sample.result.total = 2;
+  sample.result.passed = 1;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(null, { status: 204 });
+  try {
+    await deliverCallback(sample, env());
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("callback rejects public output that exceeds its independent bound", async () => {
+  const oversized = structuredClone(message) as CallbackQueueMessage;
+  oversized.result.publicCaseResults = [
+    { id: "sample-1", status: "passed", actualOutput: "x".repeat(4_097) },
+    { id: "sample-2", status: "not-run" },
+  ];
+  oversized.result.total = 2;
+  oversized.result.passed = 1;
+  await assert.rejects(() => deliverCallback(oversized, env()), /contract validation/);
+});
+
+test("callback rejects unsanitized public terminal controls", async () => {
+  const unsafe = structuredClone(message) as CallbackQueueMessage;
+  unsafe.result.publicCaseResults = [
+    { id: "sample-1", status: "passed", actualOutput: "answer\u001b[2J" },
+    { id: "sample-2", status: "not-run" },
+  ];
+  await assert.rejects(() => deliverCallback(unsafe, env()), /contract validation/);
+});

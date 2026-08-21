@@ -11,10 +11,35 @@ export type Verdict =
   | "time-limit"
   | "judge-error";
 
+export type TestCaseVisibility = "sample" | "hidden";
+
+/**
+ * A deliberately smaller, public-facing status vocabulary. The sealed judge
+ * verdict remains the source of truth; this status is only for rendering a
+ * visible sample's run without exposing expected values or hidden cases.
+ */
+export type PublicCaseStatus =
+  | "passed"
+  | "failed"
+  | "compile-error"
+  | "runtime-error"
+  | "time-limit"
+  | "judge-error"
+  | "not-run";
+
 export interface TestCase {
   id: string;
   input: string;
   expectedOutput: string;
+  /** Missing visibility is normalized to hidden by the ingress parser. */
+  visibility: TestCaseVisibility;
+}
+
+export interface PublicCaseResult {
+  id: string;
+  status: PublicCaseStatus;
+  /** Sanitized stdout, bounded independently from the runner's output cap. */
+  actualOutput?: string;
 }
 
 export interface SubmissionRequest {
@@ -44,6 +69,8 @@ export interface JudgeResult {
   total: number;
   failedCaseIndex?: number;
   diagnostic?: string;
+  /** Present only when every request test is explicitly marked as a sample. */
+  publicCaseResults?: PublicCaseResult[];
 }
 
 export interface SubmissionQueueMessage {

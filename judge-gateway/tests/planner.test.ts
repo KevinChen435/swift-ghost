@@ -14,8 +14,8 @@ const request: SubmissionRequest = {
   source: "print(input())",
   comparison: "exact",
   tests: [
-    { id: "one", input: "a\n", expectedOutput: "secret-a\n" },
-    { id: "two", input: "b\n", expectedOutput: "secret-b\n" },
+    { id: "one", input: "a\n", expectedOutput: "secret-a\n", visibility: "hidden" },
+    { id: "two", input: "b\n", expectedOutput: "secret-b\n", visibility: "hidden" },
   ],
   callbackUrl: "https://app.example.com/callback",
 };

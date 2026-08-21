@@ -27,6 +27,7 @@ import {
   cleanTrustedSource,
   normalizeTrustedGatewayResult,
   normalizeTrustedGatewayExampleResult,
+  normalizeTrustedPublicCaseResults,
   privateJudgeSpec,
   publicExampleJudgeSpec,
   publicTrustedChallenge,
@@ -799,14 +800,60 @@ function trustedExampleRunProjection(row: TrustedExampleRunRow, challenge?: Retu
       throw new Error("INVALID_TRUSTED_EXAMPLE_RUN_ROW");
     const parsed = JSON.parse(row.result_json) as unknown;
     if (!isRecord(parsed)) throw new Error("INVALID_TRUSTED_EXAMPLE_RUN_ROW");
-    const failedCaseIndex = typeof parsed.failedCaseIndex === "number"
+    const failedCaseIndex = typeof parsed.failedCaseIndex === "number" && Number.isInteger(parsed.failedCaseIndex)
       ? parsed.failedCaseIndex
       : null;
+    const publicCaseIds = challenge?.samples.map((sample) => sample.id);
+    const publicCaseResults = publicCaseIds
+      ? normalizeTrustedPublicCaseResults(parsed, publicCaseIds)
+      : undefined;
+    if (publicCaseResults === null)
+      throw new Error("INVALID_TRUSTED_EXAMPLE_RUN_ROW");
+    const passed = Number.isInteger(parsed.passed) ? parsed.passed : null;
+    const total = Number.isInteger(parsed.total) ? parsed.total : null;
+    const authority = parsed.authority === "server-isolated-swift"
+      ? parsed.authority
+      : null;
+    const language = parsed.language === "swift" ? parsed.language : null;
+    const runtime = typeof parsed.runtime === "string" ? parsed.runtime : null;
+    const contentRevision = Number.isInteger(parsed.contentRevision)
+      ? parsed.contentRevision
+      : null;
+    const judgeRevision = Number.isInteger(parsed.judgeRevision)
+      ? parsed.judgeRevision
+      : null;
+    const contractDigest = typeof parsed.contractDigest === "string"
+      ? parsed.contractDigest
+      : null;
+    const diagnostic = typeof parsed.diagnostic === "string"
+      ? parsed.diagnostic.slice(0, 2_000)
+      : null;
+    if (
+      passed === null ||
+      total === null ||
+      authority === null ||
+      language === null ||
+      runtime === null ||
+      contentRevision === null ||
+      judgeRevision === null ||
+      contractDigest === null
+    )
+      throw new Error("INVALID_TRUSTED_EXAMPLE_RUN_ROW");
     result = {
-      ...parsed,
+      passed,
+      total,
+      authority,
+      language,
+      runtime,
+      contentRevision,
+      judgeRevision,
+      contractDigest,
+      ...(diagnostic ? { diagnostic } : {}),
+      ...(failedCaseIndex !== null ? { failedCaseIndex } : {}),
       ...(failedCaseIndex !== null && challenge?.samples[failedCaseIndex]
         ? { failedCaseId: challenge.samples[failedCaseIndex].id }
         : {}),
+      ...(publicCaseResults === undefined ? {} : { publicCaseResults }),
     };
   }
   return {
@@ -2063,6 +2110,7 @@ async function settleTrustedExampleRunResult(
       contentRevision: row.content_revision,
       judgeRevision: row.judge_revision,
       contractDigest,
+      publicCaseIds: judgeSpec.cases.map((testCase) => testCase.id),
     },
   );
   if (!result)
@@ -2104,6 +2152,9 @@ async function settleTrustedExampleRunResult(
     ...(result.diagnostic ? { diagnostic: result.diagnostic } : {}),
     ...(typeof result.failedCaseIndex === "number"
       ? { failedCaseIndex: result.failedCaseIndex }
+      : {}),
+    ...(result.publicCaseResults
+      ? { publicCaseResults: result.publicCaseResults }
       : {}),
   });
   await env.DB.batch([

@@ -3,6 +3,18 @@ import { parsePositiveInt, secretIsStrong, validateCallbackUrl } from "./schema"
 import type { CallbackQueueMessage, Env } from "./types";
 
 const VERDICTS = new Set(["accepted", "wrong-answer", "compile-error", "runtime-error", "time-limit", "judge-error"]);
+const PUBLIC_CASE_STATUSES = new Set([
+  "passed",
+  "failed",
+  "compile-error",
+  "runtime-error",
+  "time-limit",
+  "judge-error",
+  "not-run",
+]);
+const PUBLIC_OUTPUT_MAX_BYTES = 4_096;
+const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
+const UNSAFE_PUBLIC_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/;
 
 function assertCallbackResult(message: CallbackQueueMessage): void {
   const result = message.result as unknown as Record<string, unknown>;
@@ -35,7 +47,34 @@ function assertCallbackResult(message: CallbackQueueMessage): void {
         (result.failedCaseIndex as number) < 0 ||
         (result.failedCaseIndex as number) >= (result.total as number))) ||
     (result.diagnostic !== undefined &&
-      (typeof result.diagnostic !== "string" || result.diagnostic.length > 2_000))
+      (typeof result.diagnostic !== "string" || result.diagnostic.length > 2_000)) ||
+    (result.publicCaseResults !== undefined &&
+      (!Array.isArray(result.publicCaseResults) ||
+        result.publicCaseResults.length !== (result.total as number) ||
+        new Set(result.publicCaseResults.map((entry) =>
+          typeof entry === "object" && entry !== null && !Array.isArray(entry) && typeof (entry as Record<string, unknown>).id === "string"
+            ? (entry as Record<string, unknown>).id
+            : "",
+        )).size !== result.publicCaseResults.length ||
+        result.publicCaseResults.some((entry) => {
+          if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return true;
+          const candidate = entry as Record<string, unknown>;
+          return (
+            typeof candidate.id !== "string" ||
+            !ID_PATTERN.test(candidate.id) ||
+            typeof candidate.status !== "string" ||
+            !PUBLIC_CASE_STATUSES.has(candidate.status) ||
+            (candidate.actualOutput !== undefined &&
+              (typeof candidate.actualOutput !== "string" ||
+                new TextEncoder().encode(candidate.actualOutput).byteLength > PUBLIC_OUTPUT_MAX_BYTES ||
+                UNSAFE_PUBLIC_TEXT.test(candidate.actualOutput) ||
+                /\u001b\[[0-?]*[ -/]*[@-~]/.test(candidate.actualOutput))) ||
+            (candidate.diagnostic !== undefined &&
+              (typeof candidate.diagnostic !== "string" ||
+                candidate.diagnostic.length > 2_000 ||
+                UNSAFE_PUBLIC_TEXT.test(candidate.diagnostic)))
+          );
+        })))
   ) {
     throw new Error("callback result failed contract validation");
   }
