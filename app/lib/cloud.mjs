@@ -525,6 +525,76 @@ function normalizeTrustedSubmission(value, challenge) {
   };
 }
 
+const TRUSTED_PUBLIC_CASE_STATUSES = new Set([
+  "passed",
+  "failed",
+  "compile-error",
+  "runtime-error",
+  "time-limit",
+  "wrong-answer",
+  "judge-error",
+  "not-run",
+]);
+
+function normalizeTrustedPublicValue(value, depth = 0) {
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value === "string") return value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "").slice(0, 4_000);
+  if (depth >= 5 || !value || typeof value !== "object") return undefined;
+  if (Array.isArray(value)) {
+    return value.slice(0, 64).map((entry) => normalizeTrustedPublicValue(entry, depth + 1));
+  }
+  const output = {};
+  for (const [key, entry] of Object.entries(value).slice(0, 64)) {
+    const normalizedKey = cleanString(key, 128);
+    const normalizedValue = normalizeTrustedPublicValue(entry, depth + 1);
+    if (normalizedKey && normalizedValue !== undefined) output[normalizedKey] = normalizedValue;
+  }
+  return output;
+}
+
+function normalizeTrustedPublicCaseResults(value, samples) {
+  if (!Array.isArray(value) || !Array.isArray(samples) || samples.length < 1)
+    return undefined;
+  const sampleIds = new Set(samples.map((sample) => sample.id));
+  const seen = new Set();
+  const results = [];
+  for (const entry of value.slice(0, samples.length)) {
+    if (!isRecord(entry)) return undefined;
+    const caseId = id(entry.id ?? entry.caseId, 96);
+    if (!caseId || !sampleIds.has(caseId) || seen.has(caseId)) return undefined;
+    const status = TRUSTED_PUBLIC_CASE_STATUSES.has(entry.status)
+      ? entry.status
+      : null;
+    const passed = typeof entry.passed === "boolean"
+      ? entry.passed
+      : status === "passed"
+        ? true
+        : status
+          ? false
+          : undefined;
+    if (passed === undefined || (!status && !Object.hasOwn(entry, "passed"))) return undefined;
+    if (entry.visibility !== undefined && entry.visibility !== "sample" && entry.visibility !== "public")
+      return undefined;
+    seen.add(caseId);
+    const actual = Object.hasOwn(entry, "actual")
+      ? normalizeTrustedPublicValue(entry.actual)
+      : Object.hasOwn(entry, "actualOutput")
+        ? normalizeTrustedPublicValue(entry.actualOutput)
+        : undefined;
+    const diagnostic = optionalString(entry.diagnostic, 2_000);
+    results.push({
+      id: caseId,
+      visibility: "sample",
+      passed,
+      ...(status ? { status } : {}),
+      ...(actual !== undefined ? { actual } : {}),
+      ...(diagnostic ? { diagnostic } : {}),
+    });
+  }
+  return results;
+}
+
 function normalizeTrustedExampleRun(value, challenge) {
   const raw = isRecord(value) && isRecord(value.exampleRun)
     ? value.exampleRun
@@ -575,6 +645,9 @@ function normalizeTrustedExampleRun(value, challenge) {
     ? raw.result.contractDigest
     : undefined;
   const diagnostic = optionalString(raw.result.diagnostic, 2_000);
+  const publicCaseResults = raw.result.publicCaseResults === undefined
+    ? undefined
+    : normalizeTrustedPublicCaseResults(raw.result.publicCaseResults, challenge?.samples);
   if (
     !Number.isInteger(total) ||
     total < 1 ||
@@ -598,7 +671,8 @@ function normalizeTrustedExampleRun(value, challenge) {
     (failedCaseIndex !== undefined &&
       (!Number.isInteger(failedCaseIndex) ||
         failedCaseIndex < 0 ||
-        failedCaseIndex >= total))
+        failedCaseIndex >= total)) ||
+    (raw.result.publicCaseResults !== undefined && publicCaseResults === undefined)
   ) return undefined;
   const failedCaseId = failedCaseIndex !== undefined && challenge?.samples?.[failedCaseIndex]
     ? challenge.samples[failedCaseIndex].id
@@ -623,6 +697,7 @@ function normalizeTrustedExampleRun(value, challenge) {
       ...(failedCaseIndex !== undefined ? { failedCaseIndex } : {}),
       ...(failedCaseId ? { failedCaseId } : {}),
       ...(diagnostic ? { diagnostic } : {}),
+      ...(publicCaseResults ? { publicCaseResults } : {}),
     },
   };
 }

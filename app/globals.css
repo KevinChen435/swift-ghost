@@ -10765,6 +10765,19 @@ kbd {
   white-space: pre-wrap;
 }
 
+.swift-solve-sample-grid article code.swift-sample-actual {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border-soft));
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent-soft) 58%, var(--bg));
+}
+
+.swift-sample-diagnostic {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font: 600 0.62rem/1.45 var(--font-code);
+}
+
 .swift-solve-console-message {
   margin: 0;
   padding: 10px 12px;

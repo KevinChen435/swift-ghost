@@ -271,6 +271,14 @@ export type CloudTrustedExampleRun = {
     failedCaseIndex?: number;
     failedCaseId?: string;
     diagnostic?: string;
+    publicCaseResults?: Array<{
+      id: string;
+      visibility: "sample";
+      passed: boolean;
+      status?: "passed" | "failed" | "wrong-answer" | "compile-error" | "runtime-error" | "time-limit" | "judge-error" | "not-run";
+      actual?: unknown;
+      diagnostic?: string;
+    }>;
   };
 };
 

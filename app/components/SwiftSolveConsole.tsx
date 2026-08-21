@@ -80,6 +80,26 @@ function exampleStatusFor(
   if (!exampleRun) return { label: "Not run", className: "idle" };
   if (exampleRun.status === "pending")
     return { label: "Running", className: "pending" };
+  const publicCaseResult = exampleRun.result?.publicCaseResults?.find(
+    (result) => result.id === sampleId,
+  );
+  if (publicCaseResult) {
+    if (publicCaseResult.status === "passed")
+      return { label: "Passed", className: "passed" };
+    if (publicCaseResult.status === "compile-error")
+      return { label: "Compile blocked", className: "failed" };
+    if (publicCaseResult.status === "runtime-error")
+      return { label: "Runtime blocked", className: "failed" };
+    if (publicCaseResult.status === "time-limit")
+      return { label: "Timed out", className: "failed" };
+    if (publicCaseResult.status === "judge-error")
+      return { label: "Judge unavailable", className: "failed" };
+    if (publicCaseResult.status === "not-run")
+      return { label: "Not reached", className: "idle" };
+    if (publicCaseResult.status === "wrong-answer")
+      return { label: "Failed", className: "failed" };
+    return { label: "Failed", className: "failed" };
+  }
   if (!exampleRun.result || !exampleRun.verdict)
     return { label: "Unavailable", className: "failed" };
   if (exampleRun.verdict === "accepted")
@@ -429,11 +449,18 @@ export function SwiftSolveConsole({
           <div className="swift-solve-samples">
             <div>
               <span className="eyebrow">Public examples</span>
-              <p>Use these to sanity-check your implementation before submitting.</p>
+              <p>
+                Expected values are part of the visible contract. After a run,
+                the observed output is shown for these public examples only;
+                sealed cases never appear here.
+              </p>
             </div>
             <div className="swift-solve-sample-grid">
               {challenge.samples.map((sample, index) => {
                 const status = exampleStatusFor(exampleRun, sample.id, index);
+                const publicCaseResult = exampleRun?.result?.publicCaseResults?.find(
+                  (result) => result.id === sample.id,
+                );
                 return (
                 <article key={sample.id}>
                   <div className="swift-sample-result-row">
@@ -442,6 +469,16 @@ export function SwiftSolveConsole({
                   </div>
                   <code>args: {valueLabel(sample.args)}</code>
                   <code>expected: {valueLabel(sample.expected)}</code>
+                  {publicCaseResult && Object.hasOwn(publicCaseResult, "actual") ? (
+                    <code className="swift-sample-actual">
+                      actual: {valueLabel(publicCaseResult.actual)}
+                    </code>
+                  ) : null}
+                  {publicCaseResult?.diagnostic ? (
+                    <small className="swift-sample-diagnostic">
+                      {publicCaseResult.diagnostic}
+                    </small>
+                  ) : null}
                 </article>
                 );
               })}

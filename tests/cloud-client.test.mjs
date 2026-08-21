@@ -352,6 +352,16 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
             failedCaseIndex: 1,
             failedCaseId: "sample-2",
             diagnostic: "compile output is bounded",
+            publicCaseResults: [
+              { id: "sample-1", status: "passed", actual: 2, expected: "drop me" },
+              {
+                id: "sample-2",
+                status: "failed",
+                actual: [0, 0, 0],
+                diagnostic: "sample output differs",
+              },
+              { id: "hidden-case-1", status: "passed", actual: "drop me" },
+            ],
             hiddenOutput: "must be dropped",
           },
         },
@@ -412,6 +422,18 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
   assert.equal(exampleRun.data.result.failedCaseIndex, 1);
   assert.equal(exampleRun.data.result.failedCaseId, "sample-2");
   assert.equal(exampleRun.data.result.diagnostic, "compile output is bounded");
+  assert.deepEqual(exampleRun.data.result.publicCaseResults, [
+    { id: "sample-1", visibility: "sample", passed: true, status: "passed", actual: 2 },
+    {
+      id: "sample-2",
+      visibility: "sample",
+      passed: false,
+      status: "failed",
+      actual: [0, 0, 0],
+      diagnostic: "sample output differs",
+    },
+  ]);
+  assert.equal(Object.hasOwn(exampleRun.data.result.publicCaseResults[0], "expected"), false);
   assert.equal(Object.hasOwn(exampleRun.data.result, "hiddenOutput"), false);
   assert.equal(
     mock.calls[4].url,
