@@ -1,4 +1,5 @@
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 import {
   cleanConceptResponse,
@@ -57,4 +58,20 @@ test("concept capability requires a complete authored iOS card", () => {
     }),
     false,
   );
+});
+
+test("portable iOS recall cards offer a separate judged Swift companion after reveal", async () => {
+  const [items, component, app] = await Promise.all([
+    readFile(new URL("../app/lib/items.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/ConceptPractice.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/SwiftGhostApp.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(items, /"ios:copy-on-write-draft": "swift-independent-array-copies"/);
+  assert.match(items, /"ios:optional-throwing-boundary": "swift-optional-port-boundary"/);
+  assert.match(component, /Next step · portable execution/);
+  assert.match(component, /Open isolated Swift solve/);
+  assert.match(component, /Public\s+examples are practice feedback; sealed\s+cases remain private/);
+  assert.match(app, /candidate\.trustedChallengeKey ===/);
+  assert.match(app, /onOpenCompanion=\{\(item\) =>/);
+  assert.match(app, /props\.onOpenItem\(item, 5, undefined, undefined, "solving"\)/);
 });

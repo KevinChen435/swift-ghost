@@ -41,6 +41,8 @@ export function ConceptPractice({
   onResponseChange,
   onReveal,
   onComplete,
+  companionItem,
+  onOpenCompanion,
 }: {
   item: PracticeItem;
   checkIndex: 0 | 1 | 2;
@@ -50,6 +52,8 @@ export function ConceptPractice({
   onResponseChange: (value: string) => void;
   onReveal: (assisted: boolean, responseSnapshot: string) => void;
   onComplete: (input: ConceptCompletionInput) => void;
+  companionItem?: PracticeItem;
+  onOpenCompanion?: (item: PracticeItem) => void;
 }) {
   const [grade, setGrade] = useState<RetrievalGrade | null>(null);
   const [friction, setFriction] = useState<FrictionCategory>("none");
@@ -228,6 +232,26 @@ export function ConceptPractice({
               </button>
             </div>
           </section>
+
+          {companionItem && onOpenCompanion ? (
+            <aside className="concept-companion-card">
+              <div>
+                <span className="eyebrow">Next step · portable execution</span>
+                <h3>{companionItem.title}</h3>
+                <p>
+                  Turn this recall card into an isolated Swift solve. Public
+                  examples are practice feedback; sealed cases remain private.
+                </p>
+              </div>
+              <button
+                className="outline-button"
+                type="button"
+                onClick={() => onOpenCompanion(companionItem)}
+              >
+                Open isolated Swift solve →
+              </button>
+            </aside>
+          ) : null}
         </>
       )}
     </section>

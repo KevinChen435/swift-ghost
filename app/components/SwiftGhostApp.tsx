@@ -9525,6 +9525,14 @@ function PracticeView(props: PracticeProps) {
       : null;
   const isVirtualRound = Boolean(activeVirtualRound);
   const isTransfer = Boolean(props.item.transfer);
+  const companionItem =
+    !props.draft.sessionId && props.item.portableSolveCompanionKey
+      ? props.items.find(
+          (candidate) =>
+            candidate.trustedChallengeKey ===
+            props.item.portableSolveCompanionKey,
+        )
+      : undefined;
   const isTrustedSwiftSolve = Boolean(
     props.practiceKind === "solving" &&
       props.item.language === "swift" &&
@@ -11278,6 +11286,10 @@ function PracticeView(props: PracticeProps) {
             onResponseChange={props.onConceptChange}
             onReveal={props.onConceptReveal}
             onComplete={props.onConceptComplete}
+            companionItem={companionItem}
+            onOpenCompanion={(item) =>
+              props.onOpenItem(item, 5, undefined, undefined, "solving")
+            }
           />
         ) : props.practiceKind === "solving" && canSolveItem(props.item) ? (
           <SolveWorkbench

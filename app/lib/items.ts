@@ -56,6 +56,8 @@ export type PracticeItem = Omit<Problem, "swiftNote"> & {
   trustedChallengeKey?: SwiftChallengeKey;
   /** Current sealed-judge revision for server-backed challenges. */
   trustedJudgeRevision?: number;
+  /** Optional runnable Swift companion for a recall-first iOS concept card. */
+  portableSolveCompanionKey?: SwiftChallengeKey;
   createdAt?: string;
   updatedAt?: string;
   archivedAt?: string;
@@ -136,6 +138,11 @@ export const TRANSFER_ITEMS: PracticeItem[] = TRANSFER_PROBLEMS.map(
   }),
 );
 
+const IOS_PORTABLE_SOLVE_COMPANIONS: Partial<Record<string, SwiftChallengeKey>> = {
+  "ios:copy-on-write-draft": "swift-independent-array-copies",
+  "ios:optional-throwing-boundary": "swift-optional-port-boundary",
+};
+
 export const IOS_ITEMS: PracticeItem[] = FUNDAMENTALS.map(
   ({ swiftNote, ...fundamental }, index) => ({
     ...fundamental,
@@ -155,6 +162,12 @@ export const IOS_ITEMS: PracticeItem[] = FUNDAMENTALS.map(
     languageNote: swiftNote,
     source: "builtin",
     contentRevision: 2,
+    ...(IOS_PORTABLE_SOLVE_COMPANIONS[fundamental.id]
+      ? {
+          portableSolveCompanionKey:
+            IOS_PORTABLE_SOLVE_COMPANIONS[fundamental.id],
+        }
+      : {}),
   }),
 );
 

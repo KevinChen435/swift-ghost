@@ -8689,6 +8689,25 @@ kbd {
 .concept-save-row p {
   color: var(--muted);
 }
+.concept-companion-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 20px;
+  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--accent-soft) 72%, var(--panel));
+}
+.concept-companion-card h3 {
+  margin: 6px 0;
+}
+.concept-companion-card p {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
 .concept-reference-card {
   min-height: 300px;
 }
@@ -8786,7 +8805,8 @@ kbd {
   }
   .concept-brief,
   .concept-commit-row,
-  .concept-save-row {
+  .concept-save-row,
+  .concept-companion-card {
     align-items: stretch;
     flex-direction: column;
   }
