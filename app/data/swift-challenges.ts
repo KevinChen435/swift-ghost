@@ -28,6 +28,7 @@ export type SwiftChallengeSample = {
 
 export type SwiftChallengeMetadata = {
   key: `swift-${string}`;
+  track?: "interview" | "ios";
   language: "swift";
   runtime: "swift-6.3.3-linux";
   contentRevision: number;
@@ -727,6 +728,43 @@ export const SWIFT_CHALLENGES = [
     samples: [
       { id: "sample-1", name: "short middle window", args: [7, [2, 3, 1, 2, 4, 3]], expected: 2 },
       { id: "sample-2", name: "no valid window", args: [11, [1, 1, 1, 1]], expected: 0 },
+    ],
+  }),
+  swiftChallenge({
+    language: "swift",
+    track: "ios",
+    key: "swift-independent-array-copies",
+    runtime: "swift-6.3.3-linux",
+    contentRevision: 1,
+    judgeRevision: 1,
+    title: "Independent Array Copies in Swift",
+    difficulty: "Easy",
+    estimatedMinutes: 8,
+    summary: "Create two independent value-semantic copies before mutating them.",
+    prompt:
+      "Implement makeIndependentCopies(_ values: [Int], _ first: Int, _ second: Int) -> [[Int]]. Start two mutable copies from values, append first to one and second to the other, and return [firstCopy, secondCopy]. The original values must remain unchanged.",
+    constraints: [
+      "0 <= values.count <= 100,000",
+      "The two returned arrays preserve the original order before their appended value.",
+      "Do not mutate the input array through an alias.",
+      "Aim for O(n) total additional work.",
+    ],
+    tags: ["swift", "value-semantics", "copy-on-write"],
+    starterCode:
+      "import Foundation\n\nfunc makeIndependentCopies(_ values: [Int], _ first: Int, _ second: Int) -> [[Int]] {\n    // Copy the value, then mutate each copy independently.\n    return []\n}",
+    entrypoint: {
+      kind: "function",
+      name: "makeIndependentCopies",
+      parameters: [
+        { name: "values", type: "[Int]" },
+        { name: "first", type: "Int" },
+        { name: "second", type: "Int" },
+      ],
+      returns: "[[Int]]",
+    },
+    samples: [
+      { id: "sample-1", name: "two different appends", args: [[1, 2], 3, 4], expected: [[1, 2, 3], [1, 2, 4]] },
+      { id: "sample-2", name: "empty source", args: [[], -1, 5], expected: [[-1], [5]] },
     ],
   }),
 ] as const;

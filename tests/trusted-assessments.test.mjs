@@ -15,6 +15,7 @@ import {
   privateJudgeSpec,
   publicExampleJudgeSpec,
   publicTrustedChallenge,
+  trustedChallengeForKey,
   trustedChallengeForSequence,
   trustedGatewaySubmission,
 } from "../worker/trusted-assessments.mjs";
@@ -132,7 +133,7 @@ test("callable challenges translate into the bounded stdin/stdout gateway contra
 });
 
 test("Swift challenges generate typed harnesses without embedding sealed cases", async () => {
-  assert.equal(TRUSTED_SWIFT_CHALLENGE_COUNT, 18);
+  assert.equal(TRUSTED_SWIFT_CHALLENGE_COUNT, 19);
   const challenge = trustedChallengeForSequence(0, "swift");
   const publicProjection = publicTrustedChallenge(challenge);
   const judgeSpec = privateJudgeSpec(challenge);
@@ -161,6 +162,29 @@ test("Swift challenges generate typed harnesses without embedding sealed cases",
     }),
     /INVALID_TRUSTED_JUDGE_SPEC/,
   );
+});
+
+test("portable iOS Swift contract uses only JSON-safe values and keeps its sealed checks server-side", async () => {
+  const challenge = trustedChallengeForKey("swift-independent-array-copies");
+  assert.ok(challenge);
+  assert.equal(challenge.language, "swift");
+  assert.equal(challenge.entrypoint.returns, "[[Int]]");
+  assert.deepEqual(
+    challenge.entrypoint.parameters.map((parameter) => parameter.type),
+    ["[Int]", "Int", "Int"],
+  );
+  const publicProjection = publicTrustedChallenge(challenge);
+  assert.equal(Object.hasOwn(publicProjection, "hiddenCases"), false);
+  const request = await trustedGatewaySubmission({
+    submissionId: "verified-ios-swift12345",
+    source: "import Foundation\nfunc makeIndependentCopies(_ values: [Int], _ first: Int, _ second: Int) -> [[Int]] { var left = values; var right = values; left.append(first); right.append(second); return [left, right] }",
+    judgeSpec: privateJudgeSpec(challenge),
+    callbackUrl: "https://swift.example/api/internal/judge-results",
+  });
+  assert.equal(request.tests.length, challenge.samples.length + challenge.hiddenCases.length);
+  assert.match(request.source, /makeIndependentCopies\(__swiftGhostInput\.arg0, __swiftGhostInput\.arg1, __swiftGhostInput\.arg2\)/);
+  assert.equal(request.tests.filter((testCase) => testCase.visibility === "sample").length, 2);
+  assert.equal(request.tests.filter((testCase) => testCase.visibility === "hidden").length, 4);
 });
 
 test("Swift example contracts include only public samples and expose only public failure indexes", async () => {

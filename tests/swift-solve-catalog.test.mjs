@@ -13,10 +13,26 @@ test("catalog exposes the sealed Swift solve lane without hidden cases", async (
   assert.match(items, /trustedChallengeKey: challenge\.key/);
   assert.match(items, /`swift:\$\{challenge\.key\}`/);
   assert.match(items, /item\.language === "swift" && Boolean\(item\.trustedChallengeKey\)/);
-  assert.equal((challenges.match(/key: "swift-[a-z-]+"/g) ?? []).length, 18);
+  assert.equal((challenges.match(/key: "swift-[a-z-]+"/g) ?? []).length, 19);
   assert.doesNotMatch(challenges, /hiddenCases/);
   assert.match(statement, /getSwiftChallenge/);
   assert.match(statement, /Private sealed judge/);
+});
+
+test("the portable Swift fundamentals card is executable while framework cards stay recall-only", async () => {
+  const items = await readFile(new URL("../app/lib/items.ts", import.meta.url), "utf8");
+  assert.match(items, /track: challenge\.track \?\? "interview"/);
+  assert.match(items, /"swift-independent-array-copies": "Arrays & Hashing"/);
+  const [challenges, fundamentals] = await Promise.all([
+    import("../app/data/swift-challenges.ts"),
+    readFile(new URL("../app/data/fundamentals.ts", import.meta.url), "utf8"),
+  ]);
+  const portable = challenges.SWIFT_CHALLENGES.find(
+    (challenge) => challenge.key === "swift-independent-array-copies",
+  );
+  assert.equal(portable?.track, "ios");
+  assert.match(fundamentals, /value-reference-snapshots/);
+  assert.match(fundamentals, /weak-stored-closure/);
 });
 
 test("public Swift projections stay aligned with the worker-owned sealed bank", async () => {

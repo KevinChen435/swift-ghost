@@ -853,6 +853,40 @@ const SWIFT_CHALLENGES = Object.freeze([
       { id: "hidden-one", name: "single element wins", args: [4, [1, 4, 4]], expected: 1 },
     ],
   }),
+  freezeChallenge({
+    language: "swift",
+    key: "swift-independent-array-copies",
+    contentRevision: 1,
+    judgeRevision: 1,
+    title: "Independent Array Copies in Swift",
+    difficulty: "Easy",
+    estimatedMinutes: 8,
+    summary: "Create two independent value-semantic copies before mutating them.",
+    prompt: "Implement makeIndependentCopies(_ values: [Int], _ first: Int, _ second: Int) -> [[Int]]. Start two mutable copies from values, append first to one and second to the other, and return [firstCopy, secondCopy]. The original values must remain unchanged.",
+    constraints: [
+      "0 <= values.count <= 100,000",
+      "The two returned arrays preserve the original order before their appended value.",
+      "Do not mutate the input array through an alias.",
+      "Aim for O(n) total additional work.",
+    ],
+    tags: ["value-semantics", "copy-on-write"],
+    starterCode: "import Foundation\n\nfunc makeIndependentCopies(_ values: [Int], _ first: Int, _ second: Int) -> [[Int]] {\n    // Copy the value, then mutate each copy independently.\n    return []\n}",
+    entrypoint: { kind: "function", name: "makeIndependentCopies", parameters: [
+      { name: "values", type: "[Int]" },
+      { name: "first", type: "Int" },
+      { name: "second", type: "Int" },
+    ], returns: "[[Int]]" },
+    samples: [
+      { id: "sample-1", name: "two different appends", args: [[1, 2], 3, 4], expected: [[1, 2, 3], [1, 2, 4]] },
+      { id: "sample-2", name: "empty source", args: [[], -1, 5], expected: [[-1], [5]] },
+    ],
+    hiddenCases: [
+      { id: "hidden-single", name: "single source value", args: [[9], 0, 0], expected: [[9, 0], [9, 0]] },
+      { id: "hidden-negative", name: "negative values", args: [[-3, 2], -8, 11], expected: [[-3, 2, -8], [-3, 2, 11]] },
+      { id: "hidden-duplicates", name: "duplicate appends", args: [[4, 4], 4, 4], expected: [[4, 4, 4], [4, 4, 4]] },
+      { id: "hidden-order", name: "preserve original order", args: [[5, 1, 9], 2, 8], expected: [[5, 1, 9, 2], [5, 1, 9, 8]] },
+    ],
+  }),
 ]);
 
 const CHALLENGES = Object.freeze([

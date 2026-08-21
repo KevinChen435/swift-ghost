@@ -159,6 +159,7 @@ export const IOS_ITEMS: PracticeItem[] = FUNDAMENTALS.map(
 );
 
 const SWIFT_SOLVE_PATTERN: Record<SwiftChallengeKey, Pattern> = {
+  "swift-independent-array-copies": "Arrays & Hashing",
   "swift-two-sum": "Arrays & Hashing",
   "swift-valid-parentheses": "Stack",
   "swift-stable-window": "Sliding Window",
@@ -203,7 +204,7 @@ export const SWIFT_SOLVE_ITEMS: PracticeItem[] = SWIFT_CHALLENGES.map(
   (challenge, index) => ({
     id: 30001 + index,
     itemId: SWIFT_SOLVE_ITEM_IDS[index],
-    track: "interview",
+    track: challenge.track ?? "interview",
     language: "swift",
     source: "builtin",
     title: challenge.title,
