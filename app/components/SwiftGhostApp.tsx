@@ -10173,6 +10173,7 @@ function PracticeView(props: PracticeProps) {
     swiftExampleRun?.status,
     trustedJudgeAuthenticated,
     trustedJudgeAvailable,
+    swiftAssignment?.challenge,
   ]);
   const customCaseInput =
     props.state.customCaseInputs[props.item.itemId] ??

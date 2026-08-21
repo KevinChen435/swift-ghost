@@ -155,6 +155,7 @@ const MAX_BODY_BYTES = 512_000;
 const MAX_STUDY_WORKSPACE_BYTES = 256 * 1024;
 const TRUSTED_ENQUEUED_TIMEOUT_MS = 30 * 60 * 1000;
 const TRUSTED_DELIVERY_TIMEOUT_MS = 60 * 60 * 1000;
+const TRUSTED_EXAMPLE_MAX_PENDING_PER_USER = 3;
 const ITEM_CATALOG = new Map(BUILTIN_ITEMS.map((item) => [item.itemId, item]));
 const CHALLENGE_ITEMS = BUILTIN_ITEMS.filter(
   (item) => item.track === "interview" && item.difficulty !== "Hard",
@@ -1408,8 +1409,17 @@ async function maintainTrustedSubmissions(
         challenge.language !== "swift" ||
         challenge.contentRevision !== row.content_revision ||
         challenge.judgeRevision !== row.judge_revision
-      )
+      ) {
+        await db.batch([
+          db.prepare(
+            "DELETE FROM trusted_example_run_payloads WHERE run_id = ?",
+          ).bind(row.id),
+          db.prepare(
+            "DELETE FROM trusted_example_runs WHERE id = ? AND status = 'pending'",
+          ).bind(row.id),
+        ]);
         continue;
+      }
       const judgeSpec = publicExampleJudgeSpec(challenge);
       const settlementHash = await sha256(JSON.stringify({
         version: 1,
@@ -1838,6 +1848,18 @@ async function runTrustedAssignmentExamples(
       429,
       "EXAMPLE_RUN_RATE_LIMITED",
       "Wait a moment before starting another Swift example run.",
+    );
+  const pendingExampleCount = await env.DB.prepare(`
+    SELECT COUNT(*) AS count
+    FROM trusted_example_runs
+    WHERE user_id = ? AND status = 'pending'
+  `).bind(user.userId).first<{ count: number }>();
+  if ((pendingExampleCount?.count ?? 0) >= TRUSTED_EXAMPLE_MAX_PENDING_PER_USER)
+    return errorResponse(
+      request,
+      429,
+      "EXAMPLE_RUN_LIMIT_REACHED",
+      "Finish or wait for an earlier Swift example run before starting another.",
     );
 
   const assignment = await env.DB.prepare(`
