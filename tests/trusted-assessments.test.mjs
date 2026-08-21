@@ -291,7 +291,7 @@ test("public example case results are sample-bound, bounded, and omit hidden pay
     },
     publicCaseIds,
   );
-  assert.ok(bounded.every((entry) => new TextEncoder().encode(entry.actual).byteLength <= 2_048));
+  assert.ok(bounded.every((entry) => new TextEncoder().encode(entry.actualOutput).byteLength <= 2_048));
   const unicodeBounded = normalizeTrustedPublicCaseResults(
     {
       caseResults: publicCaseIds.map((id) => ({
