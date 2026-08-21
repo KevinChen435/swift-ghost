@@ -133,7 +133,7 @@ test("callable challenges translate into the bounded stdin/stdout gateway contra
 });
 
 test("Swift challenges generate typed harnesses without embedding sealed cases", async () => {
-  assert.equal(TRUSTED_SWIFT_CHALLENGE_COUNT, 19);
+  assert.equal(TRUSTED_SWIFT_CHALLENGE_COUNT, 20);
   const challenge = trustedChallengeForSequence(0, "swift");
   const publicProjection = publicTrustedChallenge(challenge);
   const judgeSpec = privateJudgeSpec(challenge);
@@ -185,6 +185,27 @@ test("portable iOS Swift contract uses only JSON-safe values and keeps its seale
   assert.match(request.source, /makeIndependentCopies\(__swiftGhostInput\.arg0, __swiftGhostInput\.arg1, __swiftGhostInput\.arg2\)/);
   assert.equal(request.tests.filter((testCase) => testCase.visibility === "sample").length, 2);
   assert.equal(request.tests.filter((testCase) => testCase.visibility === "hidden").length, 4);
+});
+
+test("optional iOS Swift contract preserves nil through the typed JSON harness", async () => {
+  const challenge = trustedChallengeForKey("swift-optional-port-boundary");
+  assert.ok(challenge);
+  assert.equal(challenge.entrypoint.returns, "Int?");
+  assert.deepEqual(
+    challenge.entrypoint.parameters.map((parameter) => parameter.type),
+    ["String?"],
+  );
+  const request = await trustedGatewaySubmission({
+    submissionId: "verified-ios-optional12345",
+    source: "import Foundation\nfunc normalizedPort(_ raw: String?) -> Int? { guard let raw, let port = Int(raw), (1...65535).contains(port) else { return nil }; return port }",
+    judgeSpec: privateJudgeSpec(challenge),
+    callbackUrl: "https://swift.example/api/internal/judge-results",
+  });
+  assert.equal(request.tests.length, challenge.samples.length + challenge.hiddenCases.length);
+  assert.equal(request.tests[1].input, '{"args":[null]}\n');
+  assert.equal(request.tests[1].expectedOutput, "null\n");
+  assert.match(request.source, /arg0: String\?/);
+  assert.match(request.source, /normalizedPort\(__swiftGhostInput\.arg0\)/);
 });
 
 test("Swift example contracts include only public samples and expose only public failure indexes", async () => {

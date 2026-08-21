@@ -9,7 +9,7 @@ export type TrustedJudgeVerdict =
 
 export type TrustedEntrypointParameter = Readonly<{
   name: string;
-  type: "Int" | "Bool" | "String" | "[Int]" | "[String]" | "[[Int]]";
+  type: "Int" | "Int?" | "Bool" | "String" | "String?" | "[Int]" | "[String]" | "[[Int]]";
 }>;
 
 export type TrustedEntrypoint = Readonly<{

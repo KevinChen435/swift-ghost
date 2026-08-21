@@ -887,6 +887,37 @@ const SWIFT_CHALLENGES = Object.freeze([
       { id: "hidden-order", name: "preserve original order", args: [[5, 1, 9], 2, 8], expected: [[5, 1, 9, 2], [5, 1, 9, 8]] },
     ],
   }),
+  freezeChallenge({
+    language: "swift",
+    key: "swift-optional-port-boundary",
+    contentRevision: 1,
+    judgeRevision: 1,
+    title: "Validate an Optional Port in Swift",
+    difficulty: "Easy",
+    estimatedMinutes: 7,
+    summary: "Use optional binding to distinguish absent configuration from a valid port.",
+    prompt: "Implement normalizedPort(_ raw: String?) -> Int?. Return an integer only when raw contains a base-10 TCP port in 1...65535; return nil for a missing, non-numeric, or out-of-range value. Do not force-unwrap.",
+    constraints: [
+      "raw may be nil, empty, non-numeric, or outside the valid port range.",
+      "Return nil for every invalid input; never trap or force-unwrap.",
+      "A valid result is an integer in 1...65535.",
+      "Aim for O(k) time for k characters.",
+    ],
+    tags: ["optionals", "guard", "validation"],
+    starterCode: "import Foundation\n\nfunc normalizedPort(_ raw: String?) -> Int? {\n    // Bind the optional string, parse it, and enforce the valid range.\n    return nil\n}",
+    entrypoint: { kind: "function", name: "normalizedPort", parameters: [{ name: "raw", type: "String?" }], returns: "Int?" },
+    samples: [
+      { id: "sample-1", name: "valid port", args: ["443"], expected: 443 },
+      { id: "sample-2", name: "missing value", args: [null], expected: null },
+    ],
+    hiddenCases: [
+      { id: "hidden-empty", name: "empty string", args: [""], expected: null },
+      { id: "hidden-non-numeric", name: "non numeric", args: ["http"], expected: null },
+      { id: "hidden-low", name: "zero is invalid", args: ["0"], expected: null },
+      { id: "hidden-high", name: "above maximum", args: ["65536"], expected: null },
+      { id: "hidden-edge", name: "maximum valid port", args: ["65535"], expected: 65535 },
+    ],
+  }),
 ]);
 
 const CHALLENGES = Object.freeze([
@@ -1055,8 +1086,10 @@ function pythonCallableHarness(source, entrypointName) {
 
 const SWIFT_TYPES = new Set([
   "Int",
+  "Int?",
   "Bool",
   "String",
+  "String?",
   "[Int]",
   "[String]",
   "[[Int]]",

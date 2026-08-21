@@ -160,6 +160,7 @@ export const IOS_ITEMS: PracticeItem[] = FUNDAMENTALS.map(
 
 const SWIFT_SOLVE_PATTERN: Record<SwiftChallengeKey, Pattern> = {
   "swift-independent-array-copies": "Arrays & Hashing",
+  "swift-optional-port-boundary": "Optionals & Errors",
   "swift-two-sum": "Arrays & Hashing",
   "swift-valid-parentheses": "Stack",
   "swift-stable-window": "Sliding Window",

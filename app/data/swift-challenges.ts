@@ -767,6 +767,39 @@ export const SWIFT_CHALLENGES = [
       { id: "sample-2", name: "empty source", args: [[], -1, 5], expected: [[-1], [5]] },
     ],
   }),
+  swiftChallenge({
+    language: "swift",
+    track: "ios",
+    key: "swift-optional-port-boundary",
+    runtime: "swift-6.3.3-linux",
+    contentRevision: 1,
+    judgeRevision: 1,
+    title: "Validate an Optional Port in Swift",
+    difficulty: "Easy",
+    estimatedMinutes: 7,
+    summary: "Use optional binding to distinguish absent configuration from a valid port.",
+    prompt:
+      "Implement normalizedPort(_ raw: String?) -> Int?. Return an integer only when raw contains a base-10 TCP port in 1...65535; return nil for a missing, non-numeric, or out-of-range value. Do not force-unwrap.",
+    constraints: [
+      "raw may be nil, empty, non-numeric, or outside the valid port range.",
+      "Return nil for every invalid input; never trap or force-unwrap.",
+      "A valid result is an integer in 1...65535.",
+      "Aim for O(k) time for k characters.",
+    ],
+    tags: ["swift", "optionals", "guard", "validation"],
+    starterCode:
+      "import Foundation\n\nfunc normalizedPort(_ raw: String?) -> Int? {\n    // Bind the optional string, parse it, and enforce the valid range.\n    return nil\n}",
+    entrypoint: {
+      kind: "function",
+      name: "normalizedPort",
+      parameters: [{ name: "raw", type: "String?" }],
+      returns: "Int?",
+    },
+    samples: [
+      { id: "sample-1", name: "valid port", args: ["443"], expected: 443 },
+      { id: "sample-2", name: "missing value", args: [null], expected: null },
+    ],
+  }),
 ] as const;
 
 export type SwiftChallengeKey = (typeof SWIFT_CHALLENGES)[number]["key"];
