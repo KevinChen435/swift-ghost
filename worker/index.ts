@@ -26,7 +26,9 @@ import {
   cleanTrustedId,
   cleanTrustedSource,
   normalizeTrustedGatewayResult,
+  normalizeTrustedGatewayExampleResult,
   privateJudgeSpec,
+  publicExampleJudgeSpec,
   publicTrustedChallenge,
   trustedChallengeForKey,
   trustedChallengeForSequence,
@@ -127,6 +129,21 @@ type TrustedSubmissionRow = {
   result_json: string | null;
   settlement_hash: string | null;
   submitted_at: number;
+  enqueued_at: number | null;
+  settled_at: number | null;
+};
+type TrustedExampleRunRow = {
+  id: string;
+  assignment_id: string;
+  user_id: string;
+  client_run_id: string;
+  request_hash: string;
+  source_hash: string;
+  status: "pending" | "settled";
+  verdict: TrustedSubmissionVerdict | null;
+  result_json: string | null;
+  settlement_hash: string | null;
+  requested_at: number;
   enqueued_at: number | null;
   settled_at: number | null;
 };
@@ -774,6 +791,35 @@ function trustedSubmissionProjection(row: TrustedSubmissionRow | TrustedAssignme
   };
 }
 
+function trustedExampleRunProjection(row: TrustedExampleRunRow, challenge?: ReturnType<typeof trustedChallengeForKey>) {
+  let result: Record<string, unknown> | null = null;
+  if (row.status === "settled") {
+    if (!row.verdict || !row.result_json || !row.settled_at)
+      throw new Error("INVALID_TRUSTED_EXAMPLE_RUN_ROW");
+    const parsed = JSON.parse(row.result_json) as unknown;
+    if (!isRecord(parsed)) throw new Error("INVALID_TRUSTED_EXAMPLE_RUN_ROW");
+    const failedCaseIndex = typeof parsed.failedCaseIndex === "number"
+      ? parsed.failedCaseIndex
+      : null;
+    result = {
+      ...parsed,
+      ...(failedCaseIndex !== null && challenge?.samples[failedCaseIndex]
+        ? { failedCaseId: challenge.samples[failedCaseIndex].id }
+        : {}),
+    };
+  }
+  return {
+    id: row.id,
+    assignmentId: row.assignment_id,
+    clientRunId: row.client_run_id,
+    status: row.status,
+    verdict: row.status === "settled" ? row.verdict : null,
+    requestedAt: new Date(row.requested_at).toISOString(),
+    settledAt: row.settled_at ? new Date(row.settled_at).toISOString() : null,
+    result,
+  };
+}
+
 function trustedAssignmentProjection(row: TrustedAssignmentRow, now = Date.now()) {
   const publicPayload = JSON.parse(row.public_payload_json) as unknown;
   const program = trustedProgramForId(row.program_id);
@@ -849,6 +895,72 @@ async function trustedSubmissionByClientId(
     FROM trusted_submissions
     WHERE user_id = ? AND client_submission_id = ?
   `).bind(userId, clientSubmissionId).first<TrustedSubmissionRow>();
+}
+
+async function trustedExampleRunByClientId(
+  db: D1Database,
+  userId: string,
+  clientRunId: string,
+) {
+  return db.prepare(`
+    SELECT id, assignment_id, user_id, client_run_id, request_hash, source_hash,
+           status, verdict, result_json, settlement_hash, requested_at,
+           enqueued_at, settled_at
+    FROM trusted_example_runs
+    WHERE user_id = ? AND client_run_id = ?
+  `).bind(userId, clientRunId).first<TrustedExampleRunRow>();
+}
+
+async function retryPendingTrustedExampleRun(
+  env: Env,
+  run: TrustedExampleRunRow,
+  userId: string,
+) {
+  if (!env.DB) return false;
+  if (run.enqueued_at !== null) return true;
+  const payload = await env.DB.prepare(`
+    SELECT p.source_text, a.challenge_key, a.content_revision, a.judge_revision
+    FROM trusted_example_run_payloads p
+    JOIN trusted_example_runs r
+      ON r.id = p.run_id AND r.user_id = p.user_id
+    JOIN trusted_assignments a
+      ON a.id = r.assignment_id AND a.user_id = r.user_id
+    WHERE p.run_id = ? AND p.user_id = ? AND r.status = 'pending'
+  `).bind(run.id, userId).first<{
+    source_text: string;
+    challenge_key: string;
+    content_revision: number;
+    judge_revision: number;
+  }>();
+  if (!payload) return true;
+  const challenge = trustedChallengeForKey(payload.challenge_key);
+  if (
+    !challenge ||
+    challenge.contentRevision !== payload.content_revision ||
+    challenge.judgeRevision !== payload.judge_revision
+  )
+    return false;
+  const judgeSpec = publicExampleJudgeSpec(challenge);
+  const queued = await enqueueTrustedJudge(
+    env,
+    run.id,
+    payload.source_text,
+    judgeSpec,
+  );
+  if (!queued) return false;
+  const enqueuedAt = Date.now();
+  await env.DB.batch([
+    env.DB.prepare(`
+      UPDATE trusted_example_runs
+      SET enqueued_at = ?
+      WHERE id = ? AND user_id = ? AND status = 'pending'
+        AND enqueued_at IS NULL
+    `).bind(enqueuedAt, run.id, userId),
+    env.DB.prepare(
+      "DELETE FROM trusted_example_run_payloads WHERE run_id = ? AND user_id = ?",
+    ).bind(run.id, userId),
+  ]);
+  return true;
 }
 
 async function listTrustedAssignments(request: Request, env: Env, url: URL) {
@@ -1264,8 +1376,91 @@ async function maintainTrustedSubmissions(
         ).bind(row.id).run();
       }
     }
+    const staleExamples = await db.prepare(`
+      SELECT r.id, r.requested_at, r.enqueued_at,
+             a.challenge_key, a.content_revision, a.judge_revision
+      FROM trusted_example_runs r
+      JOIN trusted_assignments a
+        ON a.id = r.assignment_id AND a.user_id = r.user_id
+      WHERE r.status = 'pending'
+        AND (
+          (r.enqueued_at IS NOT NULL AND r.enqueued_at <= ?)
+          OR
+          (r.enqueued_at IS NULL AND r.requested_at <= ?)
+        )
+      ORDER BY r.requested_at ASC, r.id ASC
+      LIMIT 25
+    `).bind(
+      now - TRUSTED_ENQUEUED_TIMEOUT_MS,
+      now - TRUSTED_DELIVERY_TIMEOUT_MS,
+    ).all<{
+      id: string;
+      requested_at: number;
+      enqueued_at: number | null;
+      challenge_key: string;
+      content_revision: number;
+      judge_revision: number;
+    }>();
+    for (const row of staleExamples.results) {
+      const challenge = trustedChallengeForKey(row.challenge_key);
+      if (
+        !challenge ||
+        challenge.language !== "swift" ||
+        challenge.contentRevision !== row.content_revision ||
+        challenge.judgeRevision !== row.judge_revision
+      )
+        continue;
+      const judgeSpec = publicExampleJudgeSpec(challenge);
+      const settlementHash = await sha256(JSON.stringify({
+        version: 1,
+        kind: "trusted-example-timeout",
+        runId: row.id,
+        requestedAt: row.requested_at,
+        enqueuedAt: row.enqueued_at,
+      }));
+      const resultJson = JSON.stringify({
+        passed: 0,
+        total: judgeSpec.cases.length,
+        authority: "server-isolated-swift",
+        language: "swift",
+        runtime: "swift-6.3.3-linux",
+        contractDigest: await trustedJudgeContractDigest(judgeSpec),
+        contentRevision: row.content_revision,
+        judgeRevision: row.judge_revision,
+        infrastructureFailure: true,
+      });
+      const stalePredicate = row.enqueued_at === null
+        ? "enqueued_at IS NULL AND requested_at <= ?"
+        : "enqueued_at = ? AND enqueued_at <= ?";
+      const staleArgs = row.enqueued_at === null
+        ? [now - TRUSTED_DELIVERY_TIMEOUT_MS]
+        : [row.enqueued_at, now - TRUSTED_ENQUEUED_TIMEOUT_MS];
+      const settlement = await db.prepare(`
+        UPDATE trusted_example_runs
+        SET status = 'settled', verdict = 'judge-error', result_json = ?,
+            settlement_hash = ?, settled_at = ?
+        WHERE id = ? AND status = 'pending' AND ${stalePredicate}
+      `).bind(
+        resultJson,
+        settlementHash,
+        now,
+        row.id,
+        ...staleArgs,
+      ).run();
+      if ((settlement.meta?.changes ?? 0) > 0) {
+        await db.prepare(
+          "DELETE FROM trusted_example_run_payloads WHERE run_id = ?",
+        ).bind(row.id).run();
+      }
+    }
     await db.prepare(
       "DELETE FROM trusted_submission_payloads WHERE purge_after <= ?",
+    ).bind(now).run();
+    await db.prepare(
+      "DELETE FROM trusted_example_run_payloads WHERE purge_after <= ?",
+    ).bind(now).run();
+    await db.prepare(
+      "DELETE FROM trusted_example_runs WHERE purge_after <= ? AND status = 'settled'",
     ).bind(now).run();
   } catch (error) {
     console.error(
@@ -1531,6 +1726,406 @@ async function submitTrustedAssignment(
   );
 }
 
+async function runTrustedAssignmentExamples(
+  request: Request,
+  env: Env,
+  rawAssignmentId: string,
+) {
+  const user = await authenticatedUser(request);
+  if (!user)
+    return errorResponse(
+      request,
+      401,
+      "AUTH_REQUIRED",
+      "Sign in to run Swift examples.",
+    );
+  if (!hasTrustedJudge(env) || !env.DB)
+    return errorResponse(
+      request,
+      503,
+      "TRUSTED_ASSESSMENTS_UNAVAILABLE",
+      "The isolated judge is not connected.",
+    );
+  const assignmentId = cleanTrustedId(rawAssignmentId, 96);
+  if (!assignmentId)
+    return errorResponse(
+      request,
+      404,
+      "ASSIGNMENT_NOT_FOUND",
+      "That verified assignment is unavailable.",
+    );
+  let body: unknown;
+  try {
+    body = await readJson(request);
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "INVALID_JSON";
+    return errorResponse(
+      request,
+      code === "CONTENT_TYPE" ? 415 : 400,
+      code,
+      "Send bounded source and a stable example run ID.",
+    );
+  }
+  const clientRunId = isRecord(body) ? cleanTrustedId(body.clientRunId) : null;
+  const source = isRecord(body) ? cleanTrustedSource(body.source) : null;
+  if (!clientRunId || !source)
+    return errorResponse(
+      request,
+      400,
+      "INVALID_EXAMPLE_RUN",
+      "Send bounded source and a stable example run ID.",
+    );
+  const sourceHash = await sha256(source);
+  const requestHash = await sha256(JSON.stringify({
+    kind: "trusted-example-run",
+    assignmentId,
+    sourceHash,
+  }));
+  const replay = await trustedExampleRunByClientId(
+    env.DB,
+    user.userId,
+    clientRunId,
+  );
+  if (replay) {
+    if (
+      replay.assignment_id !== assignmentId ||
+      replay.request_hash !== requestHash
+    )
+      return errorResponse(
+        request,
+        409,
+        "IDEMPOTENCY_CONFLICT",
+        "That example run ID belongs to different source or assignment input.",
+      );
+    if (replay.status === "pending") {
+      const queued = await retryPendingTrustedExampleRun(
+        env,
+        replay,
+        user.userId,
+      );
+      if (!queued)
+        return errorResponse(
+          request,
+          503,
+          "JUDGE_ENQUEUE_UNAVAILABLE",
+          "The example run is saved, but the isolated judge could not be reached. Retry with the same source.",
+        );
+    }
+    const challenge = trustedChallengeForKey(
+      (await env.DB.prepare(
+        "SELECT challenge_key FROM trusted_assignments WHERE id = ? AND user_id = ?",
+      ).bind(replay.assignment_id, user.userId).first<{ challenge_key: string }>())
+        ?.challenge_key,
+    );
+    return json(
+      request,
+      { exampleRun: trustedExampleRunProjection(replay, challenge) },
+      replay.status === "pending" ? 202 : 200,
+    );
+  }
+
+  const now = Date.now();
+  const recentExample = await env.DB.prepare(`
+    SELECT id
+    FROM trusted_example_runs
+    WHERE user_id = ? AND requested_at > ?
+    ORDER BY requested_at DESC
+    LIMIT 1
+  `).bind(user.userId, now - 2_000).first<{ id: string }>();
+  if (recentExample)
+    return errorResponse(
+      request,
+      429,
+      "EXAMPLE_RUN_RATE_LIMITED",
+      "Wait a moment before starting another Swift example run.",
+    );
+
+  const assignment = await env.DB.prepare(`
+    SELECT *
+    FROM trusted_assignments
+    WHERE id = ? AND user_id = ?
+  `).bind(assignmentId, user.userId).first<TrustedAssignmentRow>();
+  if (!assignment)
+    return errorResponse(
+      request,
+      404,
+      "ASSIGNMENT_NOT_FOUND",
+      "That verified assignment is unavailable.",
+    );
+  if (now >= assignment.expires_at)
+    return errorResponse(
+      request,
+      409,
+      "ASSIGNMENT_EXPIRED",
+      "That verified assignment has expired.",
+    );
+  if (assignment.status !== "active")
+    return errorResponse(
+      request,
+      409,
+      "ASSIGNMENT_CLOSED",
+      "That verified assignment is already closed.",
+    );
+  const challenge = trustedChallengeForKey(assignment.challenge_key);
+  if (
+    !challenge ||
+    challenge.language !== "swift" ||
+    challenge.programId !== assignment.program_id ||
+    challenge.contentRevision !== assignment.content_revision ||
+    challenge.judgeRevision !== assignment.judge_revision
+  )
+    return errorResponse(
+      request,
+      409,
+      "ASSIGNMENT_STALE",
+      "This assignment no longer matches the current Swift example contract.",
+    );
+  const judgeSpec = publicExampleJudgeSpec(challenge);
+  let preparedGatewayPayload: Awaited<ReturnType<typeof trustedGatewaySubmission>>;
+  try {
+    preparedGatewayPayload = await trustedGatewaySubmission({
+      submissionId: `example-${crypto.randomUUID().replace(/-/g, "")}`,
+      source,
+      judgeSpec,
+      callbackUrl: env.TRUSTED_JUDGE_CALLBACK_URL!,
+    });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "INVALID_TRUSTED_SUBMISSION";
+    const sizeFailure = new Set([
+      "TRUSTED_GATEWAY_SOURCE_TOO_LARGE",
+      "TRUSTED_GATEWAY_CASE_TOO_LARGE",
+      "TRUSTED_GATEWAY_REQUEST_TOO_LARGE",
+    ]).has(code);
+    return errorResponse(
+      request,
+      sizeFailure ? 413 : 422,
+      sizeFailure ? "SUBMISSION_TOO_LARGE" : "INVALID_TRUSTED_SUBMISSION",
+      sizeFailure
+        ? "This source is too large for the isolated judge envelope. Shorten it and run examples again."
+        : "This source does not fit the Swift example contract.",
+    );
+  }
+
+  const runId = preparedGatewayPayload.submissionId;
+  const purgeAfter = now + TRUSTED_RETENTION_MS;
+  try {
+    await env.DB.batch([
+      env.DB.prepare(`
+        INSERT INTO trusted_example_runs
+          (id, assignment_id, user_id, client_run_id, request_hash,
+           source_hash, status, verdict, result_json, requested_at,
+           settled_at, purge_after)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, NULL, ?)
+      `).bind(
+        runId,
+        assignmentId,
+        user.userId,
+        clientRunId,
+        requestHash,
+        sourceHash,
+        now,
+        purgeAfter,
+      ),
+      env.DB.prepare(`
+        INSERT INTO trusted_example_run_payloads
+          (run_id, user_id, source_text, purge_after)
+        VALUES (?, ?, ?, ?)
+      `).bind(
+        runId,
+        user.userId,
+        source,
+        now + 60 * 60 * 1000,
+      ),
+    ]);
+  } catch (error) {
+    const raced = await trustedExampleRunByClientId(
+      env.DB,
+      user.userId,
+      clientRunId,
+    );
+    if (
+      raced &&
+      raced.assignment_id === assignmentId &&
+      raced.request_hash === requestHash
+    )
+      return json(
+        request,
+        { exampleRun: trustedExampleRunProjection(raced, challenge) },
+        raced.status === "pending" ? 202 : 200,
+      );
+    throw error;
+  }
+
+  const queued = await enqueueTrustedJudge(
+    env,
+    runId,
+    source,
+    judgeSpec,
+    preparedGatewayPayload,
+  );
+  if (!queued)
+    return errorResponse(
+      request,
+      503,
+      "JUDGE_ENQUEUE_UNAVAILABLE",
+      "The example run is saved, but the isolated judge could not be reached. Retry with the same source.",
+    );
+  const enqueuedAt = Date.now();
+  await env.DB.batch([
+    env.DB.prepare(`
+      UPDATE trusted_example_runs
+      SET enqueued_at = ?
+      WHERE id = ? AND user_id = ? AND status = 'pending'
+        AND enqueued_at IS NULL
+    `).bind(enqueuedAt, runId, user.userId),
+    env.DB.prepare(
+      "DELETE FROM trusted_example_run_payloads WHERE run_id = ? AND user_id = ?",
+    ).bind(runId, user.userId),
+  ]);
+  const pending = await trustedExampleRunByClientId(
+    env.DB,
+    user.userId,
+    clientRunId,
+  );
+  if (!pending) throw new Error("TRUSTED_EXAMPLE_RUN_CREATE_FAILED");
+  return json(
+    request,
+    { exampleRun: trustedExampleRunProjection(pending, challenge) },
+    202,
+  );
+}
+
+async function settleTrustedExampleRunResult(
+  request: Request,
+  env: Env,
+  decoded: unknown,
+  runId: string,
+  body: string,
+) {
+  if (!env.DB) throw new Error("TRUSTED_DB_REQUIRED");
+  const row = await env.DB.prepare(`
+    SELECT r.id, r.assignment_id, r.user_id, r.status, r.settlement_hash,
+           a.challenge_key, a.content_revision, a.judge_revision
+    FROM trusted_example_runs r
+    JOIN trusted_assignments a
+      ON a.id = r.assignment_id AND a.user_id = r.user_id
+    WHERE r.id = ?
+  `).bind(runId).first<{
+    id: string;
+    assignment_id: string;
+    user_id: string;
+    status: "pending" | "settled";
+    settlement_hash: string | null;
+    challenge_key: string;
+    content_revision: number;
+    judge_revision: number;
+  }>();
+  if (!row) return null;
+  const challenge = trustedChallengeForKey(row.challenge_key);
+  if (
+    !challenge ||
+    challenge.language !== "swift" ||
+    challenge.contentRevision !== row.content_revision ||
+    challenge.judgeRevision !== row.judge_revision
+  )
+    throw new Error("INVALID_TRUSTED_EXAMPLE_RUN_ROW");
+  const judgeSpec = publicExampleJudgeSpec(challenge);
+  const contractDigest = await trustedJudgeContractDigest(judgeSpec);
+  const result = normalizeTrustedGatewayExampleResult(
+    decoded,
+    runId,
+    {
+      total: judgeSpec.cases.length,
+      language: judgeSpec.language,
+      runtime: judgeSpec.runtime,
+      contentRevision: row.content_revision,
+      judgeRevision: row.judge_revision,
+      contractDigest,
+    },
+  );
+  if (!result)
+    return errorResponse(
+      request,
+      400,
+      "INVALID_JUDGE_RESULT",
+      "The signed callback does not match the Swift example contract.",
+    );
+  const settlementHash = await sha256(body);
+  if (row.status === "settled") {
+    if (row.settlement_hash === settlementHash)
+      return new Response(null, {
+        status: 204,
+        headers: responseHeaders(request),
+      });
+    console.error("Contradictory trusted example callback", {
+      runId,
+      storedHash: row.settlement_hash,
+      receivedHash: settlementHash,
+    });
+    return errorResponse(
+      request,
+      409,
+      "CONTRADICTORY_JUDGE_RESULT",
+      "A different result already settled this example run.",
+    );
+  }
+  const settledAt = Date.now();
+  const resultJson = JSON.stringify({
+    passed: result.passed,
+    total: result.total,
+    authority: "server-isolated-swift",
+    language: result.language,
+    runtime: result.runtime,
+    contentRevision: result.contentRevision,
+    judgeRevision: result.judgeRevision,
+    contractDigest: result.contractDigest,
+    ...(result.diagnostic ? { diagnostic: result.diagnostic } : {}),
+    ...(typeof result.failedCaseIndex === "number"
+      ? { failedCaseIndex: result.failedCaseIndex }
+      : {}),
+  });
+  await env.DB.batch([
+    env.DB.prepare(`
+      UPDATE trusted_example_runs
+      SET status = 'settled', verdict = ?, result_json = ?,
+          settlement_hash = ?, settled_at = ?
+      WHERE id = ? AND status = 'pending'
+    `).bind(
+      result.verdict,
+      resultJson,
+      settlementHash,
+      settledAt,
+      runId,
+    ),
+    env.DB.prepare(
+      "DELETE FROM trusted_example_run_payloads WHERE run_id = ?",
+    ).bind(runId),
+  ]);
+  const settled = await env.DB.prepare(`
+    SELECT status, settlement_hash
+    FROM trusted_example_runs
+    WHERE id = ?
+  `).bind(runId).first<{
+    status: "pending" | "settled";
+    settlement_hash: string | null;
+  }>();
+  if (settled?.status === "settled" && settled.settlement_hash === settlementHash)
+    return new Response(null, {
+      status: 204,
+      headers: responseHeaders(request),
+    });
+  console.error("Trusted example settlement lost a contradictory race", {
+    runId,
+    receivedHash: settlementHash,
+  });
+  return errorResponse(
+    request,
+    409,
+    "CONTRADICTORY_JUDGE_RESULT",
+    "A different result already settled this example run.",
+  );
+}
+
 async function settleTrustedJudgeResult(request: Request, env: Env) {
   if (!hasTrustedCallback(env) || !env.DB)
     return errorResponse(
@@ -1624,13 +2219,22 @@ async function settleTrustedJudgeResult(request: Request, env: Env) {
     judge_revision: number;
     judge_payload_json: string;
   }>();
-  if (!row)
+  if (!row) {
+    const exampleSettlement = await settleTrustedExampleRunResult(
+      request,
+      env,
+      decoded,
+      submissionId,
+      body,
+    );
+    if (exampleSettlement) return exampleSettlement;
     return errorResponse(
       request,
       404,
       "SUBMISSION_NOT_FOUND",
       "That pending trusted submission does not exist.",
     );
+  }
   let judgeSpec: unknown;
   try {
     judgeSpec = JSON.parse(row.judge_payload_json);
@@ -2351,6 +2955,15 @@ async function api(request: Request, env: Env, url: URL) {
       env,
       trustedSubmissionMatch[1],
     );
+  const trustedExampleRunMatch = path.match(
+    /^\/trusted\/assignments\/([^/]+)\/example-runs$/,
+  );
+  if (trustedExampleRunMatch && request.method === "POST")
+    return runTrustedAssignmentExamples(
+      request,
+      env,
+      trustedExampleRunMatch[1],
+    );
   if (path === "/profile" && request.method === "PATCH")
     return updateProfile(request, env);
   if (
@@ -2432,9 +3045,9 @@ const worker = {
         request,
         {
           fetchAsset: (path) =>
-            env.ASSETS.fetch(new Request(new URL(path, request.url))),
+            runtimeEnv.ASSETS.fetch(new Request(new URL(path, request.url))),
           transformImage: async (body, { width, format, quality }) => {
-            const result = await env.IMAGES.input(body)
+            const result = await runtimeEnv.IMAGES.input(body)
               .transform(width > 0 ? { width } : {})
               .output({ format, quality });
             return result.response();
@@ -2444,7 +3057,7 @@ const worker = {
       );
     }
 
-    return handler.fetch(request, env, ctx);
+    return handler.fetch(request, runtimeEnv, ctx);
   },
 };
 

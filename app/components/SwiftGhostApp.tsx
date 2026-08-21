@@ -162,6 +162,7 @@ import {
   type CloudItemLeaderboard,
   type CloudSession,
   type CloudTrustedAssignment,
+  type CloudTrustedExampleRun,
   type CloudTrustedSubmission,
 } from "../lib/cloud.mjs";
 import {
@@ -1377,9 +1378,15 @@ export default function SwiftGhostApp() {
     document.documentElement.dataset.font = state.settings.font;
   }, [state.settings.theme, state.settings.font]);
   useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    const activeTimedMode =
+      state.activeSession?.kind === "mock" ||
+      state.virtualRoundWorkspace.active?.status === "active";
+    const timer = window.setInterval(
+      () => setNow(Date.now()),
+      activeTimedMode ? 1000 : 5000,
+    );
     return () => window.clearInterval(timer);
-  }, []);
+  }, [state.activeSession?.kind, state.virtualRoundWorkspace.active?.status]);
   useEffect(() => {
     const session = state.activeSession;
     if (
@@ -9534,14 +9541,24 @@ function PracticeView(props: PracticeProps) {
     useState<CloudTrustedAssignment | null>(null);
   const [swiftSubmission, setSwiftSubmission] =
     useState<CloudTrustedSubmission | null>(null);
+  const [swiftExampleRun, setSwiftExampleRun] =
+    useState<CloudTrustedExampleRun | null>(null);
   const [swiftLoadState, setSwiftLoadState] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle");
   const [swiftAction, setSwiftAction] = useState<
     "idle" | "loading" | "submitting"
   >("idle");
+  const [swiftExampleAction, setSwiftExampleAction] = useState<
+    "idle" | "running"
+  >("idle");
   const [swiftMessage, setSwiftMessage] = useState("");
   const reconciledSwiftSubmissionIds = useRef(new Set<string>());
+  const activeSwiftExampleRequest = useRef<{
+    assignmentId: string;
+    clientRunId: string;
+    source: string;
+  } | null>(null);
   const swiftSubmitInFlight = useRef(false);
   const onSwiftSubmissionSettled = props.onSubmissionSettled;
   const onSwiftSolveComplete = props.onTrustedSolveComplete;
@@ -9640,6 +9657,8 @@ function PracticeView(props: PracticeProps) {
       setSwiftLoadState("idle");
       setSwiftAssignment(null);
       setSwiftSubmission(null);
+      setSwiftExampleRun(null);
+      activeSwiftExampleRequest.current = null;
       setSwiftRetryAvailable(false);
       return;
     }
@@ -9660,6 +9679,10 @@ function PracticeView(props: PracticeProps) {
       if (matching) {
         setSwiftAssignment(matching);
         setSwiftSubmission(matching.latestSubmission);
+        if (swiftAssignment?.id !== matching.id) {
+          setSwiftExampleRun(null);
+          activeSwiftExampleRequest.current = null;
+        }
         reconcileSettledSwiftAssignment(matching);
         setSwiftLoadState("ready");
         return;
@@ -9686,6 +9709,8 @@ function PracticeView(props: PracticeProps) {
     }
     setSwiftAssignment(issued.data);
     setSwiftSubmission(issued.data.latestSubmission);
+    setSwiftExampleRun(null);
+    activeSwiftExampleRequest.current = null;
     setSwiftLoadState("ready");
   }, [
     isTrustedSwiftSolve,
@@ -9694,6 +9719,7 @@ function PracticeView(props: PracticeProps) {
     props.trustedJudgeAuthenticated,
     props.trustedJudgeAvailable,
     reconcileSettledSwiftAssignment,
+    swiftAssignment?.id,
   ]);
 
   useEffect(() => {
@@ -9993,9 +10019,161 @@ function PracticeView(props: PracticeProps) {
         ? "Accepted. Swift evidence was sealed by the server."
         : result.data.verdict === "compile-error"
           ? "The server could not compile this Swift source."
-          : "The server returned aggregate feedback; sealed cases remain private.",
+      : "The server returned aggregate feedback; sealed cases remain private.",
     );
   }
+
+  async function runSwiftExamples() {
+    if (
+      !isTrustedSwiftSolve ||
+      isLocked ||
+      !swiftAssignment ||
+      swiftAssignment.status !== "active" ||
+      swiftAction !== "idle" ||
+      swiftExampleAction !== "idle" ||
+      swiftExampleRun?.status === "pending" ||
+      !runnerSource.trim()
+    )
+      return;
+    const request = {
+      assignmentId: swiftAssignment.id,
+      clientRunId: `example:${props.item.itemId}:${makeId()}`,
+      source: runnerSource,
+    };
+    activeSwiftExampleRequest.current = request;
+    setSwiftExampleAction("running");
+    setSwiftExampleRun(null);
+    setSwiftMessage("");
+    try {
+      const result = await cloudClient.runTrustedExamples(
+        request.assignmentId,
+        { clientRunId: request.clientRunId, source: request.source },
+        { challenge: swiftAssignment.challenge },
+      );
+      if (
+        activeSwiftExampleRequest.current?.clientRunId !== request.clientRunId
+      ) return;
+      setSwiftExampleAction("idle");
+      if (!result.available) {
+        if (result.reason === "judge-enqueue-unavailable") {
+          setSwiftMessage(
+            "The Swift example run is saved but the judge is busy. It will retry with the same source.",
+          );
+          setSwiftExampleRun({
+            id: request.clientRunId,
+            assignmentId: request.assignmentId,
+            clientRunId: request.clientRunId,
+            status: "pending",
+            verdict: null,
+            requestedAt: new Date().toISOString(),
+            settledAt: null,
+            result: null,
+          });
+          return;
+        }
+        activeSwiftExampleRequest.current = null;
+        setSwiftMessage(
+          result.reason === "unauthorized"
+            ? "Sign in again before running Swift examples."
+            : "The Swift examples could not reach the isolated judge.",
+        );
+        return;
+      }
+      if (
+        result.data.assignmentId !== request.assignmentId ||
+        result.data.clientRunId !== request.clientRunId
+      ) {
+        activeSwiftExampleRequest.current = null;
+        setSwiftMessage("The Swift example result did not match this source. Run examples again.");
+        return;
+      }
+      setSwiftExampleRun(result.data);
+      if (result.data.status === "pending") {
+        setSwiftMessage("Examples queued. The isolated Swift runtime is compiling your source.");
+        return;
+      }
+      activeSwiftExampleRequest.current = null;
+      setSwiftMessage(
+        result.data.verdict === "accepted"
+          ? "Public examples passed. Submit when you are ready for sealed cases."
+          : "Public examples found a problem. Fix this before using the sealed judge.",
+      );
+    } catch (error) {
+      if (activeSwiftExampleRequest.current?.clientRunId !== request.clientRunId)
+        return;
+      activeSwiftExampleRequest.current = null;
+      setSwiftExampleAction("idle");
+      setSwiftMessage(
+        error instanceof Error
+          ? error.message
+          : "The Swift examples could not reach the isolated judge.",
+      );
+    }
+  }
+
+  useEffect(() => {
+    if (
+      !isTrustedSwiftSolve ||
+      !trustedJudgeAvailable ||
+      !trustedJudgeAuthenticated ||
+      swiftExampleRun?.status !== "pending"
+    )
+      return;
+    const request = activeSwiftExampleRequest.current;
+    if (!request) return;
+    const pollRequest = { ...request };
+    const controller = new AbortController();
+    let timer: number | undefined;
+    let cancelled = false;
+    async function pollSwiftExamples() {
+      const result = await cloudClient.runTrustedExamples(
+        pollRequest.assignmentId,
+        { clientRunId: pollRequest.clientRunId, source: pollRequest.source },
+        { signal: controller.signal, challenge: swiftAssignment?.challenge },
+      );
+      if (cancelled) return;
+      if (
+        result.available &&
+        (result.data.assignmentId !== pollRequest.assignmentId ||
+          result.data.clientRunId !== pollRequest.clientRunId)
+      ) {
+        activeSwiftExampleRequest.current = null;
+        setSwiftExampleRun(null);
+        setSwiftMessage("The Swift example result did not match this source. Run examples again.");
+        return;
+      }
+      if (result.available) {
+        setSwiftExampleRun(result.data);
+        if (result.data.status === "settled") {
+          activeSwiftExampleRequest.current = null;
+          setSwiftMessage(
+            result.data.verdict === "accepted"
+              ? "Public examples passed. Submit when you are ready for sealed cases."
+              : "Public examples found a problem. Fix this before using the sealed judge.",
+          );
+          return;
+        }
+      } else if (result.reason !== "aborted") {
+        setSwiftMessage(
+          result.reason === "judge-enqueue-unavailable"
+            ? "The Swift example run is still waiting for the isolated judge."
+            : "The Swift example run is still pending; retry examples if it does not settle.",
+        );
+      }
+      timer = window.setTimeout(() => void pollSwiftExamples(), 1_500);
+    }
+    timer = window.setTimeout(() => void pollSwiftExamples(), 1_500);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [
+    isTrustedSwiftSolve,
+    swiftExampleRun?.status,
+    trustedJudgeAuthenticated,
+    trustedJudgeAvailable,
+  ]);
   const customCaseInput =
     props.state.customCaseInputs[props.item.itemId] ??
     props.draft.customCaseInput;
@@ -10396,6 +10574,14 @@ function PracticeView(props: PracticeProps) {
       customExecutionRunId.current += 1;
       setVerificationState({ itemId: props.item.itemId, status: "idle" });
       setCustomExecutionState({ itemId: props.item.itemId, status: "idle" });
+      if (
+        isTrustedSwiftSolve &&
+        (activeSwiftExampleRequest.current || swiftExampleRun)
+      ) {
+        activeSwiftExampleRequest.current = null;
+        setSwiftExampleRun(null);
+        setSwiftExampleAction("idle");
+      }
     }
     props.onChange(proposed);
   }
@@ -10414,6 +10600,11 @@ function PracticeView(props: PracticeProps) {
     customExecutionRunId.current += 1;
     setVerificationState({ itemId: props.item.itemId, status: "idle" });
     setCustomExecutionState({ itemId: props.item.itemId, status: "idle" });
+    if (isTrustedSwiftSolve) {
+      activeSwiftExampleRequest.current = null;
+      setSwiftExampleRun(null);
+      setSwiftExampleAction("idle");
+    }
     props.onReset();
   }
 
@@ -10478,7 +10669,7 @@ function PracticeView(props: PracticeProps) {
       event.preventDefault();
       if (isTrustedSwiftSolve) {
         if (event.shiftKey) void runSwiftSubmit();
-        else void loadSwiftAssignment();
+        else void runSwiftExamples();
         return;
       }
       if (event.shiftKey && (!isMock || isStudio)) {
@@ -11237,7 +11428,7 @@ function PracticeView(props: PracticeProps) {
                 onChange={handleEditorChange}
                 onRunExamples={() =>
                   isTrustedSwiftSolve
-                    ? void loadSwiftAssignment()
+                    ? void runSwiftExamples()
                     : void runPythonChecks(
                         isStudio ? "examples" : isMock ? "full" : "examples",
                       )
@@ -11257,14 +11448,17 @@ function PracticeView(props: PracticeProps) {
                   item={props.item}
                   assignment={swiftAssignment}
                   submission={swiftSubmission}
+                  exampleRun={swiftExampleRun}
                   loadState={swiftLoadState}
                   action={swiftAction}
+                  exampleAction={swiftExampleAction}
                   message={swiftMessage}
                   available={props.trustedJudgeAvailable}
                   authenticated={props.trustedJudgeAuthenticated}
                   sourcePresent={Boolean(runnerSource.trim())}
                   retryAvailable={swiftRetryAvailable}
                   onRequestAssignment={() => void loadSwiftAssignment()}
+                  onRunExamples={() => void runSwiftExamples()}
                   onSubmit={() => void runSwiftSubmit()}
                 />
               ) : (

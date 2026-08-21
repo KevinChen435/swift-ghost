@@ -69,6 +69,7 @@ async function applyMigrations(database) {
     "0003_clean_scourge.sql",
     "0004_petite_professor_monster.sql",
     "0005_lying_wilson_fisk.sql",
+    "0006_swift_example_runs.sql",
   ]) {
     const sql = await readFile(new URL(`../drizzle/${name}`, import.meta.url), "utf8");
     for (const statement of sql.split("--> statement-breakpoint")) {
@@ -652,6 +653,73 @@ test("Worker queues callable checkpoints and settles only signed idempotent call
     assert.equal(swiftCompileReceipt.result.authority, "server-isolated-swift");
     assert.equal(swiftCompileReceipt.result.language, "swift");
     assert.equal(swiftCompileReceipt.result.runtime, "swift-6.3.3-linux");
+    const assignmentStatusBeforeExamples = database.prepare(
+      "SELECT status FROM trusted_assignments WHERE id = ?",
+    ).get(swiftIssued.id).status;
+    const swiftExampleResponse = await worker.fetch(
+      workerRequest(`/trusted/assignments/${swiftIssued.id}/example-runs`, {
+        clientRunId: "example:swift-abc12345",
+        source: swiftSource,
+      }),
+      env,
+      context,
+    );
+    assert.equal(swiftExampleResponse.status, 202);
+    const swiftExample = (await swiftExampleResponse.json()).exampleRun;
+    assert.match(swiftExample.id, /^example-[a-f0-9]{32}$/);
+    assert.equal(swiftExample.status, "pending");
+    const swiftExampleJudgeBody = judgeCalls.at(-1).body;
+    assert.equal(swiftExampleJudgeBody.submissionId, swiftExample.id);
+    assert.equal(swiftExampleJudgeBody.language, "swift6");
+    assert.equal(swiftExampleJudgeBody.tests.length, swiftIssued.challenge.samples.length);
+    assert.equal(
+      swiftExampleJudgeBody.tests.every((entry) => entry.id.startsWith("sample-")),
+      true,
+    );
+    assert.doesNotMatch(JSON.stringify(swiftExampleJudgeBody.tests), /hidden-duplicate|negative complement/);
+    const swiftExampleResult = {
+      version: "judge.result.v1",
+      submissionId: swiftExample.id,
+      ...callbackContract(swiftExampleJudgeBody),
+      verdict: "wrong-answer",
+      passed: 1,
+      total: swiftExampleJudgeBody.tests.length,
+      failedCaseIndex: 1,
+      diagnostic: "public example mismatch",
+    };
+    assert.equal(
+      (
+        await worker.fetch(
+          signedCallbackRequest(env, swiftExampleResult),
+          env,
+          context,
+        )
+      ).status,
+      204,
+    );
+    const swiftExampleReplay = await worker.fetch(
+      workerRequest(`/trusted/assignments/${swiftIssued.id}/example-runs`, {
+        clientRunId: "example:swift-abc12345",
+        source: swiftSource,
+      }),
+      env,
+      context,
+    );
+    assert.equal(swiftExampleReplay.status, 200);
+    const settledSwiftExample = (await swiftExampleReplay.json()).exampleRun;
+    assert.equal(settledSwiftExample.verdict, "wrong-answer");
+    assert.equal(settledSwiftExample.result.authority, "server-isolated-swift");
+    assert.equal(settledSwiftExample.result.total, swiftIssued.challenge.samples.length);
+    assert.equal(settledSwiftExample.result.failedCaseIndex, 1);
+    assert.equal(
+      settledSwiftExample.result.failedCaseId,
+      swiftIssued.challenge.samples[1].id,
+    );
+    assert.equal(
+      database.prepare("SELECT status FROM trusted_assignments WHERE id = ?").get(swiftIssued.id).status,
+      assignmentStatusBeforeExamples,
+      "example runs must not close or accept the assignment",
+    );
 
     const ownerId = database.prepare(
       "SELECT user_id FROM trusted_assignments WHERE id = ?",

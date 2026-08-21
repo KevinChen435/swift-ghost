@@ -84,6 +84,11 @@ export type NormalizedTrustedGatewayResult = Readonly<{
   contractDigest: string;
 }>;
 
+export type NormalizedTrustedGatewayExampleResult = NormalizedTrustedGatewayResult & Readonly<{
+  failedCaseIndex?: number;
+  diagnostic?: string;
+}>;
+
 export type NormalizedTrustedJudgeResult = Readonly<{
   verdict: TrustedJudgeVerdict;
   passed: number;
@@ -131,6 +136,7 @@ export function trustedChallengeForKey(key: unknown): TrustedChallenge | null;
 export function trustedChallengeForSequence(sequence: number, language?: TrustedLanguage): TrustedChallenge;
 export function publicTrustedChallenge(challenge: TrustedChallenge): Omit<TrustedChallenge, "hiddenCases">;
 export function privateJudgeSpec(challenge: TrustedChallenge): TrustedJudgeSpec;
+export function publicExampleJudgeSpec(challenge: TrustedChallenge): TrustedJudgeSpec;
 export function cleanTrustedId(value: unknown, limit?: number): string | null;
 export function cleanTrustedSource(value: unknown): string | null;
 export function trustedJudgeContractDigest(judgeSpec: TrustedJudgeSpec): Promise<string>;
@@ -140,11 +146,21 @@ export function trustedGatewaySubmission(input: {
   judgeSpec: TrustedJudgeSpec;
   callbackUrl: string;
 }): Promise<TrustedGatewayRequest>;
+export function trustedGatewayExampleRun(input: {
+  submissionId: string;
+  source: string;
+  judgeSpec: TrustedJudgeSpec;
+}): Promise<Omit<TrustedGatewayRequest, "callbackUrl">>;
 export function normalizeTrustedGatewayResult(
   value: unknown,
   submissionId: string,
   expected: Pick<TrustedJudgeSpec, "language" | "runtime" | "contentRevision" | "judgeRevision"> & { total: number; contractDigest: string },
 ): NormalizedTrustedGatewayResult | null;
+export function normalizeTrustedGatewayExampleResult(
+  value: unknown,
+  submissionId: string,
+  expected: Pick<TrustedJudgeSpec, "language" | "runtime" | "contentRevision" | "judgeRevision"> & { total: number; contractDigest: string },
+): NormalizedTrustedGatewayExampleResult | null;
 export function normalizeTrustedJudgeResult(
   value: unknown,
   expectedTotal: number,

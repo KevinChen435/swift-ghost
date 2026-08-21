@@ -251,6 +251,29 @@ export type CloudTrustedAssignment = {
   latestSubmission: CloudTrustedSubmission | null;
 };
 
+export type CloudTrustedExampleRun = {
+  id: string;
+  assignmentId: string;
+  clientRunId: string;
+  status: "pending" | "settled";
+  verdict: CloudTrustedJudgeVerdict | null;
+  requestedAt: string;
+  settledAt: string | null;
+  result: null | {
+    passed: number;
+    total: number;
+    authority: "server-isolated-swift";
+    language: "swift";
+    runtime: string;
+    contractDigest: string;
+    contentRevision: number;
+    judgeRevision: number;
+    failedCaseIndex?: number;
+    failedCaseId?: string;
+    diagnostic?: string;
+  };
+};
+
 export type CloudTrustedAssignmentList = {
   program: {
     id: string;
@@ -276,6 +299,9 @@ export type CloudDailyLeaderboard = CloudList<CloudDailyLeaderboardEntry> & {
 };
 
 export type CloudRequestOptions = { signal?: AbortSignal };
+export type CloudTrustedExampleRunOptions = CloudRequestOptions & {
+  challenge?: Pick<CloudTrustedChallenge, "contentRevision" | "judgeRevision" | "samples">;
+};
 export type CloudListOptions = CloudRequestOptions & {
   limit?: number;
   cursor?: string;
@@ -323,6 +349,11 @@ export type CloudClient = {
     submission: { clientSubmissionId: string; source: string },
     options?: CloudRequestOptions,
   ): Promise<CloudResult<CloudTrustedSubmission>>;
+  runTrustedExamples(
+    assignmentId: string,
+    input: { clientRunId: string; source: string },
+    options?: CloudTrustedExampleRunOptions,
+  ): Promise<CloudResult<CloudTrustedExampleRun>>;
   patchProfile(
     patch: CloudProfilePatch | CloudProfile,
     options?: CloudRequestOptions,

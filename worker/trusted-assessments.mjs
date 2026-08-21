@@ -928,6 +928,31 @@ export function privateJudgeSpec(challenge) {
   };
 }
 
+export function publicExampleJudgeSpec(challenge) {
+  if (!challenge) return null;
+  return {
+    protocolVersion: 1,
+    language: challenge.language,
+    runtime: challenge.runtime,
+    contentRevision: challenge.contentRevision,
+    judgeRevision: challenge.judgeRevision,
+    entrypoint: {
+      ...challenge.entrypoint,
+      ...(Array.isArray(challenge.entrypoint.parameters)
+        ? { parameters: challenge.entrypoint.parameters.map((entry) => ({ ...entry })) }
+        : {}),
+    },
+    cases: challenge.samples.map((testCase) => ({
+      id: testCase.id,
+      visibility: "sample",
+      name: testCase.name,
+      args: structuredClone(testCase.args),
+      expected: structuredClone(testCase.expected),
+      comparator: "deepEqual",
+    })),
+  };
+}
+
 export function cleanTrustedId(value, limit = MAX_CLIENT_ID) {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
@@ -1185,6 +1210,22 @@ export async function trustedGatewaySubmission({
   return gatewayRequest;
 }
 
+export async function trustedGatewayExampleRun({
+  submissionId,
+  source,
+  judgeSpec,
+}) {
+  const gatewayRequest = await trustedGatewaySubmission({
+    submissionId,
+    source,
+    judgeSpec,
+    callbackUrl: "https://swift-ghost.invalid/example-callback",
+  });
+  const { callbackUrl, ...sampleRequest } = gatewayRequest;
+  void callbackUrl;
+  return sampleRequest;
+}
+
 export function normalizeTrustedGatewayResult(
   value,
   submissionId,
@@ -1238,6 +1279,29 @@ export function normalizeTrustedGatewayResult(
     contentRevision: expected.contentRevision,
     judgeRevision: expected.judgeRevision,
     contractDigest: expected.contractDigest,
+  };
+}
+
+export function normalizeTrustedGatewayExampleResult(
+  value,
+  submissionId,
+  expected,
+) {
+  const result = normalizeTrustedGatewayResult(value, submissionId, expected);
+  if (!result) return null;
+  const failedCaseIndex = value.failedCaseIndex === undefined
+    ? null
+    : Number(value.failedCaseIndex);
+  const diagnostic = typeof value.diagnostic === "string"
+    ? value.diagnostic
+        .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+        .trim()
+        .slice(0, 2_000)
+    : "";
+  return {
+    ...result,
+    ...(failedCaseIndex === null ? {} : { failedCaseIndex }),
+    ...(diagnostic ? { diagnostic } : {}),
   };
 }
 

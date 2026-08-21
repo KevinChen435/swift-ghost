@@ -525,6 +525,108 @@ function normalizeTrustedSubmission(value, challenge) {
   };
 }
 
+function normalizeTrustedExampleRun(value, challenge) {
+  const raw = isRecord(value) && isRecord(value.exampleRun)
+    ? value.exampleRun
+    : value;
+  if (!isRecord(raw)) return undefined;
+  const runId = id(raw.id, 96);
+  const assignmentId = id(raw.assignmentId, 96);
+  const clientRunId = trustedClientId(raw.clientRunId);
+  const requestedAt = isoDateTime(raw.requestedAt);
+  if (!runId || !assignmentId || !clientRunId || !requestedAt) return undefined;
+  const status = raw.status === "pending" ? "pending" : raw.status === "settled" ? "settled" : null;
+  if (!status) return undefined;
+  if (status === "pending") {
+    return {
+      id: runId,
+      assignmentId,
+      clientRunId,
+      status,
+      verdict: null,
+      requestedAt,
+      settledAt: null,
+      result: null,
+    };
+  }
+  const verdicts = new Set([
+    "accepted",
+    "wrong-answer",
+    "compile-error",
+    "runtime-error",
+    "time-limit",
+    "judge-error",
+  ]);
+  const settledAt = isoDateTime(raw.settledAt);
+  if (!verdicts.has(raw.verdict) || !settledAt || !isRecord(raw.result))
+    return undefined;
+  const expectedTotal = Array.isArray(challenge?.samples)
+    ? challenge.samples.length
+    : null;
+  const total = raw.result.total;
+  const passed = raw.result.passed;
+  const contentRevision = raw.result.contentRevision;
+  const judgeRevision = raw.result.judgeRevision;
+  const rawFailedCaseIndex = raw.result.failedCaseIndex;
+  const failedCaseIndex = rawFailedCaseIndex === undefined
+    ? undefined
+    : rawFailedCaseIndex;
+  const contractDigest = typeof raw.result.contractDigest === "string" && /^[a-f0-9]{64}$/.test(raw.result.contractDigest)
+    ? raw.result.contractDigest
+    : undefined;
+  const diagnostic = optionalString(raw.result.diagnostic, 2_000);
+  if (
+    !Number.isInteger(total) ||
+    total < 1 ||
+    total > 64 ||
+    (expectedTotal !== null && total !== expectedTotal) ||
+    !Number.isInteger(passed) ||
+    passed < 0 ||
+    passed > total ||
+    !Number.isInteger(contentRevision) ||
+    contentRevision < 1 ||
+    !Number.isInteger(judgeRevision) ||
+    judgeRevision < 1 ||
+    raw.result.authority !== "server-isolated-swift" ||
+    raw.result.language !== "swift" ||
+    cleanString(raw.result.runtime, 80) !== "swift-6.3.3-linux" ||
+    !contractDigest ||
+    (challenge && contentRevision !== challenge.contentRevision) ||
+    (challenge && judgeRevision !== challenge.judgeRevision) ||
+    (raw.verdict === "accepted" && passed !== total) ||
+    (raw.verdict === "wrong-answer" && passed >= total) ||
+    (failedCaseIndex !== undefined &&
+      (!Number.isInteger(failedCaseIndex) ||
+        failedCaseIndex < 0 ||
+        failedCaseIndex >= total))
+  ) return undefined;
+  const failedCaseId = failedCaseIndex !== undefined && challenge?.samples?.[failedCaseIndex]
+    ? challenge.samples[failedCaseIndex].id
+    : undefined;
+  return {
+    id: runId,
+    assignmentId,
+    clientRunId,
+    status,
+    verdict: raw.verdict,
+    requestedAt,
+    settledAt,
+    result: {
+      passed,
+      total,
+      authority: "server-isolated-swift",
+      language: "swift",
+      runtime: "swift-6.3.3-linux",
+      contractDigest,
+      contentRevision,
+      judgeRevision,
+      ...(failedCaseIndex !== undefined ? { failedCaseIndex } : {}),
+      ...(failedCaseId ? { failedCaseId } : {}),
+      ...(diagnostic ? { diagnostic } : {}),
+    },
+  };
+}
+
 function normalizeTrustedAssignment(value) {
   const raw = isRecord(value) && isRecord(value.assignment)
     ? value.assignment
@@ -1059,6 +1161,26 @@ export function createCloudClient(options = {}) {
               signal,
             },
             normalizeTrustedSubmission,
+          )
+        : Promise.resolve(unavailable("invalid-request"));
+    },
+    runTrustedExamples(
+      assignmentIdInput,
+      input,
+      { signal, challenge } = {},
+    ) {
+      const assignmentId = trustedClientId(assignmentIdInput);
+      const clientRunId = trustedClientId(input?.clientRunId);
+      const source = trustedSource(input?.source);
+      return assignmentId && clientRunId && source
+        ? request(
+            `/trusted/assignments/${encodeURIComponent(assignmentId)}/example-runs`,
+            {
+              method: "POST",
+              body: { clientRunId, source },
+              signal,
+            },
+            (value) => normalizeTrustedExampleRun(value, challenge),
           )
         : Promise.resolve(unavailable("invalid-request"));
     },

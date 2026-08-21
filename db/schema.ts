@@ -310,3 +310,99 @@ export const trustedSubmissionPayloads = sqliteTable(
     ),
   ],
 );
+
+export const trustedExampleRuns = sqliteTable(
+  "trusted_example_runs",
+  {
+    id: text("id").primaryKey(),
+    assignmentId: text("assignment_id").notNull(),
+    userId: text("user_id").notNull(),
+    clientRunId: text("client_run_id").notNull(),
+    requestHash: text("request_hash").notNull(),
+    sourceHash: text("source_hash").notNull(),
+    status: text("status", { enum: ["pending", "settled"] }).notNull(),
+    verdict: text("verdict", {
+      enum: [
+        "accepted",
+        "wrong-answer",
+        "compile-error",
+        "runtime-error",
+        "time-limit",
+        "judge-error",
+      ],
+    }),
+    resultJson: text("result_json"),
+    settlementHash: text("settlement_hash"),
+    requestedAt: integer("requested_at", { mode: "timestamp_ms" }).notNull(),
+    enqueuedAt: integer("enqueued_at", { mode: "timestamp_ms" }),
+    settledAt: integer("settled_at", { mode: "timestamp_ms" }),
+    purgeAfter: integer("purge_after", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("trusted_example_runs_id_user_uidx").on(table.id, table.userId),
+    uniqueIndex("trusted_example_runs_user_client_uidx").on(
+      table.userId,
+      table.clientRunId,
+    ),
+    foreignKey({
+      columns: [table.assignmentId, table.userId],
+      foreignColumns: [trustedAssignments.id, trustedAssignments.userId],
+      name: "trusted_example_runs_assignment_owner_fk",
+    }).onDelete("cascade"),
+    index("trusted_example_runs_assignment_idx").on(
+      table.assignmentId,
+      table.userId,
+    ),
+    index("trusted_example_runs_user_requested_idx").on(
+      table.userId,
+      table.requestedAt,
+    ),
+    index("trusted_example_runs_purge_idx").on(table.purgeAfter),
+    check(
+      "trusted_example_runs_hashes_check",
+      sql`length(${table.requestHash}) = 64 AND length(${table.sourceHash}) = 64 AND (${table.settlementHash} IS NULL OR length(${table.settlementHash}) = 64)`,
+    ),
+    check(
+      "trusted_example_runs_status_check",
+      sql`${table.status} IN ('pending', 'settled')`,
+    ),
+    check(
+      "trusted_example_runs_verdict_check",
+      sql`${table.verdict} IS NULL OR ${table.verdict} IN ('accepted', 'wrong-answer', 'compile-error', 'runtime-error', 'time-limit', 'judge-error')`,
+    ),
+    check(
+      "trusted_example_runs_settlement_check",
+      sql`(${table.status} = 'pending' AND ${table.verdict} IS NULL AND ${table.resultJson} IS NULL AND ${table.settlementHash} IS NULL AND ${table.settledAt} IS NULL) OR (${table.status} = 'settled' AND ${table.verdict} IS NOT NULL AND ${table.resultJson} IS NOT NULL AND json_valid(${table.resultJson}) = 1 AND length(${table.resultJson}) BETWEEN 2 AND 8192 AND ${table.settlementHash} IS NOT NULL AND ${table.settledAt} IS NOT NULL AND ${table.settledAt} >= ${table.requestedAt})`,
+    ),
+    check(
+      "trusted_example_runs_purge_check",
+      sql`${table.purgeAfter} >= ${table.requestedAt}`,
+    ),
+    check(
+      "trusted_example_runs_enqueue_check",
+      sql`${table.enqueuedAt} IS NULL OR ${table.enqueuedAt} >= ${table.requestedAt}`,
+    ),
+  ],
+);
+
+export const trustedExampleRunPayloads = sqliteTable(
+  "trusted_example_run_payloads",
+  {
+    runId: text("run_id").primaryKey(),
+    userId: text("user_id").notNull(),
+    sourceText: text("source_text").notNull(),
+    purgeAfter: integer("purge_after", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.runId, table.userId],
+      foreignColumns: [trustedExampleRuns.id, trustedExampleRuns.userId],
+      name: "trusted_example_run_payloads_owner_fk",
+    }).onDelete("cascade"),
+    index("trusted_example_run_payloads_purge_idx").on(table.purgeAfter),
+    check(
+      "trusted_example_run_payloads_source_check",
+      sql`length(${table.sourceText}) BETWEEN 1 AND 49152`,
+    ),
+  ],
+);

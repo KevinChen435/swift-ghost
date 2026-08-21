@@ -1,7 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { CloudTrustedAssignment, CloudTrustedSubmission } from "../lib/cloud.mjs";
+import type {
+  CloudTrustedAssignment,
+  CloudTrustedExampleRun,
+  CloudTrustedSubmission,
+} from "../lib/cloud.mjs";
 import type { PracticeItem } from "../lib/items";
 import {
   SWIFT_PREFLIGHT_CHECKS,
@@ -15,14 +19,17 @@ type SwiftSolveConsoleProps = {
   item: PracticeItem;
   assignment: CloudTrustedAssignment | null;
   submission: CloudTrustedSubmission | null;
+  exampleRun: CloudTrustedExampleRun | null;
   loadState: "idle" | "loading" | "ready" | "error";
   action: "idle" | "loading" | "submitting";
+  exampleAction: "idle" | "running";
   message: string;
   available: boolean;
   authenticated: boolean;
   sourcePresent: boolean;
   retryAvailable: boolean;
   onRequestAssignment: () => void;
+  onRunExamples: () => void;
   onSubmit: () => void;
 };
 
@@ -65,18 +72,52 @@ function verdictLabel(verdict: CloudTrustedSubmission["verdict"]) {
     : "Pending";
 }
 
+function exampleStatusFor(
+  exampleRun: CloudTrustedExampleRun | null,
+  sampleId: string,
+  index: number,
+) {
+  if (!exampleRun) return { label: "Not run", className: "idle" };
+  if (exampleRun.status === "pending")
+    return { label: "Running", className: "pending" };
+  if (!exampleRun.result || !exampleRun.verdict)
+    return { label: "Unavailable", className: "failed" };
+  if (exampleRun.verdict === "accepted")
+    return { label: "Passed", className: "passed" };
+  if (
+    exampleRun.result.failedCaseId === sampleId ||
+    exampleRun.result.failedCaseIndex === index
+  )
+    return { label: verdictLabel(exampleRun.verdict), className: "failed" };
+  if (
+    typeof exampleRun.result.failedCaseIndex === "number" &&
+    index < exampleRun.result.failedCaseIndex
+  )
+    return { label: "Passed", className: "passed" };
+  if (exampleRun.verdict === "compile-error")
+    return { label: "Compile blocked", className: "failed" };
+  if (exampleRun.verdict === "runtime-error")
+    return { label: "Runtime blocked", className: "failed" };
+  if (exampleRun.verdict === "time-limit")
+    return { label: "Timed out", className: "failed" };
+  return { label: "Not reached", className: "idle" };
+}
+
 export function SwiftSolveConsole({
   item,
   assignment,
   submission,
+  exampleRun,
   loadState,
   action,
+  exampleAction,
   message,
   available,
   authenticated,
   sourcePresent,
   retryAvailable,
   onRequestAssignment,
+  onRunExamples,
   onSubmit,
 }: SwiftSolveConsoleProps) {
   const challenge = assignment?.challenge;
@@ -114,6 +155,15 @@ export function SwiftSolveConsole({
     assignment?.status === "active" &&
       (submission?.status !== "pending" || retryAvailable) &&
       action === "idle" &&
+      available &&
+      authenticated &&
+      sourcePresent,
+  );
+  const canRunExamples = Boolean(
+    assignment?.status === "active" &&
+      action === "idle" &&
+      exampleAction === "idle" &&
+      exampleRun?.status !== "pending" &&
       available &&
       authenticated &&
       sourcePresent,
@@ -317,6 +367,16 @@ export function SwiftSolveConsole({
           </section>
           <div className="swift-solve-console-actions">
             <button
+              className="outline-button"
+              type="button"
+              disabled={!canRunExamples}
+              onClick={onRunExamples}
+            >
+              {exampleAction === "running" || exampleRun?.status === "pending"
+                ? "Running examples…"
+                : "Run examples"}
+            </button>
+            <button
               className="primary-button"
               type="button"
               disabled={!canSubmit}
@@ -332,6 +392,24 @@ export function SwiftSolveConsole({
             </button>
             <small>{item.title} · sealed cases stay server-side</small>
           </div>
+          {exampleRun?.status === "settled" && exampleRun.result ? (
+            <>
+              <div className={`swift-example-verdict ${exampleRun.verdict === "accepted" ? "accepted" : "failed"}`} role="status">
+                <strong>{exampleRun.verdict === "accepted" ? "Examples passed" : verdictLabel(exampleRun.verdict)}</strong>
+                <span>{exampleRun.result.passed}/{exampleRun.result.total} public examples passed</span>
+              </div>
+              {exampleRun.result.diagnostic ? (
+                <pre className="swift-example-diagnostic" aria-label="Swift example diagnostic">
+                  {exampleRun.result.diagnostic}
+                </pre>
+              ) : null}
+            </>
+          ) : exampleRun?.status === "pending" ? (
+            <div className="swift-example-verdict pending" role="status">
+              <strong>Examples running</strong>
+              <span>The isolated Swift runtime is compiling this source.</span>
+            </div>
+          ) : null}
           {submission?.status === "settled" && submission.result ? (
             <>
               <div className={`swift-solve-verdict ${submission.verdict === "accepted" ? "accepted" : "failed"}`} role="status">
@@ -354,13 +432,19 @@ export function SwiftSolveConsole({
               <p>Use these to sanity-check your implementation before submitting.</p>
             </div>
             <div className="swift-solve-sample-grid">
-              {challenge.samples.map((sample) => (
+              {challenge.samples.map((sample, index) => {
+                const status = exampleStatusFor(exampleRun, sample.id, index);
+                return (
                 <article key={sample.id}>
-                  <strong>{sample.name}</strong>
+                  <div className="swift-sample-result-row">
+                    <strong>{sample.name}</strong>
+                    <span className={`swift-sample-result ${status.className}`}>{status.label}</span>
+                  </div>
                   <code>args: {valueLabel(sample.args)}</code>
                   <code>expected: {valueLabel(sample.expected)}</code>
                 </article>
-              ))}
+                );
+              })}
             </div>
           </div>
         </>

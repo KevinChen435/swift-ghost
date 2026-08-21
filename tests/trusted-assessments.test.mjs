@@ -9,8 +9,10 @@ import {
   cleanTrustedId,
   cleanTrustedSource,
   normalizeTrustedGatewayResult,
+  normalizeTrustedGatewayExampleResult,
   normalizeTrustedJudgeResult,
   privateJudgeSpec,
+  publicExampleJudgeSpec,
   publicTrustedChallenge,
   trustedChallengeForSequence,
   trustedGatewaySubmission,
@@ -157,6 +159,64 @@ test("Swift challenges generate typed harnesses without embedding sealed cases",
       callbackUrl: "https://swift.example/api/internal/judge-results",
     }),
     /INVALID_TRUSTED_JUDGE_SPEC/,
+  );
+});
+
+test("Swift example contracts include only public samples and expose only public failure indexes", async () => {
+  const challenge = trustedChallengeForSequence(0, "swift");
+  const exampleSpec = publicExampleJudgeSpec(challenge);
+  assert.equal(exampleSpec.language, "swift");
+  assert.equal(exampleSpec.cases.length, challenge.samples.length);
+  assert.equal(
+    exampleSpec.cases.every((entry) => entry.visibility === "sample"),
+    true,
+  );
+  assert.doesNotMatch(JSON.stringify(exampleSpec), /hidden-duplicate|negative complement/);
+  const submission = await trustedGatewaySubmission({
+    submissionId: "example-swift12345",
+    source: "import Foundation\nfunc twoSum(_ nums: [Int], _ target: Int) -> [Int] { [0, 1] }",
+    judgeSpec: exampleSpec,
+    callbackUrl: "https://swift.example/api/internal/judge-results",
+  });
+  assert.equal(submission.tests.length, challenge.samples.length);
+  assert.deepEqual(
+    normalizeTrustedGatewayExampleResult(
+      {
+        version: "judge.result.v1",
+        submissionId: "example-swift12345",
+        verdict: "wrong-answer",
+        passed: 1,
+        total: challenge.samples.length,
+        failedCaseIndex: 1,
+        language: "swift6",
+        runtime: "swift-6.3.3-linux",
+        contentRevision: challenge.contentRevision,
+        judgeRevision: challenge.judgeRevision,
+        contractDigest: submission.contractDigest,
+        diagnostic: "bounded public diagnostic",
+      },
+      "example-swift12345",
+      {
+        total: challenge.samples.length,
+        language: "swift",
+        runtime: "swift-6.3.3-linux",
+        contentRevision: challenge.contentRevision,
+        judgeRevision: challenge.judgeRevision,
+        contractDigest: submission.contractDigest,
+      },
+    ),
+    {
+      verdict: "wrong-answer",
+      passed: 1,
+      total: challenge.samples.length,
+      language: "swift",
+      runtime: "swift-6.3.3-linux",
+      contentRevision: challenge.contentRevision,
+      judgeRevision: challenge.judgeRevision,
+      contractDigest: submission.contractDigest,
+      failedCaseIndex: 1,
+      diagnostic: "bounded public diagnostic",
+    },
   );
 });
 
@@ -317,6 +377,7 @@ test("trusted migrations enforce ownership, idempotency, settlement hashes, chec
     await applyMigration(db, "0003_clean_scourge.sql");
     await applyMigration(db, "0004_petite_professor_monster.sql");
     await applyMigration(db, "0005_lying_wilson_fisk.sql");
+    await applyMigration(db, "0006_swift_example_runs.sql");
     insertProfile(db, "alice", "alice@example.com", "alice-swift");
     insertProfile(db, "bob", "bob@example.com", "bob-swift");
     const assignment = insertAssignment(db);
@@ -376,6 +437,22 @@ test("trusted migrations enforce ownership, idempotency, settlement hashes, chec
       `).run(),
       /CHECK constraint failed/,
     );
+    db.prepare(`
+      INSERT INTO trusted_example_runs
+        (id, assignment_id, user_id, client_run_id, request_hash,
+         source_hash, status, verdict, result_json, requested_at, settled_at,
+         purge_after)
+      VALUES ('example-a', ?, 'alice', 'example:alice-a', ?, ?,
+              'pending', NULL, NULL, 120, NULL, 300)
+    `).run(assignment.id, "1".repeat(64), "2".repeat(64));
+    assert.throws(
+      () => db.prepare(`
+        UPDATE trusted_example_runs
+        SET status = 'settled', verdict = 'accepted', result_json = '{}'
+        WHERE id = 'example-a'
+      `).run(),
+      /CHECK constraint failed/,
+    );
 
     const foreignKeyProblems = db.prepare("PRAGMA foreign_key_check").all();
     assert.deepEqual(foreignKeyProblems, []);
@@ -386,6 +463,10 @@ test("trusted migrations enforce ownership, idempotency, settlement hashes, chec
     );
     assert.equal(
       db.prepare("SELECT COUNT(*) AS count FROM trusted_submissions").get().count,
+      0,
+    );
+    assert.equal(
+      db.prepare("SELECT COUNT(*) AS count FROM trusted_example_runs").get().count,
       0,
     );
     assert.equal(
@@ -422,4 +503,9 @@ test("Sites build packages the trusted migration", async () => {
     "utf8",
   );
   assert.match(swiftVerdictSql, /compile-error/);
+  const swiftExampleSql = await readFile(
+    new URL("../dist/.openai/drizzle/0006_swift_example_runs.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(swiftExampleSql, /trusted_example_runs/);
 });

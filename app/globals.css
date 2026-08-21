@@ -10170,6 +10170,11 @@ kbd {
   background: var(--accent-strong);
 }
 
+.swift-solve-console-actions .outline-button {
+  min-height: 42px;
+  padding-inline: 17px;
+}
+
 .swift-solve-console-actions small {
   flex: 1 1 240px;
   min-width: 0;
@@ -10575,6 +10580,73 @@ kbd {
   color: var(--danger);
 }
 
+.swift-example-verdict {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-raised) 80%, transparent);
+}
+
+.swift-example-verdict strong {
+  color: var(--text);
+  font-size: 0.78rem;
+}
+
+.swift-example-verdict span {
+  color: var(--muted);
+  font: 600 0.66rem/1.45 var(--font-code);
+  text-align: right;
+}
+
+.swift-example-verdict.accepted {
+  border-color: color-mix(in srgb, var(--success) 42%, var(--border-soft));
+  border-left-color: var(--success);
+  background: color-mix(in srgb, var(--success) 8%, var(--bg-raised));
+}
+
+.swift-example-verdict.accepted strong {
+  color: var(--success);
+}
+
+.swift-example-verdict.failed {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--border-soft));
+  border-left-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg-raised));
+}
+
+.swift-example-verdict.failed strong {
+  color: var(--danger);
+}
+
+.swift-example-verdict.pending {
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--border-soft));
+  border-left-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, var(--bg-raised));
+}
+
+.swift-example-verdict.pending strong {
+  color: var(--warning);
+}
+
+.swift-example-diagnostic {
+  max-height: 160px;
+  overflow: auto;
+  margin: -2px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--bg-inset) 82%, transparent);
+  font: 600 0.66rem/1.5 var(--font-code);
+  white-space: pre-wrap;
+}
+
 .swift-verdict-guidance {
   display: grid;
   gap: 10px;
@@ -10638,6 +10710,46 @@ kbd {
   overflow-wrap: anywhere;
   color: var(--text);
   font-size: 0.75rem;
+}
+
+.swift-sample-result-row {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.swift-sample-result {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-height: 24px;
+  padding: 4px 7px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  color: var(--faint);
+  font: 700 0.55rem/1.2 var(--font-code);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.swift-sample-result.passed {
+  border-color: color-mix(in srgb, var(--success) 42%, var(--border-soft));
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+}
+
+.swift-sample-result.failed {
+  border-color: color-mix(in srgb, var(--danger) 42%, var(--border-soft));
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
+.swift-sample-result.pending {
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--border-soft));
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 8%, transparent);
 }
 
 .swift-solve-sample-grid article code {

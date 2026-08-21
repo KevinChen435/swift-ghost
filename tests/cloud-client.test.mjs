@@ -288,6 +288,10 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
       key: "swift-product-except-self",
       language: "swift",
       runtime: "swift-6.3.3-linux",
+      samples: [
+        ...assignment.challenge.samples,
+        { id: "sample-2", name: "sample 2", args: [[2, 3, 4]], expected: [12, 8, 6] },
+      ],
       title: "Product Except Self in Swift",
       starterCode: "import Foundation\n\nfunc productExceptSelf(_ nums: [Int]) -> [Int] { return [] }",
       entrypoint: {
@@ -315,11 +319,45 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
       });
       return json({ assignment: swiftAssignment }, 201);
     }
-    assert.deepEqual(JSON.parse(init.body), {
-      clientSubmissionId: "submission:abc12345",
-      source: "def longest_stable_window(nums, gap):\n    return len(nums)",
-    });
-    return json({ submission: settled }, 201);
+    if (call === 4) {
+      assert.deepEqual(JSON.parse(init.body), {
+        clientSubmissionId: "submission:abc12345",
+        source: "def longest_stable_window(nums, gap):\n    return len(nums)",
+      });
+      return json({ submission: settled }, 201);
+    }
+    if (call === 5) {
+      assert.deepEqual(JSON.parse(init.body), {
+        clientRunId: "example:abc12345",
+        source: swiftAssignment.challenge.starterCode,
+      });
+      return json({
+        exampleRun: {
+          id: "example-server12345",
+          assignmentId: swiftAssignment.id,
+          clientRunId: "example:abc12345",
+          status: "settled",
+          verdict: "wrong-answer",
+          requestedAt: "2026-07-28T12:06:00.000Z",
+          settledAt: "2026-07-28T12:06:01.000Z",
+          result: {
+            passed: 1,
+            total: 2,
+            authority: "server-isolated-swift",
+            language: "swift",
+            runtime: "swift-6.3.3-linux",
+            contractDigest: "b".repeat(64),
+            contentRevision: 1,
+            judgeRevision: 2,
+            failedCaseIndex: 1,
+            failedCaseId: "sample-2",
+            diagnostic: "compile output is bounded",
+            hiddenOutput: "must be dropped",
+          },
+        },
+      });
+    }
+    throw new Error(`unexpected call ${call}`);
   });
   const client = createCloudClient({
     fetchImpl: mock.fetchImpl,
@@ -365,6 +403,21 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
     "/api/v1/trusted/assignments/trusted-abc12345/submissions",
   );
 
+  const exampleRun = await client.runTrustedExamples(swiftAssignment.id, {
+    clientRunId: "example:abc12345",
+    source: swiftAssignment.challenge.starterCode,
+  }, { challenge: swiftAssignment.challenge });
+  assert.equal(exampleRun.available, true);
+  assert.equal(exampleRun.data.verdict, "wrong-answer");
+  assert.equal(exampleRun.data.result.failedCaseIndex, 1);
+  assert.equal(exampleRun.data.result.failedCaseId, "sample-2");
+  assert.equal(exampleRun.data.result.diagnostic, "compile output is bounded");
+  assert.equal(Object.hasOwn(exampleRun.data.result, "hiddenOutput"), false);
+  assert.equal(
+    mock.calls[4].url,
+    "/api/v1/trusted/assignments/trusted-swift12345/example-runs",
+  );
+
   assert.deepEqual(
     await client.issueTrustedAssignment(
       "assignment-request:invalid12345",
@@ -387,7 +440,14 @@ test("trusted assessment transport is bounded, fail-closed, and omits private fi
     }),
     { available: false, reason: "invalid-request" },
   );
-  assert.equal(mock.calls.length, 4);
+  assert.deepEqual(
+    await client.runTrustedExamples(swiftAssignment.id, {
+      clientRunId: "example:too-large",
+      source: "x".repeat(49 * 1024),
+    }),
+    { available: false, reason: "invalid-request" },
+  );
+  assert.equal(mock.calls.length, 5);
 });
 
 test("trusted assignment lookup can target one challenge and preserves enqueue retry semantics", async () => {
