@@ -10075,6 +10075,8 @@ function PracticeView(props: PracticeProps) {
         setSwiftMessage(
           result.reason === "unauthorized"
             ? "Sign in again before running Swift examples."
+            : result.reason === "rate-limited"
+              ? "Wait for the earlier Swift example run to finish before trying again."
             : "The Swift examples could not reach the isolated judge.",
         );
         return;
