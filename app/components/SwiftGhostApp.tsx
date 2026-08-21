@@ -6876,7 +6876,7 @@ export default function SwiftGhostApp() {
         )
           return [];
         const practiceKind =
-          entry.practiceKind === "solving" && candidate.verification
+          entry.practiceKind === "solving" && canSolveItem(candidate)
             ? "solving"
             : entry.practiceKind === "concept" &&
                 supportsConceptPractice(candidate)
@@ -9596,7 +9596,7 @@ function PracticeView(props: PracticeProps) {
         kind: "server-isolated-swift",
         revision: receipt.judge.revision || assignment.challenge.judgeRevision,
       },
-      context: { kind: "practice" },
+      context: receipt.context,
       assistance: receipt.assistance,
     };
   }, [props.item.itemId, props.state.submissionLog]);
@@ -9922,6 +9922,17 @@ function PracticeView(props: PracticeProps) {
     }
     swiftSubmitInFlight.current = true;
     setSwiftRetryAvailable(false);
+    const submissionContextKind: SubmissionContextKind = isVirtualRound
+      ? "round"
+      : isStudio
+        ? "studio"
+        : isMock
+          ? "mock"
+          : isAssessment
+            ? "assessment"
+            : isTransfer
+              ? "transfer"
+              : "practice";
     const submissionRequest: SubmissionRequest = retryRequest ?? {
       id: makeId(),
       itemId: props.item.itemId,
@@ -9934,7 +9945,13 @@ function PracticeView(props: PracticeProps) {
         kind: "server-isolated-swift",
         revision: swiftAssignment.challenge.judgeRevision,
       },
-      context: { kind: "practice" },
+      context: {
+        kind: submissionContextKind,
+        sessionId: props.draft.sessionId,
+        assessmentRunId: props.draft.assessmentRunId,
+        assessmentProbeId: props.draft.assessmentProbeId,
+        virtualRoundId: props.draft.virtualRoundId,
+      },
       assistance: props.draft.peeks > 0 ? "used" : "none-recorded",
     };
     if (!retryRequest) {

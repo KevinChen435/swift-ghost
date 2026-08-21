@@ -17,6 +17,8 @@ test("catalog exposes the sealed Swift solve lane without hidden cases", async (
   assert.doesNotMatch(challenges, /hiddenCases/);
   assert.match(statement, /getSwiftChallenge/);
   assert.match(statement, /Private sealed judge/);
+  assert.match(statement, /`func \$\{swiftChallenge\.entrypoint\.name\}/);
+  assert.match(statement, /`_ \$\{parameter\.name\}: \$\{parameter\.type\}`/);
 });
 
 test("the portable Swift fundamentals card is executable while framework cards stay recall-only", async () => {

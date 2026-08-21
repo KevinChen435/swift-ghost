@@ -145,6 +145,55 @@ test("snapshots the sealed judge revision for runnable Swift items", () => {
   );
 });
 
+test("counts accepted Swift evidence linked through the practice session context", () => {
+  const swiftRegistry = [
+    item(1, {
+      itemId: "swift:swift-two-sum",
+      language: "swift",
+      trustedChallengeKey: "swift-two-sum",
+      trustedJudgeRevision: 7,
+      verification: undefined,
+    }),
+    item(2, {
+      itemId: "swift:swift-binary-search",
+      language: "swift",
+      trustedChallengeKey: "swift-binary-search",
+      trustedJudgeRevision: 9,
+      verification: undefined,
+    }),
+  ];
+  let workspace = createRunManifest(
+    createRunManifestWorkspace(),
+    {
+      title: "Swift solve set",
+      source: "catalog",
+      mode: "practice",
+      itemIds: ["swift:swift-two-sum", "swift:swift-binary-search"],
+      execution: { kind: "session", id: "swift-session-1" },
+    },
+    swiftRegistry,
+    { id: "swift-context", now: NOW },
+  );
+  workspace = startRunManifest(workspace, "swift-context", {
+    now: NOW,
+    execution: { kind: "session", id: "swift-session-1" },
+  });
+  const report = deriveRunManifestReport(workspace.manifests[0], {
+    submissions: [{
+      itemId: "swift:swift-two-sum",
+      itemRevision: 1,
+      lifecycle: "settled",
+      status: "accepted",
+      passed: 6,
+      total: 6,
+      judge: { revision: 7 },
+      context: { kind: "practice", sessionId: "swift-session-1" },
+    }],
+  }, swiftRegistry);
+  assert.equal(report.currentAcceptedCount, 1);
+  assert.equal(report.entries[0].status, "accepted-current");
+});
+
 test("requires 2-12 distinct entries and only current built-in non-transfer registry items", () => {
   assert.throws(() => create({ itemIds: ["python:1"] }), /between 2 and 12/i);
   assert.throws(() => create({ itemIds: Array.from({ length: 13 }, (_, index) => `x:${index}`) }), /between 2 and 12/i);

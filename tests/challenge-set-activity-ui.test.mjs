@@ -129,6 +129,36 @@ test("practice resume requires the frozen prompt and judge revisions", async () 
   assert.match(resume, /frozen problem revision is unavailable/i);
 });
 
+test("Swift solve submissions preserve the active session context for Records", async () => {
+  const app = await readFile(
+    new URL("../app/components/SwiftGhostApp.tsx", import.meta.url),
+    "utf8",
+  );
+  const submitStart = app.indexOf("async function runSwiftSubmit");
+  const submitEnd = app.indexOf("async function runSwiftExamples", submitStart);
+  const submit = app.slice(submitStart, submitEnd);
+  assert.notEqual(submitStart, -1);
+  assert.match(submit, /const submissionContextKind: SubmissionContextKind/);
+  assert.match(submit, /context:\s*\{[\s\S]*kind: submissionContextKind[\s\S]*sessionId: props\.draft\.sessionId/);
+
+  const persistedStart = app.indexOf("const persistedSwiftRequestFor");
+  const persistedEnd = app.indexOf("const reconcileSettledSwiftAssignment", persistedStart);
+  const persisted = app.slice(persistedStart, persistedEnd);
+  assert.match(persisted, /context: receipt\.context/);
+});
+
+test("planned Swift solve entries remain runnable instead of being demoted to typing", async () => {
+  const app = await readFile(
+    new URL("../app/components/SwiftGhostApp.tsx", import.meta.url),
+    "utf8",
+  );
+  const start = app.indexOf("const planned = plannedEntries");
+  const end = app.indexOf("const entries = planned", start);
+  const planned = app.slice(start, end);
+  assert.match(planned, /entry\.practiceKind === "solving" && canSolveItem\(candidate\)/);
+  assert.doesNotMatch(planned, /entry\.practiceKind === "solving" && candidate\.verification/);
+});
+
 test("direct Virtual Round launches are linked into the durable activity ledger", async () => {
   const app = await readFile(
     new URL("../app/components/SwiftGhostApp.tsx", import.meta.url),

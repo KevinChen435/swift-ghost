@@ -63,6 +63,11 @@ export function ChallengeStatement({
       }
     : null);
   if (!challenge) return null;
+  const callableLabel = swiftChallenge
+    ? `func ${swiftChallenge.entrypoint.name}(${swiftChallenge.entrypoint.parameters
+        .map((parameter) => `_ ${parameter.name}: ${parameter.type}`)
+        .join(", ")}) -> ${swiftChallenge.entrypoint.returns}`
+    : challenge.entrypoint;
 
   function selectAdjacentTab(
     event: KeyboardEvent<HTMLButtonElement>,
@@ -96,7 +101,7 @@ export function ChallengeStatement({
           <span className="eyebrow">
             {hideExpected ? "Interview prompt" : "Challenge statement"}
           </span>
-          <h2 id={titleId}>{challenge.entrypoint}</h2>
+          <h2 id={titleId}>{callableLabel}</h2>
         </div>
         <span className="hidden-check-count">
           {swiftChallenge
@@ -135,7 +140,7 @@ export function ChallengeStatement({
           <dl>
             <div>
               <dt>Callable</dt>
-              <dd><code>{challenge.entrypoint}</code></dd>
+              <dd><code>{callableLabel}</code></dd>
             </div>
             <div>
               <dt>Returns</dt>
