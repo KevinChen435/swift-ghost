@@ -15,7 +15,7 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - 48 Python exercises: 8 language-fluency drills and 40 interview problems, including advanced Trie, Union-Find, graph, bit-manipulation, and 2D dynamic-programming work
 - 50 original Swift implementations across 12 interview patterns
 - 16 iOS and Swift fundamentals covering language semantics, concurrency, UIKit, SwiftUI, networking, testing, and accessibility
-- 20 server-judged portable Swift solve contracts, including two iOS-lane companion cards for value semantics and optional binding; public examples and authenticated custom-input rehearsal are runnable while sealed cases remain server-only
+- 20 server-judged portable Swift solve contracts, including two iOS-lane companion cards for value semantics and optional binding; public examples and authenticated multi-case custom-input rehearsal are runnable while sealed cases remain server-only
 - A routeable Pattern Academy with 12 authored playbooks covering recognition cues, rejection rules, confusable patterns, invariants, worked state traces, incomplete Python and Swift skeletons, commit-before-reveal retrieval checks, and explicit handoffs from guided exposure to local solve and sealed transfer practice
 - A Core Pattern Skill Check spanning all 12 Pattern Academy families: 24 revisioned unlabeled prompts in four confusable clusters, four-prompt base runs with one bounded sibling confirmation after a miss, explicit cue/invariant/rejected-alternative/complexity commitments, authored comparisons, a four-state evidence map, 1/3/7/14/30-day scheduling, distinct delayed-prompt retention, reload-safe runs, blank-solve handoffs, and Weakness Lab integration without inflating solve evidence
 - A Cross-lane Re-entry Assessment with a revisioned 24-entry bank organized into six Python, Swift, and iOS sections; every run fairly selects and permanently freezes one entry per section, pins prompt and judge revisions, routes Python to the local judge, routes Swift to stage-five exact reconstruction, routes Swift/iOS boundaries to commit-before-reveal concept recall, migrates older baselines as fixed historical forms, and reports a six-row trust ledger without a composite readiness or mastery score
@@ -33,7 +33,7 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - Per-attempt pace timelines and line-level error forensics that can queue exact current-revision friction into a durable Fluency Clinic
 - A persistent Implementation Fluency Clinic with automatic repeated-error enrollment, manual weak-line queueing, visible/faded/blank micro-repairs, a required fresh stage-five full reconstruction, one-day delayed blank retrieval, source-mapped Python or Swift/iOS transfer, baseline-to-reconstruction deltas, and explicit non-mastery/non-independent evidence boundaries
 - Real browser-side Python checks for every built-in Python solution, isolated in a fresh Web Worker with a pinned, self-hosted runtime and compatibility tests covering all 48 core exercises plus all 8 transfer variants
-- A first-class Python Solve lane with a lazily loaded CodeMirror editor, Python syntax highlighting, indentation, bracket tools, search, history, practice-only fluency completions, source-bound verification, and solve evidence kept separate from typing records
+- First-class Python and Swift Solve lanes with lazily loaded CodeMirror editors, language-aware syntax highlighting, indentation, bracket tools, search, history, practice-only fluency completions, source-bound verification, and solve evidence kept separate from typing records
 - Five-stage per-problem recall ladder with honest mastery and qualified personal bests
 - Post-attempt pace charts, missed-line forensics, same-stage retries, and exact item/revision/stage community benchmark previews
 - Optional 30-second typing and concept debriefs that record retrieval difficulty, cognitive friction, confidence, and an authored teach-back response; these stay local and feed the next Daily Coach plan
@@ -123,7 +123,7 @@ Interview problem names link to their public LeetCode pages; iOS fundamentals li
 
 ## Roadmap
 
-The local-first training core remains the priority. Planned work includes richer boundary suites, authored semantic masks, multi-case Swift rehearsal history and authoring, server-assigned private transfer judging, broader server-backed Python verification, and private cross-device sync for learning evidence beyond the current Study Plan structure.
+The local-first training core remains the priority. Planned work includes richer boundary suites, authored semantic masks, deeper Swift rehearsal authoring (templates and shareable case sets), server-assigned private transfer judging, broader server-backed Python verification, and private cross-device sync for learning evidence beyond the current Study Plan structure.
 
 ## License
 
