@@ -28,6 +28,15 @@ test("session entry navigation reconciles the old draft before moving the cursor
   assert.match(openItem, /mockWorkspaceSource/);
 });
 
+test("resuming an active session routes through the same pending-entry revision gate", async () => {
+  const app = await read("../app/components/SwiftGhostApp.tsx");
+  const resume = section(app, "function resumeSession()", "function skipSessionEntry(");
+  assert.match(resume, /entry\.status === "pending"/);
+  assert.match(resume, /findIndex\(\(entry\) => entry\.status === "pending"\)/);
+  assert.match(resume, /openSessionEntry\(pendingIndex\)/);
+  assert.match(resume, /no pending work left to resume/);
+});
+
 test("session entry opening validates status, revision, transfer, and mock semantics", async () => {
   const app = await read("../app/components/SwiftGhostApp.tsx");
   const handler = section(app, "function openSessionEntry(", "function resumeSession(");
@@ -59,4 +68,19 @@ test("active session preview exposes accessible open controls without changing m
   assert.match(app, /onOpenSessionEntry=\{openSessionEntry\}/);
   assert.match(app, /if \(session\.kind === "mock"\) \{\s*setToast\("Mock problems cannot be skipped/);
   assert.match(app, /if \(!virtualRoundId && blockVirtualRoundNavigation\(\)\) return;/);
+});
+
+test("session builder exposes the practice-mode queue contract", async () => {
+  const app = await read("../app/components/SwiftGhostApp.tsx");
+  const sessions = section(
+    app,
+    "function SessionsView(",
+    "function RecordsSectionSwitch(",
+  );
+  assert.match(sessions, /useState<SessionPracticeMode>\("smart"\)/);
+  assert.match(sessions, /practiceMode,/);
+  assert.match(sessions, /<span>Practice mode<\/span>/);
+  assert.match(sessions, /<option value="typing">Known-answer typing<\/option>/);
+  assert.match(sessions, /<option value="solving">Swift judge solves<\/option>/);
+  assert.match(sessions, /disabled=\{practiceMode === "solving"\}/);
 });

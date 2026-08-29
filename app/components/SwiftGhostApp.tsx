@@ -126,6 +126,7 @@ import {
   buildSessionQueue,
   type SessionLanguage,
   type SessionQueueEntry,
+  type SessionPracticeMode,
   type SessionSource,
   type SessionStageMode,
   type SessionTrack,
@@ -496,6 +497,7 @@ type SessionBuildOptions = {
   pattern: string;
   difficulty: string;
   stageMode: SessionStageMode;
+  practiceMode?: SessionPracticeMode;
   studyPlanId?: string;
   studyCollectionIds?: string[];
 };
@@ -745,6 +747,9 @@ function sessionHistoryRecord(
       : {}),
     studyPlanId: session.studyPlanId,
     studyCollectionIds: session.studyCollectionIds,
+    ...(session.kind === "practice"
+      ? { practiceMode: session.practiceMode ?? "smart" }
+      : {}),
     laneMinutes,
     ...(session.kind === "mock"
       ? {
@@ -6902,8 +6907,16 @@ export default function SwiftGhostApp() {
             candidate.language !== options.language)
         )
           return [];
+        const serverSwiftSolve =
+          candidate.solveCapability === "server" &&
+          candidate.language === "swift" &&
+          Boolean(candidate.trustedChallengeKey);
+        if (options.practiceMode === "solving" && !serverSwiftSolve)
+          return [];
         const practiceKind =
-          entry.practiceKind === "solving" && canSolveItem(candidate)
+          options.practiceMode === "solving"
+            ? "solving"
+            : entry.practiceKind === "solving" && canSolveItem(candidate)
             ? "solving"
             : entry.practiceKind === "concept" &&
                 supportsConceptPractice(candidate)
@@ -6941,6 +6954,7 @@ export default function SwiftGhostApp() {
       track: options.track,
       language: options.language,
       stageMode: options.stageMode,
+      practiceMode: options.practiceMode ?? "smart",
       createdAt: new Date().toISOString(),
       entries,
       currentIndex: 0,
@@ -7578,18 +7592,16 @@ export default function SwiftGhostApp() {
   function resumeSession() {
     const session = state.activeSession;
     if (!session) return;
-    const entry = session.entries[session.currentIndex];
-    const next = allItems.find(
-      (candidate) => candidate.itemId === entry?.itemId,
-    );
-    if (entry && next)
-      openItem(
-        next,
-        entry.stage,
-        undefined,
-        session.id,
-        entry.practiceKind ?? "typing",
-      );
+    const currentEntry = session.entries[session.currentIndex];
+    const pendingIndex =
+      currentEntry?.status === "pending"
+        ? session.currentIndex
+        : session.entries.findIndex((entry) => entry.status === "pending");
+    if (pendingIndex < 0) {
+      setToast("This session has no pending work left to resume");
+      return;
+    }
+    openSessionEntry(pendingIndex);
   }
 
   function skipSessionEntry() {
@@ -12466,6 +12478,8 @@ function SessionsView({
   const [pattern, setPattern] = useState<string>("All");
   const [difficulty, setDifficulty] = useState<string>("All");
   const [stageMode, setStageMode] = useState<SessionStageMode>("recommended");
+  const [practiceMode, setPracticeMode] =
+    useState<SessionPracticeMode>("smart");
   const [mockProblemCount, setMockProblemCount] =
     useState<MockInterviewProblemCount>(1);
   const [studioFormat, setStudioFormat] =
@@ -12497,7 +12511,16 @@ function SessionsView({
       buildSessionQueue(
         items,
         signals,
-        { count, source, track, language, pattern, difficulty, stageMode },
+        {
+          count,
+          source,
+          track,
+          language,
+          pattern,
+          difficulty,
+          stageMode,
+          practiceMode,
+        },
         () => 0.5,
       ),
     [
@@ -12510,6 +12533,7 @@ function SessionsView({
       pattern,
       difficulty,
       stageMode,
+      practiceMode,
     ],
   );
   const active = state.activeSession;
@@ -12975,9 +12999,23 @@ function SessionsView({
             </label>
           </div>
           <label>
+            <span>Practice mode</span>
+            <select
+              value={practiceMode}
+              onChange={(event) =>
+                setPracticeMode(event.target.value as SessionPracticeMode)
+              }
+            >
+              <option value="smart">Smart mix by item</option>
+              <option value="typing">Known-answer typing</option>
+              <option value="solving">Swift judge solves</option>
+            </select>
+          </label>
+          <label>
             <span>Recall policy</span>
             <select
               value={stageMode}
+              disabled={practiceMode === "solving"}
               onChange={(event) =>
                 setStageMode(event.target.value as SessionStageMode)
               }
@@ -13000,6 +13038,7 @@ function SessionsView({
                   pattern,
                   difficulty,
                   stageMode,
+                  practiceMode,
                 },
                 preview,
               )

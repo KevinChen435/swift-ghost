@@ -27,6 +27,8 @@ test("daily coach exposes a muted-answer crib for python, swift, and iOS study",
   assert.match(component, /coach-crib-answer/);
   assert.match(component, /coach-crib-actions/);
   assert.match(component, /is-focused/);
+  assert.match(component, /function localPlanningDate\(now = new Date\(\)\)/);
+  assert.match(component, /new Date\(now\.getFullYear\(\), now\.getMonth\(\), now\.getDate\(\), 12\)/);
   assert.match(component, /coach-crib-filters/);
   assert.match(styles, /\.coach-crib\s*\{/);
   assert.match(styles, /\.coach-crib-grid\s*\{/);

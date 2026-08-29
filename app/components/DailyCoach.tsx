@@ -36,6 +36,12 @@ function clinicPriorityLabel(status: FluencyClinicModel["records"][number]["stat
   return "Implementation fluency";
 }
 
+function localPlanningDate(now = new Date()) {
+  // Pass a local-midnight-safe Date into the planner. A bare YYYY-MM-DD string
+  // is parsed as UTC by JavaScript and can move Pacific-time plans to yesterday.
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+}
+
 type CoachCribLane = "python" | "swift" | "ios";
 
 type CoachCribCard = {
@@ -117,9 +123,10 @@ export function DailyCoach({
   const [budgetMinutes, setBudgetMinutes] = useState<15 | 30 | 45>(() =>
     nearestBudget(state.settings.dailyGoalMinutes),
   );
-  const planningDate = ready
-    ? new Date().toISOString().slice(0, 10)
-    : "2000-01-01";
+  const planningDate = useMemo(
+    () => (ready ? localPlanningDate() : new Date(2000, 0, 1, 12)),
+    [ready],
+  );
   const plan = useMemo(
     () =>
       buildDailyPlan(
