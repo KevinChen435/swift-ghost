@@ -9372,6 +9372,13 @@ function TodayView({
         onResume={onResumeSession}
         fluencyClinic={fluencyClinic}
         onOpenFluencyClinic={onFluencyClinic}
+        onOpenCribItem={(cribItem) =>
+          cribItem.track === "ios" &&
+          cribItem.recallChecks &&
+          cribItem.conceptAnswers
+            ? onOpen(cribItem, 5, undefined, undefined, "concept")
+            : onOpen(cribItem, 1, undefined, undefined, "typing")
+        }
       />
       <section className="today-hero">
         <div className="today-copy">

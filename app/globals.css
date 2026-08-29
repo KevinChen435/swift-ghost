@@ -6308,6 +6308,15 @@ kbd {
   border-color: color-mix(in srgb, var(--accent) 42%, var(--border-soft));
   background: color-mix(in srgb, var(--accent) 8%, var(--bg-raised));
 }
+.coach-crib-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.coach-crib-actions .outline-button {
+  min-height: 34px;
+  padding: 0 12px;
+  font-size: 10px;
+}
 .coach-crib-card.is-focused {
   border-color: color-mix(in srgb, var(--accent) 42%, var(--border-soft));
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);

@@ -40,6 +40,7 @@ type CoachCribLane = "python" | "swift" | "ios";
 
 type CoachCribCard = {
   id: string;
+  item: PracticeItem;
   lane: CoachCribLane;
   label: string;
   title: string;
@@ -55,6 +56,12 @@ function coachCribLaneLabel(lane: CoachCribLane) {
   return "iOS";
 }
 
+function coachCribActionLabel(item: PracticeItem) {
+  if (item.track === "ios" && item.recallChecks && item.conceptAnswers)
+    return "Open recall card";
+  return "Start ghost typing";
+}
+
 function buildCoachCribCard(
   item: PracticeItem,
   lane: CoachCribLane,
@@ -62,7 +69,8 @@ function buildCoachCribCard(
   if (lane === "python") {
     const script = pythonInterviewScript(item);
     return {
-      id: item.itemId,
+      id: `${lane}:${item.itemId}`,
+      item,
       lane,
       label: "Python re-entry",
       title: item.title,
@@ -75,7 +83,8 @@ function buildCoachCribCard(
 
   const script = iosTechnicalScreenScript(item);
   return {
-    id: item.itemId,
+    id: `${lane}:${item.itemId}`,
+    item,
     lane,
     label: lane === "swift" ? "Swift fundamentals" : "iOS fundamentals",
     title: item.title,
@@ -94,6 +103,7 @@ export function DailyCoach({
   onResume,
   fluencyClinic,
   onOpenFluencyClinic,
+  onOpenCribItem,
 }: {
   ready: boolean;
   state: AppState;
@@ -102,6 +112,7 @@ export function DailyCoach({
   onResume: () => void;
   fluencyClinic: FluencyClinicModel;
   onOpenFluencyClinic: (caseId?: string) => void;
+  onOpenCribItem: (item: PracticeItem) => void;
 }) {
   const [budgetMinutes, setBudgetMinutes] = useState<15 | 30 | 45>(() =>
     nearestBudget(state.settings.dailyGoalMinutes),
@@ -336,6 +347,15 @@ export function DailyCoach({
                     ))}
                   </ul>
                   <small>{card.note}</small>
+                </div>
+                <div className="coach-crib-actions">
+                  <button
+                    type="button"
+                    className="outline-button"
+                    onClick={() => onOpenCribItem(card.item)}
+                  >
+                    {coachCribActionLabel(card.item)} →
+                  </button>
                 </div>
               </article>
             );
