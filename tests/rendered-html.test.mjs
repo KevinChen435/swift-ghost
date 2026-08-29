@@ -97,6 +97,10 @@ test("ships the full five-stage practice model and original problem links", asyn
     new URL("../app/components/DailyCoach.tsx", import.meta.url),
     "utf8",
   );
+  const onboarding = await readFile(
+    new URL("../app/lib/onboarding.mjs", import.meta.url),
+    "utf8",
+  );
   const planner = await readFile(
     new URL("../app/lib/planner.mjs", import.meta.url),
     "utf8",
@@ -279,7 +283,8 @@ test("ships the full five-stage practice model and original problem links", asyn
   assert.match(consoleUi, /expected:/);
   assert.match(page, /Skip to main content/);
   assert.match(page, /Planned independent solve/);
-  assert.match(coach, /15, 30, 45/);
+  assert.match(coach, /DAILY_COACH_BUDGETS/);
+  assert.match(onboarding, /15, 30, 45/);
   assert.match(coach, /Every task says why it earned time/);
   assert.match(planner, /activityKind === "solve"/);
   assert.match(planner, /input\?\.learningEvents/);

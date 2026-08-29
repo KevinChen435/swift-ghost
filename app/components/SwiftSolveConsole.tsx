@@ -16,6 +16,12 @@ import {
   summarizeSwiftReadiness,
   swiftVerdictGuidance,
 } from "../lib/swift-solve-preflight.mjs";
+import {
+  SWIFT_CASE_PACK_LIMITS,
+  encodeSwiftCasePack,
+  importSwiftCasePack,
+  parseSwiftCasePackArgs,
+} from "../lib/swift-case-packs.mjs";
 
 type SwiftSolveConsoleProps = {
   item: PracticeItem;
@@ -104,10 +110,6 @@ const CUSTOM_HISTORY_VERDICTS = new Set<NonNullable<SwiftCustomHistoryEntry["ver
   "judge-error",
 ]);
 
-function swiftTypeLabel(type: string) {
-  return type || "JSON value";
-}
-
 function defaultSwiftValue(type: string, sampleValue?: unknown) {
   if (sampleValue !== undefined) return valueLabel(sampleValue);
   if (type.endsWith("?")) return "null";
@@ -127,38 +129,8 @@ function defaultSwiftValue(type: string, sampleValue?: unknown) {
   }
 }
 
-function swiftValueMatches(value: unknown, type: string): boolean {
-  if (type.endsWith("?")) return value === null || swiftValueMatches(value, type.slice(0, -1));
-  if (type === "Int") return typeof value === "number" && Number.isSafeInteger(value);
-  if (type === "Bool") return typeof value === "boolean";
-  if (type === "String") return typeof value === "string";
-  if (type === "[Int]") return Array.isArray(value) && value.every((entry) => swiftValueMatches(entry, "Int"));
-  if (type === "[String]") return Array.isArray(value) && value.every((entry) => swiftValueMatches(entry, "String"));
-  if (type === "[[Int]]") return Array.isArray(value) && value.every((entry) => swiftValueMatches(entry, "[Int]"));
-  return false;
-}
-
 function parseSwiftCustomArgs(raw: string, parameters: Array<{ name: string; type: string }>) {
-  if (raw.length > MAX_CUSTOM_DRAFT_CHARACTERS)
-    throw new Error("Custom input is too large. Keep it under 24,000 characters.");
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    throw new Error("Use valid JSON for each Swift argument.");
-  }
-  const args = Array.isArray(parsed)
-    ? parsed
-    : parsed && typeof parsed === "object" && "args" in parsed
-      ? (parsed as { args?: unknown }).args
-      : undefined;
-  if (!Array.isArray(args) || args.length !== parameters.length)
-    throw new Error(`This function expects ${parameters.length} argument${parameters.length === 1 ? "" : "s"}.`);
-  args.forEach((value, index) => {
-    if (!swiftValueMatches(value, parameters[index].type))
-      throw new Error(`${parameters[index].name} must be a ${swiftTypeLabel(parameters[index].type)} value.`);
-  });
-  return args;
+  return parseSwiftCasePackArgs(raw, parameters);
 }
 
 function draftArgs(
@@ -308,6 +280,20 @@ function valueLabel(value: unknown) {
   }
 }
 
+function packCaseDraft(
+  importedCase: { name: string; args: unknown[] },
+  id: string,
+): SwiftCustomCaseDraft {
+  const fields = importedCase.args.map((argument) => valueLabel(argument));
+  return {
+    id,
+    mode: "structured",
+    name: importedCase.name.trim().slice(0, 120) || id.replace("-", " "),
+    fields,
+    raw: JSON.stringify({ args: importedCase.args }, null, 2),
+  };
+}
+
 function verdictLabel(verdict: CloudTrustedSubmission["verdict"]) {
   return verdict
     ? verdict
@@ -398,8 +384,11 @@ export function SwiftSolveConsole({
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [sampleTrace, setSampleTrace] = useState<Record<string, SampleTraceState>>({});
   const [notesByChallenge, setNotesByChallenge] = useState<Record<string, SwiftPreflightNotes>>({});
+  const [sketchFocusByChallenge, setSketchFocusByChallenge] = useState<Record<string, boolean>>({});
   const [customWorkspace, setCustomWorkspace] = useState<SwiftCustomWorkspace | null>(null);
   const [customError, setCustomError] = useState<string | null>(null);
+  const [casePackDraft, setCasePackDraft] = useState("");
+  const [casePackMessage, setCasePackMessage] = useState("");
   const [customRunVisible, setCustomRunVisible] = useState(false);
   const recordedCustomRunIds = useRef(new Set<string>());
   const hydratedCustomChallengeKey = useRef<string | null>(null);
@@ -408,6 +397,7 @@ export function SwiftSolveConsole({
     (customCase) => customCase.id === customWorkspace.selectedId,
   ) ?? customCases[0] ?? null;
   const notes = notesByChallenge[challengeKey] ?? EMPTY_NOTES;
+  const sketchFocused = sketchFocusByChallenge[challengeKey] === true;
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -429,6 +419,8 @@ export function SwiftSolveConsole({
       }
       hydratedCustomChallengeKey.current = challenge.key;
       setCustomError(null);
+      setCasePackDraft("");
+      setCasePackMessage("");
       setCustomRunVisible(false);
       recordedCustomRunIds.current.clear();
     }, 0);
@@ -506,6 +498,26 @@ export function SwiftSolveConsole({
     notes,
   });
   const verdictGuidance = swiftVerdictGuidance(submission?.verdict);
+  const fallbackSketchLines = [
+    {
+      id: "contract",
+      label: "Contract",
+      title: "Match the signature exactly",
+      detail: `Keep ${item.title} anchored to the visible Swift entrypoint and do not change the argument or return shape.`,
+    },
+    {
+      id: "trace",
+      label: "Trace",
+      title: "Replay the public examples",
+      detail: "Walk the public cases first so the invariant is visible before you start typing.",
+    },
+    {
+      id: "boundary",
+      label: "Boundary",
+      title: "Name the smallest break point",
+      detail: "Check the empty, singleton, and off-by-one shape that would break a memorized answer.",
+    },
+  ] as const;
   const repairableSubmission = Boolean(
     submission?.status === "settled" &&
       submission.verdict &&
@@ -552,6 +564,7 @@ export function SwiftSolveConsole({
   function updateCustomDraft(patch: Partial<SwiftCustomDraft>) {
     setCustomRunVisible(false);
     setCustomError(null);
+    setCasePackMessage("");
     setCustomWorkspace((current) => {
       if (!current) return current;
       return {
@@ -570,6 +583,7 @@ export function SwiftSolveConsole({
       ? { ...current, selectedId: id }
       : current);
     setCustomError(null);
+    setCasePackMessage("");
   }
 
   function addCustomCase() {
@@ -590,6 +604,7 @@ export function SwiftSolveConsole({
     });
     setCustomRunVisible(false);
     setCustomError(null);
+    setCasePackMessage("");
   }
 
   function duplicateCustomCase() {
@@ -611,6 +626,7 @@ export function SwiftSolveConsole({
     });
     setCustomRunVisible(false);
     setCustomError(null);
+    setCasePackMessage("");
   }
 
   function deleteCustomCase() {
@@ -624,6 +640,58 @@ export function SwiftSolveConsole({
     });
     setCustomRunVisible(false);
     setCustomError(null);
+    setCasePackMessage("");
+  }
+
+  function currentPackCases() {
+    if (!challenge?.entrypoint.parameters)
+      throw new Error("Load a Swift assignment before sharing cases.");
+    return customCases.map((customCase, index) => ({
+      name: customCase.name.trim().slice(0, 120) || `Custom case ${index + 1}`,
+      args: draftArgs(customCase, challenge.entrypoint.parameters!),
+    }));
+  }
+
+  async function exportCasePack() {
+    if (!challenge || !customCases.length) return;
+    try {
+      const text = encodeSwiftCasePack({
+        challenge,
+        cases: currentPackCases(),
+      });
+      setCasePackDraft(text);
+      setCustomError(null);
+      try {
+        await navigator.clipboard?.writeText(text);
+        setCasePackMessage("Case pack copied.");
+      } catch {
+        setCasePackMessage("Case pack is ready to copy.");
+      }
+    } catch (error) {
+      setCasePackMessage("");
+      setCustomError(error instanceof Error ? error.message : "These cases cannot be exported.");
+    }
+  }
+
+  function importCasePackDraft() {
+    if (!challenge || !customWorkspace) return;
+    try {
+      const imported = importSwiftCasePack(casePackDraft, challenge);
+      const cases = imported
+        .slice(0, SWIFT_CASE_PACK_LIMITS.maxCases)
+        .map((testCase, index) => packCaseDraft(testCase, `case-${index + 1}`));
+      setCustomWorkspace({
+        ...customWorkspace,
+        cases,
+        selectedId: cases[0].id,
+      });
+      setCustomRunVisible(false);
+      setCustomError(null);
+      setCasePackMessage(`Imported ${cases.length} case${cases.length === 1 ? "" : "s"}.`);
+    } catch (error) {
+      setCasePackMessage("");
+      setCustomError(error instanceof Error ? error.message : "Paste a valid Swift Ghost case pack.");
+    }
   }
 
   function runCustomCases() {
@@ -668,6 +736,28 @@ export function SwiftSolveConsole({
             This lane is fail-closed: local text remains editable, but no browser result
             is promoted to verified evidence.
           </p>
+          <section className="swift-answer-sketch swift-answer-sketch--fallback" aria-labelledby="swift-answer-sketch-fallback-title">
+            <header>
+              <div>
+                <span className="eyebrow">Muted answer sketch</span>
+                <strong id="swift-answer-sketch-fallback-title">Keep the outline visible while you rehearse the Swift pass.</strong>
+                <p>
+                  The judge is unavailable, but the scaffold still shows the
+                  shape of a clean answer. Use it to type the first pass from
+                  memory before you ask for a run.
+                </p>
+              </div>
+            </header>
+            <div className="swift-answer-sketch-grid is-muted">
+              {fallbackSketchLines.map((line) => (
+                <article key={line.id}>
+                  <small>{line.label}</small>
+                  <strong>{line.title}</strong>
+                  <p>{line.detail}</p>
+                </article>
+              ))}
+            </div>
+          </section>
         </div>
       ) : loadState === "loading" ? (
         <p className="swift-solve-console-status" role="status">Loading the sealed assignment…</p>
@@ -804,6 +894,42 @@ export function SwiftSolveConsole({
                 />
               </label>
             </div>
+            <section className="swift-answer-sketch" aria-labelledby="swift-answer-sketch-title">
+              <header>
+                <div>
+                  <span className="eyebrow">Muted answer sketch</span>
+                  <strong id="swift-answer-sketch-title">Keep the outline visible while you type your own pass.</strong>
+                  <p>
+                    The scaffold stays on screen but softened until you focus it.
+                    Use it to rehearse the contract, sample trace, approach, and
+                    boundary before you start the judge run.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="text-button"
+                  aria-pressed={sketchFocused}
+                  onClick={() =>
+                    setSketchFocusByChallenge((current) => ({
+                      ...current,
+                      [challengeKey]: !current[challengeKey],
+                    }))
+                  }
+                >
+                  {sketchFocused ? "Soft blur" : "Focus answer"}
+                </button>
+              </header>
+              <div className={`swift-answer-sketch-grid${sketchFocused ? " is-focused" : " is-muted"}`}>
+                {dossier.rows.map((row) => (
+                  <article key={row.id}>
+                    <small>{row.label}</small>
+                    <strong>{row.state === "ready" ? "Ready" : row.state === "pending" ? "Pending" : "Open"}</strong>
+                    <p>{row.detail}</p>
+                  </article>
+                ))}
+              </div>
+              <small className="swift-answer-sketch-footer">{dossier.nextAction}</small>
+            </section>
             <section className={`swift-submission-dossier ${dossier.tone}`} aria-label="Swift submission dossier">
               <header>
                 <div>
@@ -968,6 +1094,47 @@ export function SwiftSolveConsole({
                 </button>
                 <small>{customCases.length} case{customCases.length === 1 ? "" : "s"} · Swift {challenge.runtime} · source leaves this tab only for the isolated run.</small>
               </div>
+              <section className="swift-case-pack" aria-label="Swift case pack sharing">
+                <header>
+                  <div>
+                    <small>Case pack</small>
+                    <strong>Save or import rehearsal inputs</strong>
+                  </div>
+                  <span>{challenge.key}</span>
+                </header>
+                <div className="swift-case-pack-actions">
+                  <button
+                    type="button"
+                    className="swift-custom-small-button"
+                    onClick={() => void exportCasePack()}
+                  >
+                    Export pack
+                  </button>
+                  <button
+                    type="button"
+                    className="swift-custom-small-button"
+                    disabled={!casePackDraft.trim()}
+                    onClick={importCasePackDraft}
+                  >
+                    Import pack
+                  </button>
+                  <small>Inputs only · challenge revision locked · {SWIFT_CASE_PACK_LIMITS.maxCases} cases max</small>
+                </div>
+                <textarea
+                  value={casePackDraft}
+                  maxLength={SWIFT_CASE_PACK_LIMITS.maxBytes}
+                  spellCheck={false}
+                  aria-label="Swift case pack JSON"
+                  placeholder="Export this challenge's cases or paste a Swift Ghost case pack."
+                  onChange={(event) => {
+                    setCasePackDraft(event.target.value.slice(0, SWIFT_CASE_PACK_LIMITS.maxBytes));
+                    setCasePackMessage("");
+                  }}
+                />
+                {casePackMessage ? (
+                  <p className="swift-case-pack-message" role="status">{casePackMessage}</p>
+                ) : null}
+              </section>
               {customError ? <p className="swift-custom-error" role="alert">{customError}</p> : null}
               {customRunVisible && customRun?.status === "pending" ? (
                 <div className="swift-custom-result pending" role="status">

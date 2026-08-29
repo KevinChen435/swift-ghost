@@ -4994,6 +4994,117 @@ kbd {
 .today-assessment p {
   color: var(--muted);
 }
+.today-study-plan {
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(340px, 1.05fr);
+  align-items: stretch;
+}
+.today-study-plan-copy {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+.today-study-plan-evidence {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 2px 0 0;
+}
+.today-study-plan-evidence div {
+  min-width: 0;
+  padding: 10px 11px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+}
+.today-study-plan-evidence dt {
+  color: var(--faint);
+  font: 700 8px var(--font-code);
+  text-transform: uppercase;
+}
+.today-study-plan-evidence dd {
+  margin: 3px 0 0;
+  color: var(--text);
+  font: 800 18px var(--font-code);
+}
+.today-study-plan-queue {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  padding: 15px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border-soft));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-raised) 78%, transparent);
+}
+.today-study-plan-queue header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.today-study-plan-queue header small {
+  color: var(--accent);
+  font: 800 8px var(--font-code);
+  text-transform: uppercase;
+}
+.today-study-plan-queue header strong {
+  max-width: 58%;
+  text-align: right;
+}
+.today-study-plan-queue ol {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.today-study-plan-queue li {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 9px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+}
+.today-study-plan-queue li > span {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: 800 9px var(--font-code);
+}
+.today-study-plan-queue li div {
+  min-width: 0;
+}
+.today-study-plan-queue li strong,
+.today-study-plan-queue li small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.today-study-plan-queue li small {
+  margin-top: 3px;
+  color: var(--faint);
+  font: 8px var(--font-code);
+}
+.today-study-plan-queue p {
+  margin: 0;
+}
+.today-study-plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.today-study-plan-actions button {
+  min-height: 42px;
+}
 .today-pattern-review {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -5015,6 +5126,7 @@ kbd {
 @media (max-width: 900px) {
   .study-plans-heading,
   .study-active-hero,
+  .today-study-plan,
   .study-collection-builder,
   .study-template-grid,
   .study-collection-grid {
@@ -5068,6 +5180,22 @@ kbd {
   .today-assessment .primary-button,
   .today-pattern-review .secondary-button {
     justify-content: center;
+  }
+  .today-study-plan-evidence {
+    grid-template-columns: 1fr;
+  }
+  .today-study-plan-queue {
+    padding: 12px;
+  }
+  .today-study-plan-queue header {
+    display: grid;
+  }
+  .today-study-plan-queue header strong {
+    max-width: none;
+    text-align: left;
+  }
+  .today-study-plan-actions {
+    display: grid;
   }
   .today-pattern-review-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .today-pattern-review { grid-template-columns: 1fr; }
@@ -11351,6 +11479,118 @@ kbd {
   gap: 10px;
 }
 
+.swift-answer-sketch {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 5%, transparent),
+      transparent 38%
+    ),
+    color-mix(in srgb, var(--bg-raised) 90%, transparent);
+}
+
+.swift-solve-console-empty .swift-answer-sketch {
+  margin-top: 14px;
+}
+
+.swift-answer-sketch--fallback {
+  border-style: dashed;
+}
+
+.swift-answer-sketch header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.swift-answer-sketch header > div {
+  max-width: 760px;
+}
+
+.swift-answer-sketch header strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.3;
+}
+
+.swift-answer-sketch header p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.55;
+}
+
+.swift-answer-sketch .text-button {
+  min-height: 28px;
+  padding: 0;
+  color: var(--accent);
+  font: 700 0.58rem/1.2 var(--font-code);
+  text-transform: uppercase;
+}
+
+.swift-answer-sketch-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.swift-answer-sketch-grid article {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+}
+
+.swift-answer-sketch-grid article small {
+  color: var(--accent);
+  font: 800 0.56rem/1.35 var(--font-code);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.swift-answer-sketch-grid article strong {
+  color: var(--text);
+  font-size: 0.74rem;
+}
+
+.swift-answer-sketch-grid article p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.5;
+}
+
+.swift-answer-sketch-grid.is-muted article,
+.swift-answer-sketch-grid.is-muted article small,
+.swift-answer-sketch-grid.is-muted article strong,
+.swift-answer-sketch-grid.is-muted article p {
+  filter: blur(1.5px);
+  opacity: 0.72;
+}
+
+.swift-answer-sketch-grid.is-focused article {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border-soft));
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel));
+}
+
+.swift-answer-sketch-footer {
+  color: var(--faint);
+  font: 700 0.54rem/1.35 var(--font-code);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .swift-explanation-notes label {
   display: grid;
   gap: 7px;
@@ -11731,6 +11971,64 @@ kbd {
 .swift-custom-actions .outline-button {
   min-height: 38px;
   padding-inline: 15px;
+}
+
+.swift-case-pack {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+}
+
+.swift-case-pack > header,
+.swift-case-pack-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 11px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.swift-case-pack > header > div {
+  display: grid;
+  gap: 2px;
+}
+
+.swift-case-pack > header small,
+.swift-case-pack > header span,
+.swift-case-pack-actions small,
+.swift-case-pack-message {
+  color: var(--faint);
+  font: 600 0.59rem/1.4 var(--font-code);
+}
+
+.swift-case-pack > header strong {
+  color: var(--text);
+  font-size: 0.72rem;
+}
+
+.swift-case-pack-actions {
+  justify-content: flex-start;
+}
+
+.swift-case-pack textarea {
+  width: 100%;
+  min-height: 116px;
+  padding: 9px 10px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: 0.64rem/1.45 var(--font-code);
+  letter-spacing: 0;
+}
+
+.swift-case-pack-message {
+  margin: 0;
+  color: var(--success);
 }
 
 .swift-custom-error {
@@ -12157,6 +12455,7 @@ kbd {
   }
 
   .swift-preflight-grid,
+  .swift-answer-sketch-grid,
   .swift-explanation-notes,
   .swift-dossier-grid {
     grid-template-columns: 1fr;
@@ -12185,6 +12484,10 @@ kbd {
   .swift-solve-console {
     gap: 16px;
     padding: 16px 13px;
+  }
+
+  .swift-answer-sketch header {
+    flex-direction: column;
   }
 
   .swift-solve-console-meta,

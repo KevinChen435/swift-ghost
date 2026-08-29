@@ -16,7 +16,7 @@ test("Swift custom rehearsal stays bounded, persisted locally, and separate from
     "utf8",
   );
   assert.match(consoleUi, /Raw JSON/);
-  assert.match(consoleUi, /swiftValueMatches/);
+  assert.match(consoleUi, /parseSwiftCasePackArgs/);
   assert.match(consoleUi, /localStorage/);
   assert.match(consoleUi, /Practice only/);
   assert.match(consoleUi, /execution-only/);
@@ -29,6 +29,12 @@ test("Swift custom rehearsal stays bounded, persisted locally, and separate from
   assert.match(consoleUi, /Run \$\{customCases.length\} custom case/);
   assert.match(consoleUi, /Recent custom rehearsals/);
   assert.match(consoleUi, /MAX_CUSTOM_HISTORY = 5/);
+  assert.match(consoleUi, /Case pack/);
+  assert.match(consoleUi, /Export pack/);
+  assert.match(consoleUi, /Import pack/);
+  assert.match(consoleUi, /encodeSwiftCasePack/);
+  assert.match(consoleUi, /importSwiftCasePack/);
+  assert.match(consoleUi, /SWIFT_CASE_PACK_LIMITS/);
   assert.match(consoleUi, /customExecutionLabel/);
   assert.match(consoleUi, /Execution complete/);
   assert.doesNotMatch(consoleUi, /customRun\.verdict === "accepted" \? "Passed"/);

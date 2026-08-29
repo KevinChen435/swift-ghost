@@ -360,10 +360,12 @@ import {
   activateStudyPlan,
   appendStudyCollectionItems,
   STUDY_PLAN_LIMITS,
+  buildNextFocusBlock,
   createStudyCollection,
   createStudyPlan,
   deleteStudyCollection,
   deleteStudyPlan,
+  deriveStudyPlanProgress,
   instantiateStudyPlanTemplate,
   linkStudyPlanSession,
   mergeStudyWorkspaces,
@@ -8943,6 +8945,7 @@ export default function SwiftGhostApp() {
               entries,
             )
           }
+          onStartPlanBlock={startStudyFocusBlock}
           onStartOnboarding={startOnboarding}
           onSkipOnboarding={skipOnboarding}
           onResumeSession={resumeSession}
@@ -9532,6 +9535,7 @@ function TodayView({
   onTestDesign,
   onConceptTransfer,
   onStartCoach,
+  onStartPlanBlock,
   onStartOnboarding,
   onSkipOnboarding,
   onResumeSession,
@@ -9571,6 +9575,11 @@ function TodayView({
   onStartCoach: (
     entries: SessionQueueEntry[],
     budgetMinutes: number,
+  ) => void;
+  onStartPlanBlock: (
+    planId: string,
+    entries: SessionQueueEntry[],
+    budgetMinutes: StudyPlanPace,
   ) => void;
   onStartOnboarding: (next: OnboardingState) => void;
   onSkipOnboarding: () => void;
@@ -9646,6 +9655,31 @@ function TodayView({
   const activePlan = state.studyWorkspace.plans.find(
     (plan) => plan.id === state.studyWorkspace.activePlanId && plan.status === "active",
   );
+  const activePlanEvidence = activePlan
+    ? {
+        items,
+        attempts: state.attempts,
+        learningEvents: state.learningEvents,
+        typingProgress: state.typingProgress,
+        interviewStudioHistory: state.interviewStudio.history,
+        sessionHistory: state.sessionHistory,
+        now: todayDate.toISOString(),
+      }
+    : null;
+  const activePlanProgress = activePlan && activePlanEvidence
+    ? deriveStudyPlanProgress(activePlan, state.studyWorkspace, activePlanEvidence)
+    : null;
+  const activePlanBlock = activePlan && activePlanEvidence
+    ? buildNextFocusBlock(activePlan, state.studyWorkspace, activePlanEvidence, {
+        now: todayDate.toISOString(),
+        budgetMinutes: activePlan.paceMinutes,
+        maxItems: 4,
+      })
+    : null;
+  const activePlanQueue = activePlanBlock?.entries.slice(0, 4) ?? [];
+  const activePlanSessionOpen = Boolean(
+    activePlan && state.activeSession?.studyPlanId === activePlan.id,
+  );
   const activeAssessment = state.assessments.runs.find(
     (run) => run.id === state.assessments.activeRunId,
   );
@@ -9707,16 +9741,79 @@ function TodayView({
           onSkip={onSkipOnboarding}
         />
       )}
-      {activePlan && (
+      {activePlan && activePlanProgress && activePlanBlock && (
         <section className="today-study-plan" aria-label="Active study plan">
-          <div>
+          <div className="today-study-plan-copy">
             <span className="eyebrow">Active study plan</span>
             <h2>{activePlan.title}</h2>
-            <p>{activePlan.outcome}</p>
+            <p>{activePlanProgress.whyNext || activePlan.outcome}</p>
+            <dl className="today-study-plan-evidence" aria-label="Active plan evidence">
+              <div>
+                <dt>Independent</dt>
+                <dd>{activePlanProgress.evidence.independent}</dd>
+              </div>
+              <div>
+                <dt>Due</dt>
+                <dd>{activePlanProgress.evidence.due}</dd>
+              </div>
+              <div>
+                <dt>Progress</dt>
+                <dd>
+                  {activePlanProgress.completedItems}/{activePlanProgress.totalItems || 1}
+                </dd>
+              </div>
+            </dl>
           </div>
-          <button className="primary-button" onClick={onPlans}>
-            Continue plan <span>→</span>
-          </button>
+          <div className="today-study-plan-queue">
+            <header>
+              <small>{activePlanBlock.estimatedMinutes || activePlan.paceMinutes} min block</small>
+              <strong>{activePlanProgress.currentModule.title}</strong>
+            </header>
+            {activePlanQueue.length ? (
+              <ol>
+                {activePlanQueue.map((entry, index) => {
+                  const item = items.find((candidate) => candidate.itemId === entry.itemId);
+                  return (
+                    <li key={`${entry.itemId}:${entry.practiceKind ?? "typing"}:${index}`}>
+                      <span>{String(index + 1).padStart(2, "0")}</span>
+                      <div>
+                        <strong>{item?.title ?? "Unavailable item"}</strong>
+                        <small>
+                          {item ? laneLabel(item) : "Catalog"} · {entry.practiceKind === "solving" ? "Solve" : entry.practiceKind === "concept" ? "Recall" : `Stage ${entry.stage}`}
+                        </small>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+            ) : (
+              <p>No plan task fits this block. Open Plans to adjust the path.</p>
+            )}
+            <div className="today-study-plan-actions">
+              {activePlanSessionOpen ? (
+                <button className="primary-button" onClick={onResumeSession}>
+                  Resume block <span>→</span>
+                </button>
+              ) : (
+                <button
+                  className="primary-button"
+                  disabled={!activePlanQueue.length}
+                  onClick={() =>
+                    onStartPlanBlock(
+                      activePlan.id,
+                      activePlanBlock.entries,
+                      activePlan.paceMinutes as StudyPlanPace,
+                    )
+                  }
+                >
+                  Start plan block <span>→</span>
+                </button>
+              )}
+              <button className="outline-button" onClick={onPlans}>
+                Plan details
+              </button>
+            </div>
+          </div>
         </section>
       )}
       <section className="today-command-deck" aria-label="Practice re-entry commands">
