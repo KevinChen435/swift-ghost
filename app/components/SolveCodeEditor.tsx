@@ -81,6 +81,230 @@ const SWIFT_FLUENCY_COMPLETIONS = [
   { label: "sorted", type: "method", info: "Return sorted elements" },
 ] as const;
 
+type SwiftStreamState = {
+  blockCommentDepth: number;
+  stringDelimiter: 0 | 1 | 3;
+};
+
+const SWIFT_KEYWORDS = new Set([
+  "actor",
+  "associatedtype",
+  "async",
+  "await",
+  "borrowing",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "consume",
+  "consuming",
+  "continue",
+  "convenience",
+  "default",
+  "defer",
+  "deinit",
+  "didSet",
+  "distributed",
+  "else",
+  "enum",
+  "extension",
+  "fallthrough",
+  "fileprivate",
+  "final",
+  "for",
+  "func",
+  "get",
+  "guard",
+  "if",
+  "import",
+  "indirect",
+  "in",
+  "infix",
+  "init",
+  "inout",
+  "internal",
+  "isolated",
+  "is",
+  "keyPath",
+  "lazy",
+  "let",
+  "macro",
+  "mutating",
+  "nonisolated",
+  "nonmutating",
+  "open",
+  "operator",
+  "optional",
+  "override",
+  "package",
+  "postfix",
+  "precedencegroup",
+  "prefix",
+  "private",
+  "protocol",
+  "public",
+  "repeat",
+  "required",
+  "rethrows",
+  "return",
+  "sending",
+  "set",
+  "some",
+  "static",
+  "struct",
+  "subscript",
+  "super",
+  "switch",
+  "throws",
+  "try",
+  "typealias",
+  "unowned",
+  "unsafe",
+  "var",
+  "weak",
+  "where",
+  "while",
+  "willSet",
+]);
+
+const SWIFT_TYPES = new Set([
+  "Array",
+  "Bool",
+  "Character",
+  "Collection",
+  "Dictionary",
+  "Double",
+  "Error",
+  "Float",
+  "Int",
+  "Int8",
+  "Int16",
+  "Int32",
+  "Int64",
+  "Optional",
+  "Set",
+  "String",
+  "UInt",
+  "UInt8",
+  "UInt16",
+  "UInt32",
+  "UInt64",
+  "Void",
+]);
+
+const SWIFT_BUILTINS = new Set([
+  "abs",
+  "contains",
+  "enumerated",
+  "filter",
+  "first",
+  "last",
+  "map",
+  "max",
+  "min",
+  "print",
+  "reduce",
+  "reversed",
+  "sorted",
+  "stride",
+  "zip",
+]);
+
+function consumeSwiftBlockComment(
+  stream: import("@codemirror/language").StringStream,
+  state: SwiftStreamState,
+) {
+  while (!stream.eol()) {
+    if (stream.match("/*")) {
+      state.blockCommentDepth += 1;
+    } else if (stream.match("*/")) {
+      state.blockCommentDepth -= 1;
+      if (state.blockCommentDepth === 0) break;
+    } else {
+      stream.next();
+    }
+  }
+  return "comment";
+}
+
+function consumeSwiftString(
+  stream: import("@codemirror/language").StringStream,
+  state: SwiftStreamState,
+) {
+  const delimiter = state.stringDelimiter === 3 ? "\"\"\"" : "\"";
+  while (!stream.eol()) {
+    if (stream.match(delimiter)) {
+      state.stringDelimiter = 0;
+      break;
+    }
+    if (stream.eat("\\")) {
+      // Keep escaped quotes and interpolation markers inside the string.
+      stream.next();
+    } else {
+      stream.next();
+    }
+  }
+  return "string";
+}
+
+function swiftToken(
+  stream: import("@codemirror/language").StringStream,
+  state: SwiftStreamState,
+) {
+  if (state.blockCommentDepth > 0) {
+    return consumeSwiftBlockComment(stream, state);
+  }
+  if (state.stringDelimiter !== 0) {
+    return consumeSwiftString(stream, state);
+  }
+  if (stream.eatSpace()) return null;
+  if (stream.match("//")) {
+    stream.skipToEnd();
+    return "comment";
+  }
+  if (stream.match("/*")) {
+    state.blockCommentDepth = 1;
+    return consumeSwiftBlockComment(stream, state);
+  }
+  if (stream.match("\"\"\"")) {
+    state.stringDelimiter = 3;
+    return consumeSwiftString(stream, state);
+  }
+  if (stream.eat("\"")) {
+    state.stringDelimiter = 1;
+    return consumeSwiftString(stream, state);
+  }
+  if (stream.match(/^@[A-Za-z_]\w*/)) return "meta";
+  if (stream.match(/^#[A-Za-z_]\w*/)) return "meta";
+  if (
+    stream.match(
+      /^(?:0[xX][\da-fA-F](?:_?[\da-fA-F])*|0[bB][01](?:_?[01])*|0[oO][0-7](?:_?[0-7])*|(?:\d(?:_?\d)*)(?:\.\d(?:_?\d)*)?(?:[eE][+-]?\d(?:_?\d)*)?)/,
+    )
+  ) {
+    return "number";
+  }
+  const identifier = stream.match(/^[A-Za-z_]\w*/);
+  if (identifier) {
+    const word = stream.current();
+    if (SWIFT_KEYWORDS.has(word)) return "keyword";
+    if (word === "true" || word === "false" || word === "nil") return "bool";
+    if (SWIFT_TYPES.has(word) || /^[A-Z]/.test(word)) return "typeName";
+    if (SWIFT_BUILTINS.has(word)) return "function";
+    if (stream.string.slice(stream.pos).match(/^\s*\(/)) return "function";
+    return "variableName";
+  }
+  if (
+    stream.match(
+      /^(?:===|!==|==|!=|<=|>=|&&|\|\||\+=|-=|\*=|\/=|%=|->|=>|\?\?|\.\.\.<|\.\.<|\.\.\.|<<|>>|&\||[+\-*\/%=<>!&|^~?])/,
+    )
+  ) {
+    return "operator";
+  }
+  if (stream.match(/^[()[\]{}.,:;]/)) return "punctuation";
+  stream.next();
+  return null;
+}
+
 function normalizedFontSize(value: number) {
   return Number.isFinite(value) ? Math.min(30, Math.max(11, value)) : 15;
 }
@@ -138,6 +362,14 @@ export function SolveCodeEditor(props: SolveCodeEditorProps) {
         const accessibility = new state.Compartment();
         const editable = new state.Compartment();
         const externalChange = state.Annotation.define<boolean>();
+        const swiftSyntax = language.StreamLanguage.define<SwiftStreamState>({
+          name: "swift",
+          startState: () => ({ blockCommentDepth: 0, stringDelimiter: 0 }),
+          token: swiftToken,
+          languageData: {
+            commentTokens: { line: "//", block: { open: "/*", close: "*/" } },
+          },
+        });
 
         const fontSizeExtension = (value: number) =>
           view.EditorView.theme({
@@ -247,7 +479,9 @@ export function SolveCodeEditor(props: SolveCodeEditorProps) {
             autocomplete.closeBrackets(),
             search.highlightSelectionMatches(),
             syntax.of(
-              initialProps.language === "swift" ? [] : python.python(),
+              initialProps.language === "swift"
+                ? swiftSyntax.extension
+                : python.python(),
             ),
             state.Prec.highest(view.keymap.of(commandKeymap)),
             state.Prec.high(view.keymap.of(editingKeymap)),
@@ -305,7 +539,9 @@ export function SolveCodeEditor(props: SolveCodeEditorProps) {
                   ),
                 ),
                 syntax.reconfigure(
-                  configuration.language === "swift" ? [] : python.python(),
+                  configuration.language === "swift"
+                    ? swiftSyntax.extension
+                    : python.python(),
                 ),
                 accessibility.reconfigure(
                   accessibilityExtension(configuration.ariaLabel),
