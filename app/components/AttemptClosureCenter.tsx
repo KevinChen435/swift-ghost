@@ -18,7 +18,7 @@ import {
   type AttemptClosureWorkspace,
   type DerivedAttemptClosure,
 } from "../lib/attempt-closures.mjs";
-import type { PracticeItem } from "../lib/items";
+import { canSolveItem, type PracticeItem } from "../lib/items";
 
 export type AttemptClosureDraftInput = Pick<
   AttemptClosureRecord,
@@ -179,8 +179,7 @@ export function AttemptClosureCenter({
   const retryAvailable = Boolean(
     selected &&
       item &&
-      item.language === "python" &&
-      item.verification &&
+      canSolveItem(item) &&
       selected.state === "completed" &&
       selected.currentRevision &&
       selected.status === "due",
@@ -530,9 +529,8 @@ export function AttemptClosureCenter({
                 <strong>Retry unavailable for a retired item revision.</strong>
               ) : selected.state === "completed" && selected.status === "open" ? (
                 <strong>The clean retry unlocks when the next-day gate is due.</strong>
-              ) : selected.state === "completed" && item &&
-                (item.language !== "python" || !item.verification) ? (
-                <strong>No local runner is available for this closure lane.</strong>
+              ) : selected.state === "completed" && item && !canSolveItem(item) ? (
+                <strong>No runnable retry lane is available for this closure.</strong>
               ) : (
                 <strong>Complete the closure before starting its clean retry.</strong>
               )}

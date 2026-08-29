@@ -71,13 +71,32 @@ test("clean retry status is honest and only routes runnable current evidence", (
   assert.match(component, /Retry is due now/);
   assert.match(component, /Start clean retry/);
   assert.match(component, /current-revision, hint-free accepted attempt/);
-  assert.match(component, /item\.language === "python"/);
-  assert.match(component, /item\.verification/);
+  assert.match(component, /canSolveItem, type PracticeItem/);
+  assert.match(component, /canSolveItem\(item\)/);
+  assert.match(component, /No runnable retry lane is available for this closure/);
+  assert.doesNotMatch(component, /item\.language !== "python" \|\| !item\.verification/);
   assert.match(component, /selected\.status === "due"/);
   assert.match(component, /onRetry\(selected\.id\)/);
-  assert.match(component, /No local runner is available for this closure lane/);
   assert.match(component, /selected\.resolutionAttemptId/);
   assert.match(component, /selected\.resolutionSubmissionId/);
+});
+
+test("clean retry keeps Python local and Swift server capability decisions in one guard", () => {
+  const availableStart = component.indexOf("const retryAvailable = Boolean(");
+  const availableEnd = component.indexOf("const draftCompletionIssues", availableStart);
+  const availableGuard = component.slice(availableStart, availableEnd);
+  assert.match(availableGuard, /canSolveItem\(item\)/);
+  assert.match(availableGuard, /selected\.currentRevision/);
+  assert.match(availableGuard, /selected\.status === "due"/);
+  assert.doesNotMatch(availableGuard, /language === "python"/);
+  assert.doesNotMatch(availableGuard, /verification/);
+
+  const unavailableStart = component.indexOf("selected.state === \"completed\" && item && !canSolveItem(item)");
+  assert.notEqual(unavailableStart, -1);
+  assert.match(
+    component.slice(unavailableStart, component.indexOf("</strong>", unavailableStart)),
+    /No runnable retry lane is available/,
+  );
 });
 
 test("list-detail navigation moves focus and retains keyboard semantics", () => {
