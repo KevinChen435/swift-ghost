@@ -36,8 +36,10 @@ test("session entry opening validates status, revision, transfer, and mock seman
   assert.match(handler, /entry\.itemRevision < 1/);
   assert.match(handler, /candidate\.contentRevision === entry\.itemRevision/);
   assert.match(handler, /!candidate\.transfer/);
-  assert.match(handler, /session\.kind === "mock" && practiceKind !== "solving"/);
-  assert.match(handler, /sessionEntryIndex,\s*\);/);
+  assert.match(handler, /session\.kind === "mock" && entry\.status === "completed"/);
+  assert.match(handler, /entry\.status === "completed" \? undefined : session\.id/);
+  assert.match(handler, /Completed mock items stay locked until the debrief/);
+  assert.match(handler, /targetSessionEntryIndex,\s*\);/);
 });
 
 test("active session preview exposes accessible open controls without changing mock skip rules", async () => {
@@ -49,10 +51,11 @@ test("active session preview exposes accessible open controls without changing m
   );
   assert.match(sessions, /onOpenSessionEntry/);
   assert.match(sessions, /disabled=\{!canOpen \|\| index === active\.currentIndex\}/);
+  assert.match(sessions, /active\.kind !== "mock" \|\| entry\.status === "pending"/);
   assert.match(sessions, /aria-label=\{/);
-  assert.match(sessions, /Open session item \$\{index \+ 1\}/);
+  assert.match(sessions, /Review.*session item \$\{index \+ 1\}/);
   assert.match(sessions, /onClick=\{\(\) => onOpenSessionEntry\(index\)\}/);
-  assert.match(sessions, /\{index === active\.currentIndex \? "Current" : "Open"\}/);
+  assert.match(sessions, /entry\.status === "completed"\s*\? "Review"\s*:\s*"Open"/);
   assert.match(app, /onOpenSessionEntry=\{openSessionEntry\}/);
   assert.match(app, /if \(session\.kind === "mock"\) \{\s*setToast\("Mock problems cannot be skipped/);
   assert.match(app, /if \(!virtualRoundId && blockVirtualRoundNavigation\(\)\) return;/);

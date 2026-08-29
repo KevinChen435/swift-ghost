@@ -21,7 +21,7 @@ test("active session rows can reopen saved entries without losing the cursor con
   assert.match(app, /entry\.status !== "pending" && entry\.status !== "completed"/);
   assert.match(app, /candidate\.contentRevision === entry\.itemRevision/);
   assert.match(app, /onOpenSessionEntry=\{openSessionEntry\}/);
-  assert.match(app, /aria-label=\{[\s\S]*Open session item/);
+  assert.match(app, /aria-label=\{[\s\S]*session item/);
   assert.match(app, /currentIndex: sessionEntryIndex/);
 });
 

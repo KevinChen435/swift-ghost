@@ -278,13 +278,12 @@ export function DailyCoach({
           </div>
           <span>{visibleCribCards.length} cards</span>
         </header>
-        <div className="coach-crib-filters" role="radiogroup" aria-label="Crib lane">
+        <div className="coach-crib-filters" role="group" aria-label="Crib lane">
           {(["all", "python", "swift", "ios"] as const).map((lane) => (
             <button
               key={lane}
               type="button"
-              role="radio"
-              aria-checked={cribLane === lane}
+              aria-pressed={cribLane === lane}
               className={cribLane === lane ? "active" : ""}
               onClick={() => setCribLane(lane)}
             >

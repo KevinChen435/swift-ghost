@@ -13,6 +13,7 @@ test("daily coach exposes a muted-answer crib for python, swift, and iOS study",
   assert.match(component, /Grey answer crib/);
   assert.match(component, /Read the prompt, keep the answer visible/);
   assert.match(component, /aria-label="Crib lane"/);
+  assert.match(component, /aria-pressed=\{cribLane === lane\}/);
   assert.match(component, /Focus answer/);
   assert.match(component, /Soft blur/);
   assert.match(component, /pythonInterviewScript/);

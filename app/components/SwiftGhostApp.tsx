@@ -7551,20 +7551,27 @@ export default function SwiftGhostApp() {
       next,
       entry.practiceKind ?? "typing",
     );
-    if (session.kind === "mock" && practiceKind !== "solving") {
-      setToast("That mock item cannot be reopened safely");
+    if (session.kind === "mock" && entry.status === "completed") {
+      setToast("Completed mock items stay locked until the debrief");
       return;
     }
+    // A completed practice row is reviewable, but it must not become the
+    // active session cursor: starting a fresh review there would otherwise
+    // replace the immutable attempt link that powers the session recap.
+    const sessionId = entry.status === "completed" ? undefined : session.id;
+    const targetSessionEntryIndex = entry.status === "completed"
+      ? undefined
+      : sessionEntryIndex;
     openItem(
       next,
       entry.stage,
       undefined,
-      session.id,
+      sessionId,
       practiceKind,
       undefined,
       undefined,
       false,
-      sessionEntryIndex,
+      targetSessionEntryIndex,
     );
   }
 
@@ -12785,6 +12792,7 @@ function SessionsView({
                 Boolean(item) && item?.contentRevision === entry.itemRevision;
               const canOpen =
                 revisionAvailable &&
+                (active.kind !== "mock" || entry.status === "pending") &&
                 (entry.status === "pending" || entry.status === "completed");
               const statusLabel =
                 index === active.currentIndex
@@ -12834,12 +12842,16 @@ function SessionsView({
                       index === active.currentIndex
                         ? `Current session item ${index + 1}`
                         : canOpen
-                          ? `Open session item ${index + 1}: ${item?.title ?? "item"}`
+                          ? `${entry.status === "completed" ? "Review" : "Open"} session item ${index + 1}: ${item?.title ?? "item"}`
                           : `Session item ${index + 1} unavailable`
                     }
                     onClick={() => onOpenSessionEntry(index)}
                   >
-                    {index === active.currentIndex ? "Current" : "Open"}
+                    {index === active.currentIndex
+                      ? "Current"
+                      : entry.status === "completed"
+                        ? "Review"
+                        : "Open"}
                   </button>
                 </article>
               );
