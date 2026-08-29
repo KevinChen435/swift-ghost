@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseSubmission, ValidationError } from "../src/schema";
+import { parseExecution, parseSubmission, ValidationError } from "../src/schema";
 
 function valid() {
   return {
@@ -74,4 +74,72 @@ test("rejects oversized source and duplicate test ids", () => {
   const duplicate = valid();
   duplicate.tests.push({ ...duplicate.tests[0]! });
   assert.throws(() => parseSubmission(duplicate, "https://app.example.com"));
+});
+
+function execution() {
+  return {
+    version: "judge.execution.v1",
+    executionId: "execution-123",
+    source: "import Foundation\n@main struct Main {}",
+    cases: [
+      { id: "case-1", input: "{\"args\":[1]}\n" },
+      { id: "case-2", input: "{\"args\":[2]}\n" },
+    ],
+    callbackUrl: "https://app.example.com/internal/judge-result",
+  };
+}
+
+test("parses the strict execution-only request and keeps only id/input cases", () => {
+  const result = parseExecution(execution(), "https://app.example.com");
+  assert.equal(result.version, "judge.execution.v1");
+  assert.equal(result.executionId, "execution-123");
+  assert.deepEqual(result.cases, [
+    { id: "case-1", input: "{\"args\":[1]}\n" },
+    { id: "case-2", input: "{\"args\":[2]}\n" },
+  ]);
+});
+
+test("rejects judge metadata, expected values, and client runtime/entrypoint fields", () => {
+  for (const field of [
+    "expectedOutput",
+    "entrypoint",
+    "runtime",
+    "contentRevision",
+    "judgeRevision",
+    "contractDigest",
+    "comparison",
+    "language",
+  ]) {
+    assert.throws(
+      () => parseExecution({ ...execution(), [field]: field === "contentRevision" ? 1 : "client-controlled" }, "https://app.example.com"),
+      ValidationError,
+      field,
+    );
+  }
+  assert.throws(
+    () => parseExecution({
+      ...execution(),
+      cases: [{ id: "case-1", input: "", expectedOutput: "secret" }],
+    }, "https://app.example.com"),
+    ValidationError,
+  );
+  assert.throws(
+    () => parseExecution({
+      ...execution(),
+      cases: [{ id: "case-1", input: "", runtime: "swift-5" }],
+    }, "https://app.example.com"),
+    ValidationError,
+  );
+});
+
+test("bounds execution cases and rejects duplicate ids", () => {
+  assert.throws(() => parseExecution({ ...execution(), cases: [] }, "https://app.example.com"));
+  assert.throws(() => parseExecution({
+    ...execution(),
+    cases: Array.from({ length: 17 }, (_, index) => ({ id: `case-${index}`, input: "" })),
+  }, "https://app.example.com"));
+  assert.throws(() => parseExecution({
+    ...execution(),
+    cases: [{ id: "same", input: "" }, { id: "same", input: "" }],
+  }, "https://app.example.com"));
 });

@@ -1,4 +1,11 @@
-import type { RunnerResponse, SandboxExecResult, SubmissionRequest, TestCase } from "./types";
+import {
+  EXECUTION_RUNTIME,
+  type ExecutionRequest,
+  type RunnerResponse,
+  type SandboxExecResult,
+  type SubmissionRequest,
+  type TestCase,
+} from "./types";
 
 export interface TestExecutionPlan {
   caseIndex: number;
@@ -10,6 +17,14 @@ export interface TestExecutionPlan {
 
 export interface PreparationPlan {
   command: string;
+  sdkTimeoutMs: number;
+}
+
+export interface ExecutionTestPlan {
+  caseIndex: number;
+  caseId: string;
+  command: string;
+  stdin: string;
   sdkTimeoutMs: number;
 }
 
@@ -46,6 +61,44 @@ export function buildPlan(
     stdin: test.input,
     sdkTimeoutMs: timeoutMs + 1_500,
   }));
+}
+
+/**
+ * Swift-only rehearsal plans.  The execution request intentionally has no
+ * runtime field; these commands are bound to the image/runtime supported by
+ * this gateway.
+ */
+export function buildExecutionPreparationPlan(
+  outputLimitBytes: number,
+  compileTimeoutMs = 20_000,
+): PreparationPlan {
+  return {
+    command: `/usr/bin/python3 /opt/judge/judge_runner.py swift-compile /workspace/main.swift ${compileTimeoutMs} ${outputLimitBytes}`,
+    sdkTimeoutMs: compileTimeoutMs + 2_000,
+  };
+}
+
+export function buildExecutionPlan(
+  request: ExecutionRequest,
+  timeoutMs: number,
+  outputLimitBytes: number,
+): ExecutionTestPlan[] {
+  const command = `/usr/bin/python3 /opt/judge/judge_runner.py swift-run /tmp/judge/submission ${timeoutMs} ${outputLimitBytes}`;
+  return request.cases.map((testCase, caseIndex) => ({
+    caseIndex,
+    caseId: testCase.id,
+    command,
+    stdin: testCase.input,
+    sdkTimeoutMs: timeoutMs + 1_500,
+  }));
+}
+
+export function executionSourcePath(): string {
+  return "/workspace/main.swift";
+}
+
+export function executionRuntime(): typeof EXECUTION_RUNTIME {
+  return EXECUTION_RUNTIME;
 }
 
 export function normalizeOutput(value: string, mode: SubmissionRequest["comparison"]): string {

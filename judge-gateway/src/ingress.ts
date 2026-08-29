@@ -1,5 +1,5 @@
 import { authenticateIngress } from "./auth";
-import { parsePositiveInt, parseSubmission, secretIsStrong, ValidationError } from "./schema";
+import { parseExecution, parsePositiveInt, parseSubmission, secretIsStrong, ValidationError } from "./schema";
 import type { Env } from "./types";
 
 function json(value: unknown, status = 200): Response {
@@ -50,7 +50,9 @@ export async function fetchHandler(request: Request, env: Env): Promise<Response
       !env.CALLBACK_ALLOWED_ORIGINS.includes("REPLACE");
     return json({ ok: true, configured, service: "swift-ghost-judge-gateway" });
   }
-  if (request.method !== "POST" || url.pathname !== "/v1/submissions") {
+  const submissionRoute = request.method === "POST" && url.pathname === "/v1/submissions";
+  const executionRoute = request.method === "POST" && url.pathname === "/v1/executions";
+  if (!submissionRoute && !executionRoute) {
     return error("not_found", "Route not found", 404);
   }
   if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
@@ -83,6 +85,11 @@ export async function fetchHandler(request: Request, env: Env): Promise<Response
     return error("invalid_json", "Request body is not valid JSON", 400);
   }
   try {
+    if (executionRoute) {
+      const execution = parseExecution(decoded, env.CALLBACK_ALLOWED_ORIGINS);
+      await env.JUDGE_QUEUE.send({ kind: "execution", request: execution }, { contentType: "json" });
+      return json({ executionId: execution.executionId, status: "queued" }, 202);
+    }
     const submission = parseSubmission(decoded, env.CALLBACK_ALLOWED_ORIGINS);
     await env.JUDGE_QUEUE.send({ kind: "submission", request: submission }, { contentType: "json" });
     return json({ submissionId: submission.submissionId, status: "queued" }, 202);

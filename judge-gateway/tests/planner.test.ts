@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildPlan, buildPreparationPlan, normalizeOutput, parseRunnerResponse, sourcePath } from "../src/planner";
-import { CONTRACT_VERSION, type SubmissionRequest } from "../src/types";
+import { buildExecutionPlan, buildExecutionPreparationPlan, buildPlan, buildPreparationPlan, normalizeOutput, parseRunnerResponse, sourcePath } from "../src/planner";
+import { CONTRACT_VERSION, EXECUTION_CONTRACT_VERSION, type ExecutionRequest, type SubmissionRequest } from "../src/types";
 
 const request: SubmissionRequest = {
   version: CONTRACT_VERSION,
@@ -98,4 +98,26 @@ test("base64 protocol accepts worst-case control bytes up to each stream limit",
   );
   assert.equal(response.stdout.length, 1_024);
   assert.equal(response.stderr.length, 1_024);
+});
+
+test("plans Swift rehearsal inputs without embedding expected values or client metadata", () => {
+  const execution: ExecutionRequest = {
+    version: EXECUTION_CONTRACT_VERSION,
+    executionId: "execution-1",
+    source: "trusted wrapped source",
+    cases: [
+      { id: "case-1", input: "first\n" },
+      { id: "case-2", input: "second\n" },
+    ],
+    callbackUrl: "https://app.example.com/callback",
+  };
+  const preparation = buildExecutionPreparationPlan(65_536, 12_345);
+  assert.match(preparation.command, /swift-compile/);
+  assert.match(preparation.command, /12345/);
+  assert.equal(preparation.sdkTimeoutMs, 14_345);
+  const plans = buildExecutionPlan(execution, 4_000, 65_536);
+  assert.deepEqual(plans.map((plan) => plan.stdin), ["first\n", "second\n"]);
+  assert.ok(plans.every((plan) => plan.command.includes("swift-run")));
+  assert.ok(plans.every((plan) => !plan.command.includes("expectedOutput")));
+  assert.ok(plans.every((plan) => !plan.command.includes("trusted wrapped source")));
 });

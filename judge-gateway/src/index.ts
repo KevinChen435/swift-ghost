@@ -15,6 +15,7 @@ async function queueHandler(batch: QueueBatch<JudgeQueueMessage>, env: Env): Pro
 }
 
 export { fetchHandler, queueHandler };
+export { judgeExecution } from "./execution";
 
 export default {
   fetch: fetchHandler,

@@ -77,6 +77,59 @@ X-Judge-Signature: sha256=<hex HMAC-SHA256(secret, timestamp + "." + exact_body)
 The accepted response is `202 {"submissionId":"...","status":"queued"}`.
 The gateway intentionally exposes no contestant-controlled sandbox endpoint.
 
+## Swift execution-only rehearsal contract
+
+Authenticated rehearsal runs use a separate endpoint and queue message kind;
+they never enter the sealed `judge.submission.v1` path or produce a verified
+submission verdict. `POST /v1/executions` accepts
+`judge.execution.v1`:
+
+```json
+{
+  "version": "judge.execution.v1",
+  "executionId": "execution-018f-example-id",
+  "source": "<trusted wrapped Swift source>",
+  "cases": [
+    { "id": "case-1", "input": "{\"args\":[443]}\n" }
+  ],
+  "callbackUrl": "https://app.example.com/internal/judge-results"
+}
+```
+
+The gateway owns the Swift 6.3.3 Linux runtime and the callable harness
+contract. The request deliberately has no `expectedOutput`, entrypoint,
+runtime, language, comparison, content/judge revision, or contract digest
+field; those values cannot be supplied by a rehearsal caller. Each request is
+bounded to 16 cases, 32,000 UTF-8 bytes per input, and the same 48,000-byte
+source/120 KB body limits as the ingress envelope. The compiler runs once in a
+fresh sandbox, then every case runs independently with the normal execution
+and output limits.
+
+The callback is a signed `judge.execution.result.v1` object:
+
+```json
+{
+  "version": "judge.execution.result.v1",
+  "executionId": "execution-018f-example-id",
+  "language": "swift6",
+  "runtime": "swift-6.3.3-linux",
+  "executed": 1,
+  "total": 1,
+  "cases": [
+    { "id": "case-1", "status": "executed", "actualOutput": "443\n" }
+  ]
+}
+```
+
+Per-case statuses are `executed`, `compile-error`, `runtime-error`,
+`time-limit`, and `judge-error`. Observed stdout is sanitized (ANSI and
+control bytes removed) and capped at 4,096 UTF-8 bytes per case. Diagnostics
+are sanitized and capped at 2,000 bytes. No expected output, input echo,
+entrypoint metadata, hidden cases, revisions, or digest is returned. Execution
+callbacks use the separate idempotency key
+`judge-execution-result:<executionId>` so the application can route them to
+an ephemeral rehearsal receipt rather than a verified submission.
+
 ## Callback contract
 
 The gateway POSTs an immutable `judge.result.v1` object:

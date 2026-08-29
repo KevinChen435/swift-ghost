@@ -1,5 +1,14 @@
 export const CONTRACT_VERSION = "judge.submission.v1" as const;
 export const RESULT_VERSION = "judge.result.v1" as const;
+/**
+ * Execution-only rehearsal contracts intentionally have no judge metadata or
+ * expected values.  Keep these versions separate from the sealed submission
+ * protocol so a rehearsal can never settle a verified submission by accident.
+ */
+export const EXECUTION_CONTRACT_VERSION = "judge.execution.v1" as const;
+export const EXECUTION_RESULT_VERSION = "judge.execution.result.v1" as const;
+export const EXECUTION_LANGUAGE = "swift6" as const;
+export const EXECUTION_RUNTIME = "swift-6.3.3-linux" as const;
 
 export type ComparisonMode = "exact" | "trim-final-newline";
 export type JudgeLanguage = "python3" | "swift6";
@@ -12,6 +21,13 @@ export type Verdict =
   | "judge-error";
 
 export type TestCaseVisibility = "sample" | "hidden";
+
+export type ExecutionCaseStatus =
+  | "executed"
+  | "compile-error"
+  | "runtime-error"
+  | "time-limit"
+  | "judge-error";
 
 /**
  * A deliberately smaller, public-facing status vocabulary. The sealed judge
@@ -56,6 +72,46 @@ export interface SubmissionRequest {
   callbackUrl: string;
 }
 
+/**
+ * A rehearsal request contains a trusted, already-wrapped Swift program and
+ * caller-provided input only.  The gateway owns the language/runtime and does
+ * not accept entrypoint, revision, digest, expected output, or comparison
+ * metadata on this protocol.
+ */
+export interface ExecutionCase {
+  id: string;
+  input: string;
+}
+
+export interface ExecutionRequest {
+  version: typeof EXECUTION_CONTRACT_VERSION;
+  executionId: string;
+  source: string;
+  cases: ExecutionCase[];
+  callbackUrl: string;
+}
+
+export interface ExecutionCaseResult {
+  id: string;
+  status: ExecutionCaseStatus;
+  /** Sanitized stdout, bounded independently from the runner output cap. */
+  actualOutput?: string;
+  /** Sanitized, bounded diagnostic for this case when one is useful. */
+  diagnostic?: string;
+}
+
+export interface ExecutionResult {
+  version: typeof EXECUTION_RESULT_VERSION;
+  executionId: string;
+  language: typeof EXECUTION_LANGUAGE;
+  runtime: typeof EXECUTION_RUNTIME;
+  executed: number;
+  total: number;
+  cases: ExecutionCaseResult[];
+  /** Sanitized, bounded compilation or service-level diagnostic. */
+  diagnostic?: string;
+}
+
 export interface JudgeResult {
   version: typeof RESULT_VERSION;
   submissionId: string;
@@ -84,7 +140,22 @@ export interface CallbackQueueMessage {
   result: JudgeResult;
 }
 
-export type JudgeQueueMessage = SubmissionQueueMessage | CallbackQueueMessage;
+export interface ExecutionQueueMessage {
+  kind: "execution";
+  request: ExecutionRequest;
+}
+
+export interface ExecutionCallbackQueueMessage {
+  kind: "execution-callback";
+  callbackUrl: string;
+  result: ExecutionResult;
+}
+
+export type JudgeQueueMessage =
+  | SubmissionQueueMessage
+  | CallbackQueueMessage
+  | ExecutionQueueMessage
+  | ExecutionCallbackQueueMessage;
 
 export interface QueueBinding<T> {
   send(message: T, options?: { contentType?: "json" }): Promise<unknown>;

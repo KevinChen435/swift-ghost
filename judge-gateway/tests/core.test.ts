@@ -3,6 +3,11 @@ import test from "node:test";
 import { judgeSubmission } from "../src/core";
 import { CONTRACT_VERSION, type SandboxExecResult, type SandboxFactory, type SubmissionRequest } from "../src/types";
 
+function base64(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  return btoa(String.fromCharCode(...bytes));
+}
+
 function runner(stdout: string, overrides: Partial<Record<"exitCode" | "timedOut" | "outputLimited" | "stderrBase64", unknown>> = {}): SandboxExecResult {
   return {
     success: true,
@@ -13,7 +18,7 @@ function runner(stdout: string, overrides: Partial<Record<"exitCode" | "timedOut
       exitCode: 0,
       timedOut: false,
       outputLimited: false,
-      stdoutBase64: btoa(stdout),
+      stdoutBase64: base64(stdout),
       stderrBase64: "",
       ...overrides,
     }),

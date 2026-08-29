@@ -1,5 +1,8 @@
 import {
   CONTRACT_VERSION,
+  EXECUTION_CONTRACT_VERSION,
+  type ExecutionRequest,
+  type ExecutionCase,
   type ComparisonMode,
   type JudgeLanguage,
   type SubmissionRequest,
@@ -11,6 +14,8 @@ const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 const MAX_SOURCE_BYTES = 48_000;
 const MAX_TESTS = 64;
 const MAX_TEST_VALUE_BYTES = 32_000;
+/** Rehearsals are deliberately cheaper than sealed submissions. */
+const MAX_EXECUTION_CASES = 16;
 const DIGEST_PATTERN = /^[a-f0-9]{64}$/;
 
 export class ValidationError extends Error {
@@ -59,6 +64,51 @@ function parseTest(value: unknown, index: number): TestCase {
       true,
     ),
     visibility,
+  };
+}
+
+const EXECUTION_FORBIDDEN_REQUEST_FIELDS = [
+  "expectedOutput",
+  "entrypoint",
+  "runtime",
+  "contentRevision",
+  "judgeRevision",
+  "contractDigest",
+  "comparison",
+  "language",
+] as const;
+const EXECUTION_FORBIDDEN_CASE_FIELDS = [
+  "expectedOutput",
+  "expected",
+  "entrypoint",
+  "runtime",
+  "contentRevision",
+  "judgeRevision",
+  "contractDigest",
+  "comparison",
+  "visibility",
+] as const;
+
+function rejectForbiddenFields(
+  input: Record<string, unknown>,
+  fields: readonly string[],
+  label: string,
+): void {
+  for (const field of fields) {
+    if (Object.prototype.hasOwnProperty.call(input, field)) {
+      throw new ValidationError(`${label}.${field} is not accepted by the execution contract`);
+    }
+  }
+}
+
+function parseExecutionCase(value: unknown, index: number): ExecutionCase {
+  const input = record(value, `cases[${index}]`);
+  rejectForbiddenFields(input, EXECUTION_FORBIDDEN_CASE_FIELDS, `cases[${index}]`);
+  const id = string(input.id, `cases[${index}].id`, 160);
+  if (!ID_PATTERN.test(id)) throw new ValidationError(`cases[${index}].id has invalid characters`);
+  return {
+    id,
+    input: string(input.input, `cases[${index}].input`, MAX_TEST_VALUE_BYTES, true),
   };
 }
 
@@ -132,6 +182,36 @@ export function parseSubmission(value: unknown, allowedOriginsCsv: string): Subm
     source: string(input.source, "source", MAX_SOURCE_BYTES),
     comparison,
     tests,
+    callbackUrl: validateCallbackUrl(input.callbackUrl, allowedOriginsCsv),
+  };
+}
+
+/**
+ * Parse the execution-only Swift rehearsal protocol.  This parser is strict
+ * about fields that could turn an observed run into a client-controlled
+ * judge: expected values, entrypoints, runtimes, revisions, and digests are
+ * rejected rather than silently ignored.
+ */
+export function parseExecution(value: unknown, allowedOriginsCsv: string): ExecutionRequest {
+  const input = record(value, "request");
+  rejectForbiddenFields(input, EXECUTION_FORBIDDEN_REQUEST_FIELDS, "request");
+  if (input.version !== EXECUTION_CONTRACT_VERSION) {
+    throw new ValidationError(`version must be ${EXECUTION_CONTRACT_VERSION}`);
+  }
+  const executionId = string(input.executionId, "executionId", 160);
+  if (!ID_PATTERN.test(executionId)) throw new ValidationError("executionId has invalid characters");
+  if (!Array.isArray(input.cases) || input.cases.length < 1 || input.cases.length > MAX_EXECUTION_CASES) {
+    throw new ValidationError(`cases must contain 1..${MAX_EXECUTION_CASES} cases`);
+  }
+  const cases = input.cases.map(parseExecutionCase);
+  if (new Set(cases.map((testCase) => testCase.id)).size !== cases.length) {
+    throw new ValidationError("case ids must be unique");
+  }
+  return {
+    version: EXECUTION_CONTRACT_VERSION,
+    executionId,
+    source: string(input.source, "source", MAX_SOURCE_BYTES),
+    cases,
     callbackUrl: validateCallbackUrl(input.callbackUrl, allowedOriginsCsv),
   };
 }

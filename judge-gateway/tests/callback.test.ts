@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { deliverCallback } from "../src/callback";
-import type { CallbackQueueMessage, Env } from "../src/types";
+import { deliverCallback, deliverExecutionCallback } from "../src/callback";
+import type { CallbackQueueMessage, Env, ExecutionCallbackQueueMessage } from "../src/types";
 
 const message: CallbackQueueMessage = {
   kind: "callback",
@@ -99,4 +99,62 @@ test("callback rejects unsanitized public terminal controls", async () => {
     { id: "sample-2", status: "not-run" },
   ];
   await assert.rejects(() => deliverCallback(unsafe, env()), /contract validation/);
+});
+
+const executionMessage: ExecutionCallbackQueueMessage = {
+  kind: "execution-callback",
+  callbackUrl: "https://app.example.com/internal/judge-results",
+  result: {
+    version: "judge.execution.result.v1",
+    executionId: "execution-1",
+    language: "swift6",
+    runtime: "swift-6.3.3-linux",
+    executed: 1,
+    total: 2,
+    cases: [
+      { id: "case-1", status: "executed", actualOutput: "1\n" },
+      { id: "case-2", status: "runtime-error", actualOutput: "partial\n", diagnostic: "Execution exited with a non-zero status" },
+    ],
+  },
+};
+
+test("execution callback uses its distinct result and idempotency contract", async () => {
+  const originalFetch = globalThis.fetch;
+  let captured: Request | undefined;
+  globalThis.fetch = async (input, init) => {
+    captured = new Request(input, init);
+    return new Response(null, { status: 204 });
+  };
+  try {
+    await deliverExecutionCallback(executionMessage, env());
+    assert.equal(captured?.headers.get("idempotency-key"), "judge-execution-result:execution-1");
+    assert.match(captured?.headers.get("x-judge-signature") ?? "", /^sha256=[0-9a-f]{64}$/);
+    assert.deepEqual(JSON.parse(await captured!.text()), executionMessage.result);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("execution callback rejects expected values, hidden metadata, and malformed per-case statuses", async () => {
+  const forbidden = structuredClone(executionMessage) as ExecutionCallbackQueueMessage;
+  (forbidden.result as unknown as Record<string, unknown>).expectedOutput = "secret";
+  await assert.rejects(() => deliverExecutionCallback(forbidden, env()), /contract validation/);
+
+  const malformed = structuredClone(executionMessage) as ExecutionCallbackQueueMessage;
+  malformed.result.cases[0] = { id: "case-1", status: "executed" };
+  await assert.rejects(() => deliverExecutionCallback(malformed, env()), /contract validation/);
+
+  const mismatch = structuredClone(executionMessage) as ExecutionCallbackQueueMessage;
+  mismatch.result.executed = 0;
+  await assert.rejects(() => deliverExecutionCallback(mismatch, env()), /contract validation/);
+});
+
+test("execution callback rejects unsanitized or oversized observed output", async () => {
+  const oversized = structuredClone(executionMessage) as ExecutionCallbackQueueMessage;
+  oversized.result.cases[0]!.actualOutput = "x".repeat(4_097);
+  await assert.rejects(() => deliverExecutionCallback(oversized, env()), /contract validation/);
+
+  const unsafe = structuredClone(executionMessage) as ExecutionCallbackQueueMessage;
+  unsafe.result.cases[0]!.actualOutput = "answer\u001b[2J";
+  await assert.rejects(() => deliverExecutionCallback(unsafe, env()), /contract validation/);
 });

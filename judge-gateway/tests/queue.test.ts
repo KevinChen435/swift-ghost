@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { processQueueBatch } from "../src/queue";
-import type { CallbackQueueMessage, Env, JudgeQueueMessage, QueueRecord, SandboxFactory } from "../src/types";
+import type { CallbackQueueMessage, Env, ExecutionCallbackQueueMessage, ExecutionQueueMessage, JudgeQueueMessage, QueueRecord, SandboxFactory } from "../src/types";
 
 function env(): Env {
   return {
@@ -71,4 +71,48 @@ test("retries but does not ack a failed callback delivery", async () => {
     globalThis.fetch = originalFetch;
     console.error = originalError;
   }
+});
+
+test("execution queue compiles/runs in its own lane and emits an execution callback", async () => {
+  const sent: JudgeQueueMessage[] = [];
+  const execution: ExecutionQueueMessage = {
+    kind: "execution",
+    request: {
+      version: "judge.execution.v1",
+      executionId: "execution-1",
+      source: "import Foundation\n@main struct Main {}",
+      cases: [{ id: "case-1", input: "{\"args\":[1]}\n" }],
+      callbackUrl: "https://app.example.com/internal/judge-results",
+    },
+  };
+  const { message, state } = record(execution);
+  const factory: SandboxFactory = {
+    create() {
+      return {
+        async writeFile() {},
+        async exec(command) {
+          return {
+            success: true,
+            exitCode: 0,
+            stdout: JSON.stringify({
+              version: 1,
+              exitCode: 0,
+              timedOut: false,
+              outputLimited: false,
+              stdoutBase64: command.includes("swift-compile") ? "" : btoa("observed\n"),
+              stderrBase64: "",
+            }),
+            stderr: "",
+          };
+        },
+        async destroy() {},
+      };
+    },
+  };
+  await processQueueBatch({ messages: [message] }, { ...env(), JUDGE_QUEUE: { async send(item) { sent.push(item); } } }, factory);
+  assert.equal(state.acked, true);
+  assert.equal(state.retried, false);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0]?.kind, "execution-callback");
+  assert.equal((sent[0] as ExecutionCallbackQueueMessage).result.version, "judge.execution.result.v1");
 });
