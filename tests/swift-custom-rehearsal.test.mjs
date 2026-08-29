@@ -29,6 +29,9 @@ test("Swift custom rehearsal stays bounded, persisted locally, and separate from
   assert.match(consoleUi, /Run \$\{customCases.length\} custom case/);
   assert.match(consoleUi, /Recent custom rehearsals/);
   assert.match(consoleUi, /MAX_CUSTOM_HISTORY = 5/);
+  assert.match(consoleUi, /CUSTOM_HISTORY_VERDICTS/);
+  assert.match(consoleUi, /entry\.contentRevision === challenge\.contentRevision/);
+  assert.match(consoleUi, /entry\.judgeRevision === challenge\.judgeRevision/);
   assert.match(consoleUi, /actual:/);
   assert.match(consoleUi, /result\.error/);
   assert.match(page, /runTrustedCustomCases/);

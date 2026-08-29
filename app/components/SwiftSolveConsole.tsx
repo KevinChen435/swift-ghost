@@ -79,6 +79,8 @@ type SwiftCustomHistoryEntry = {
   passed: number;
   total: number;
   caseNames: string[];
+  contentRevision: number;
+  judgeRevision: number;
 };
 
 type SwiftCustomWorkspace = {
@@ -91,6 +93,15 @@ const SWIFT_CUSTOM_CASE_STORAGE_PREFIX = "swift-ghost:swift-custom-case:v1:";
 const MAX_CUSTOM_DRAFT_CHARACTERS = 24_000;
 const MAX_CUSTOM_CASES = 6;
 const MAX_CUSTOM_HISTORY = 5;
+
+const CUSTOM_HISTORY_VERDICTS = new Set<NonNullable<SwiftCustomHistoryEntry["verdict"]>>([
+  "accepted",
+  "wrong-answer",
+  "compile-error",
+  "runtime-error",
+  "time-limit",
+  "judge-error",
+]);
 
 function swiftTypeLabel(type: string) {
   return type || "JSON value";
@@ -265,7 +276,10 @@ function normalizeCustomWorkspace(
           typeof entry.settledAt === "string" &&
           Array.isArray(entry.caseNames) &&
           typeof entry.passed === "number" &&
-          typeof entry.total === "number",
+          typeof entry.total === "number" &&
+          CUSTOM_HISTORY_VERDICTS.has(entry.verdict as NonNullable<SwiftCustomHistoryEntry["verdict"]>) &&
+          entry.contentRevision === challenge.contentRevision &&
+          entry.judgeRevision === challenge.judgeRevision,
         ))
         .slice(0, MAX_CUSTOM_HISTORY)
         .map((entry) => ({
@@ -274,6 +288,8 @@ function normalizeCustomWorkspace(
           verdict: entry.verdict ?? null,
           passed: Math.max(0, Math.floor(entry.passed)),
           total: Math.max(0, Math.floor(entry.total)),
+          contentRevision: challenge.contentRevision,
+          judgeRevision: challenge.judgeRevision,
           caseNames: entry.caseNames
             .filter((name): name is string => typeof name === "string")
             .slice(0, MAX_CUSTOM_CASES)
@@ -447,6 +463,8 @@ export function SwiftSolveConsole({
       verdict: customRun.verdict,
       passed: customRun.result.passed,
       total: customRun.result.total,
+      contentRevision: customRun.result.contentRevision,
+      judgeRevision: customRun.result.judgeRevision,
       caseNames: customRun.result.cases.map((result) => result.name),
     };
     setCustomWorkspace((current) => current ? {
