@@ -11116,6 +11116,33 @@ kbd {
   margin: 0;
   color: var(--muted);
 }
+.trusted-public-cases {
+  display: grid;
+  gap: 6px;
+  margin: 5px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.trusted-public-cases li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 60%, transparent);
+}
+.trusted-public-cases li.passed > span {
+  color: var(--success);
+}
+.trusted-public-cases li.failed > span {
+  color: var(--danger);
+}
+.trusted-public-cases small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .verified-badge {
   padding: 4px 7px;
   border-radius: 999px;

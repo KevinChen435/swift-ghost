@@ -536,6 +536,21 @@ const TRUSTED_PUBLIC_CASE_STATUSES = new Set([
   "not-run",
 ]);
 
+// Example runs use the same isolated runtimes as sealed trusted submissions.
+// Keep the pairings explicit so a response cannot claim Python while naming a
+// Swift runtime (or vice versa), even though both values are strings on the
+// wire.
+const TRUSTED_EXAMPLE_EXECUTION_CONTRACTS = Object.freeze({
+  python: Object.freeze({
+    authority: "server-isolated-python",
+    runtime: "python-3.13-linux",
+  }),
+  swift: Object.freeze({
+    authority: "server-isolated-swift",
+    runtime: "swift-6.3.3-linux",
+  }),
+});
+
 function normalizeTrustedPublicValue(value, depth = 0) {
   if (value === null || typeof value === "boolean") return value;
   if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
@@ -647,6 +662,12 @@ function normalizeTrustedExampleRun(value, challenge) {
   const publicCaseResults = raw.result.publicCaseResults === undefined
     ? undefined
     : normalizeTrustedPublicCaseResults(raw.result.publicCaseResults, challenge?.samples);
+  const executionContract =
+    raw.result.language === "python"
+      ? TRUSTED_EXAMPLE_EXECUTION_CONTRACTS.python
+      : raw.result.language === "swift"
+        ? TRUSTED_EXAMPLE_EXECUTION_CONTRACTS.swift
+        : undefined;
   if (
     !Number.isInteger(total) ||
     total < 1 ||
@@ -659,10 +680,12 @@ function normalizeTrustedExampleRun(value, challenge) {
     contentRevision < 1 ||
     !Number.isInteger(judgeRevision) ||
     judgeRevision < 1 ||
-    raw.result.authority !== "server-isolated-swift" ||
-    raw.result.language !== "swift" ||
-    cleanString(raw.result.runtime, 80) !== "swift-6.3.3-linux" ||
+    !executionContract ||
+    raw.result.authority !== executionContract.authority ||
+    raw.result.runtime !== executionContract.runtime ||
     !contractDigest ||
+    (challenge && raw.result.language !== challenge.language) ||
+    (challenge && raw.result.runtime !== challenge.runtime) ||
     (challenge && contentRevision !== challenge.contentRevision) ||
     (challenge && judgeRevision !== challenge.judgeRevision) ||
     (raw.verdict === "accepted" && passed !== total) ||
@@ -687,9 +710,9 @@ function normalizeTrustedExampleRun(value, challenge) {
     result: {
       passed,
       total,
-      authority: "server-isolated-swift",
-      language: "swift",
-      runtime: "swift-6.3.3-linux",
+      authority: executionContract.authority,
+      language: raw.result.language,
+      runtime: executionContract.runtime,
       contractDigest,
       contentRevision,
       judgeRevision,

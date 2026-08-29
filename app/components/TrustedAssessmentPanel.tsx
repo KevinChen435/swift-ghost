@@ -4,12 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createCloudClient,
   type CloudTrustedAssignment,
+  type CloudTrustedExampleRun,
   type CloudTrustedSubmission,
 } from "../lib/cloud.mjs";
-import {
-  createPythonRunner,
-  type PythonVerificationResult,
-} from "../lib/python-runner.mjs";
 import { SolveCodeEditor } from "./SolveCodeEditor";
 
 const trustedClient = createCloudClient();
@@ -17,7 +14,7 @@ const trustedClient = createCloudClient();
 type LoadState = "idle" | "loading" | "ready" | "error";
 
 type SampleResultSnapshot = {
-  result: PythonVerificationResult;
+  result: CloudTrustedExampleRun;
   source: string;
 };
 
@@ -79,19 +76,8 @@ function verdictLabel(verdict: CloudTrustedSubmission["verdict"]) {
     : "Pending";
 }
 
-function sampleVerification(assignment: CloudTrustedAssignment) {
-  return {
-    revision: assignment.challenge.judgeRevision,
-    entrypoint: assignment.challenge.entrypoint,
-    cases: assignment.challenge.samples.map((sample) => ({
-      id: sample.id,
-      visibility: "sample" as const,
-      name: sample.name,
-      args: sample.args,
-      expected: sample.expected,
-      comparator: "deepEqual" as const,
-    })),
-  };
+function languageLabel(language: "python" | "swift") {
+  return language === "swift" ? "Swift" : "Python";
 }
 
 export function TrustedAssessmentPanel({
@@ -116,7 +102,11 @@ export function TrustedAssessmentPanel({
     "idle",
   );
   const [message, setMessage] = useState("");
-  const runnerRef = useRef<ReturnType<typeof createPythonRunner> | null>(null);
+  const sampleRunRequestRef = useRef<{
+    assignmentId: string;
+    clientRunId: string;
+    source: string;
+  } | null>(null);
   const retryClientSubmissionIdRef = useRef<string | null>(null);
   const retrySubmissionSourceRef = useRef<string | null>(null);
   const submittedSourcesRef = useRef(new Map<string, string>());
@@ -220,6 +210,7 @@ export function TrustedAssessmentPanel({
   const activateAssignment = useCallback((assignment?: CloudTrustedAssignment) => {
     retryClientSubmissionIdRef.current = null;
     retrySubmissionSourceRef.current = null;
+    sampleRunRequestRef.current = null;
     setSelectedId(assignment?.id);
     setSampleResult(null);
     setMessage("");
@@ -281,14 +272,6 @@ export function TrustedAssessmentPanel({
     }
   }, [selected, source]);
 
-  useEffect(
-    () => () => {
-      runnerRef.current?.dispose();
-      runnerRef.current = null;
-    },
-    [],
-  );
-
   async function refreshAssignments(
     preferredId?: string,
     signal?: AbortSignal,
@@ -338,8 +321,8 @@ export function TrustedAssessmentPanel({
             ? "Accepted. This receipt is server-owned verified evidence."
             : refreshed.latestSubmission.verdict === "judge-error"
               ? "The isolated judge did not settle in time. No correctness inference was recorded."
-              : refreshed.latestSubmission.verdict === "compile-error"
-                ? "The server could not compile this Swift source. Fix the syntax or signature and submit a new revision."
+                : refreshed.latestSubmission.verdict === "compile-error"
+                ? `The server could not compile this ${languageLabel(refreshed.challenge.language)} source. Fix the syntax or signature and submit a new revision.`
             : "The server returned aggregate feedback without exposing sealed cases.",
         );
         return;
@@ -391,29 +374,166 @@ export function TrustedAssessmentPanel({
   }
 
   async function runSamples() {
-    if (!selected || action !== "idle") return;
-    if (selected.challenge.language === "swift") {
-      setMessage(
-        "Swift samples stay visible, but compilation runs only in the isolated server. Submit compiles once and checks samples plus sealed cases.",
-      );
-      return;
-    }
+    if (
+      !selected ||
+      action !== "idle" ||
+      selected.status !== "active" ||
+      !source.trim() ||
+      sampleResult?.result.status === "pending"
+    ) return;
+    const retry = sampleRunRequestRef.current;
+    const request =
+      retry && retry.assignmentId === selected.id && retry.source === source
+        ? retry
+        : {
+            assignmentId: selected.id,
+            clientRunId: clientId("example"),
+            source,
+          };
+    sampleRunRequestRef.current = request;
     setAction("samples");
     setMessage("");
+    setSampleResult(null);
     try {
-      runnerRef.current?.dispose();
-      const runner = createPythonRunner();
-      runnerRef.current = runner;
-      const result = await runner.verify(source, sampleVerification(selected));
-      setSampleResult({ result, source });
-    } catch {
-      setMessage("The browser sample runner could not start. Server submission remains separate.");
+      const result = await trustedClient.runTrustedExamples(
+        request.assignmentId,
+        { clientRunId: request.clientRunId, source: request.source },
+        { challenge: selected.challenge },
+      );
+      if (sampleRunRequestRef.current?.clientRunId !== request.clientRunId) return;
+      if (!result.available) {
+        if (result.reason === "judge-enqueue-unavailable" || result.reason === "offline") {
+          sampleRunRequestRef.current = request;
+          setSampleResult({
+            source: request.source,
+            result: {
+              id: request.clientRunId,
+              assignmentId: request.assignmentId,
+              clientRunId: request.clientRunId,
+              status: "pending",
+              verdict: null,
+              requestedAt: new Date().toISOString(),
+              settledAt: null,
+              result: null,
+            },
+          });
+        } else {
+          sampleRunRequestRef.current = null;
+        }
+        setMessage(
+          result.reason === "unauthorized"
+            ? "Sign in again before running isolated examples."
+            : result.reason === "rate-limited"
+              ? "Wait for the earlier example run to finish before trying again."
+              : result.reason === "judge-enqueue-unavailable"
+                ? "The example run is saved and waiting for the isolated judge; this page will retry it."
+                : "The isolated example runner could not be reached. Your source remains in this tab.",
+        );
+        return;
+      }
+      if (
+        result.data.assignmentId !== request.assignmentId ||
+        result.data.clientRunId !== request.clientRunId
+      ) {
+        sampleRunRequestRef.current = null;
+        setMessage("The example result did not match this source. Run examples again.");
+        return;
+      }
+      setSampleResult({ result: result.data, source: request.source });
+      if (result.data.status === "pending") {
+        setMessage("Examples queued in the isolated runtime. This page will poll for public sample feedback.");
+      } else {
+        sampleRunRequestRef.current = null;
+        setMessage(
+          result.data.verdict === "accepted"
+            ? "Public examples passed. Submit when you are ready for sealed tests."
+            : "Public examples found a problem. Fix this before using the sealed judge.",
+        );
+      }
+    } catch (error) {
+      if (sampleRunRequestRef.current?.clientRunId !== request.clientRunId) return;
+      sampleRunRequestRef.current = null;
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "The isolated example runner could not be reached. Your source remains in this tab.",
+      );
     } finally {
-      runnerRef.current?.dispose();
-      runnerRef.current = null;
       setAction("idle");
     }
   }
+
+  useEffect(() => {
+    if (
+      !available ||
+      !authenticated ||
+      !selected ||
+      sampleResult?.result.status !== "pending"
+    )
+      return;
+    const request = sampleRunRequestRef.current;
+    if (!request || request.assignmentId !== selected.id) return;
+    const pollRequest = { ...request };
+    const controller = new AbortController();
+    let cancelled = false;
+    let timer: ReturnType<typeof globalThis.setTimeout> | undefined;
+    let pollAttempts = 0;
+    const maxPollAttempts = 40;
+    async function pollExamples() {
+      pollAttempts += 1;
+      const result = await trustedClient.runTrustedExamples(
+        pollRequest.assignmentId,
+        { clientRunId: pollRequest.clientRunId, source: pollRequest.source },
+        {
+          signal: controller.signal,
+          challenge: selected?.challenge,
+        },
+      );
+      if (cancelled) return;
+      if (result.available) {
+        if (
+          result.data.assignmentId !== pollRequest.assignmentId ||
+          result.data.clientRunId !== pollRequest.clientRunId
+        ) {
+          sampleRunRequestRef.current = null;
+          setSampleResult(null);
+          setMessage("The example result did not match this source. Run examples again.");
+          return;
+        }
+        setSampleResult({ result: result.data, source: pollRequest.source });
+        if (result.data.status === "settled") {
+          sampleRunRequestRef.current = null;
+          setMessage(
+            result.data.verdict === "accepted"
+              ? "Public examples passed. Submit when you are ready for sealed tests."
+              : "Public examples found a problem. Fix this before using the sealed judge.",
+          );
+          return;
+        }
+      } else if (result.reason !== "aborted") {
+        const retryable = new Set(["judge-enqueue-unavailable", "rate-limited", "offline"]);
+        if (!retryable.has(result.reason) || pollAttempts >= maxPollAttempts) {
+          sampleRunRequestRef.current = null;
+          setSampleResult(null);
+          setMessage(
+            pollAttempts >= maxPollAttempts
+              ? "The example run took too long to settle. Run examples again."
+              : result.reason === "unauthorized"
+                ? "Your sign-in expired. Sign in again before running examples."
+                : "The example run is no longer available. Run examples again.",
+          );
+          return;
+        }
+      }
+      timer = globalThis.setTimeout(() => void pollExamples(), 1_500);
+    }
+    timer = globalThis.setTimeout(() => void pollExamples(), 1_500);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (timer) globalThis.clearTimeout(timer);
+    };
+  }, [authenticated, available, sampleResult?.result.status, selected]);
 
   async function submit() {
     if (!selected || action !== "idle" || selected.status !== "active") return;
@@ -454,7 +574,7 @@ export function TrustedAssessmentPanel({
       setMessage("The isolated judge did not settle in time. No correctness inference was recorded.");
       await refreshAssignments(selected.id);
     } else if (result.data.verdict === "compile-error") {
-      setMessage("The server could not compile this Swift source. Fix the syntax or signature and submit a new revision.");
+      setMessage(`The server could not compile this ${languageLabel(selected.challenge.language)} source. Fix the syntax or signature and submit a new revision.`);
       await refreshAssignments(selected.id);
     } else {
       setMessage("The server returned aggregate feedback without exposing sealed cases.");
@@ -464,6 +584,9 @@ export function TrustedAssessmentPanel({
 
   function handleSourceChange(nextSource: string) {
     setSource(nextSource);
+    if (sampleResult?.source !== nextSource) {
+      sampleRunRequestRef.current = null;
+    }
     setSampleResult((current) =>
       current && current.source !== nextSource ? null : current,
     );
@@ -484,10 +607,10 @@ export function TrustedAssessmentPanel({
           <span className="eyebrow">Verified lane · Python + Swift</span>
           <h2 id="trusted-assessment-title">Compile, run, and earn a server-owned receipt.</h2>
           <p>
-            The server selects and freezes the prompt. Samples run in your browser;
-            Python samples can run locally. Swift and Python submissions go to
-            isolated Linux sandboxes and return only an aggregate receipt.
-            Sealed tests never ship in this page.
+            The server selects and freezes the prompt. Run samples sends only your
+            current source to the matching isolated Linux runtime and returns
+            bounded public feedback. Submit separately when you are ready for
+            sealed tests; hidden cases never ship to this page.
           </p>
         </div>
         <div className="trusted-assessment-boundary" aria-label="Trust boundary">
@@ -614,8 +737,8 @@ export function TrustedAssessmentPanel({
                 <span>
                   {selected.challenge.language === "swift"
                     ? "Swift 6.3.3 · Linux"
-                    : "Python 3"}
-                  {" · source stays in this tab until Submit"}
+                    : "Python 3.13 · Linux"}
+                  {" · source is sent only when you run or submit"}
                 </span>
                 <small>Ctrl/⌘+Enter samples · Shift+Ctrl/⌘+Enter submit</small>
               </div>
@@ -633,15 +756,42 @@ export function TrustedAssessmentPanel({
                 onExitFocus={() => {}}
               />
             </div>
-            {sampleResult ? (
-              <div className={`trusted-result ${sampleResult.result.ok ? "accepted" : "failed"}`}>
-                <strong>
-                  Browser samples: {sampleResult.result.cases.filter((entry) => entry.passed).length}/
-                  {sampleResult.result.cases.length}
-                </strong>
-                <span>Practice feedback only · current editor snapshot</span>
-              </div>
-            ) : null}
+            {sampleResult ? (() => {
+              const result = sampleResult.result;
+              const payload = result.result;
+              const passed = payload?.passed ?? 0;
+              const total = payload?.total ?? selected.challenge.samples.length;
+              return (
+                <div
+                  className={`trusted-result ${result.status === "pending" ? "pending" : result.verdict === "accepted" ? "accepted" : "failed"}`}
+                >
+                  <strong>
+                    Isolated public examples: {passed}/{total}
+                  </strong>
+                  <span>
+                    {result.status === "pending"
+                      ? "Queued feedback · hidden cases stay sealed"
+                      : `Practice feedback only · ${payload?.runtime ?? selected.challenge.runtime}`}
+                  </span>
+                  {payload?.publicCaseResults?.length ? (
+                    <ul className="trusted-public-cases">
+                      {payload.publicCaseResults.map((entry) => (
+                        <li key={entry.id} className={entry.passed ? "passed" : "failed"}>
+                          <span>{entry.passed ? "✓" : "×"} {entry.id}</span>
+                          <small>
+                            {entry.status ?? (entry.passed ? "passed" : "failed")}
+                            {entry.actual !== undefined
+                              ? ` · actual ${valueLabel(entry.actual)}`
+                              : ""}
+                            {entry.diagnostic ? ` · ${entry.diagnostic}` : ""}
+                          </small>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              );
+            })() : null}
             {submission ? (
               <div className={`trusted-result ${submission.verdict ?? "pending"}`}>
                 <div>
@@ -695,15 +845,14 @@ export function TrustedAssessmentPanel({
                 className="outline-button"
                 type="button"
                 disabled={
-                  action !== "idle" || selected.challenge.language === "swift"
+                  action !== "idle" ||
+                  selected.status !== "active" ||
+                  !source.trim() ||
+                  sampleResult?.result.status === "pending"
                 }
                 onClick={() => void runSamples()}
               >
-                {selected.challenge.language === "swift"
-                  ? "Samples run on Submit"
-                  : action === "samples"
-                    ? "Running samples…"
-                    : "Run samples"}
+                {action === "samples" ? "Running isolated samples…" : "Run samples"}
               </button>
               <button
                 className="primary-button"

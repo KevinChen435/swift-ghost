@@ -168,7 +168,10 @@ test("starting an ordinary virtual round closes the active learning run atomical
   assert.match(launch, /activeSession: null/);
   assert.match(launch, /sessionHistoryRecord\(previous, previous\.entries, "ended"\)/);
   assert.match(launch, /archiveActiveInterviewStudio\(/);
-  assert.match(launch, /runManifests: endActiveRunManifest\(base\.runManifests, startedAt\)/);
+  assert.match(
+    launch,
+    /(?:runManifests:|let runManifests =|runManifests =)\s*endActiveRunManifest\(base\.runManifests, startedAt\)/,
+  );
   assert.match(launch, /virtualRoundWorkspace: startVirtualRound\(/);
 });
 

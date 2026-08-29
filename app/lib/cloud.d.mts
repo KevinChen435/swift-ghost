@@ -262,8 +262,8 @@ export type CloudTrustedExampleRun = {
   result: null | {
     passed: number;
     total: number;
-    authority: "server-isolated-swift";
-    language: "swift";
+    authority: "server-isolated-python" | "server-isolated-swift";
+    language: "python" | "swift";
     runtime: string;
     contractDigest: string;
     contentRevision: number;
@@ -308,7 +308,10 @@ export type CloudDailyLeaderboard = CloudList<CloudDailyLeaderboardEntry> & {
 
 export type CloudRequestOptions = { signal?: AbortSignal };
 export type CloudTrustedExampleRunOptions = CloudRequestOptions & {
-  challenge?: Pick<CloudTrustedChallenge, "contentRevision" | "judgeRevision" | "samples">;
+  challenge?: Pick<
+    CloudTrustedChallenge,
+    "language" | "runtime" | "contentRevision" | "judgeRevision" | "samples"
+  >;
 };
 export type CloudListOptions = CloudRequestOptions & {
   limit?: number;

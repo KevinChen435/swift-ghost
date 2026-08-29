@@ -538,6 +538,62 @@ test("trusted assignment lookup can target one challenge and preserves enqueue r
   );
 });
 
+test("trusted example runs accept the frozen Python execution contract", async () => {
+  const challenge = {
+    key: "python-stable-window",
+    language: "python",
+    runtime: "python-3.13-linux",
+    contentRevision: 1,
+    judgeRevision: 2,
+    samples: [
+      { id: "sample-1", name: "small window", args: [[1, 2], 1], expected: 2 },
+      { id: "sample-2", name: "single item", args: [[4], 0], expected: 1 },
+    ],
+  };
+  const response = {
+    exampleRun: {
+      id: "example-python12345",
+      assignmentId: "trusted-python12345",
+      clientRunId: "example:python12345",
+      status: "settled",
+      verdict: "wrong-answer",
+      requestedAt: "2026-07-28T12:06:00.000Z",
+      settledAt: "2026-07-28T12:06:01.000Z",
+      result: {
+        passed: 1,
+        total: 2,
+        authority: "server-isolated-python",
+        language: "python",
+        runtime: "python-3.13-linux",
+        contractDigest: "c".repeat(64),
+        contentRevision: 1,
+        judgeRevision: 2,
+        publicCaseResults: [
+          { id: "sample-1", status: "passed", actual: 2 },
+          { id: "sample-2", status: "failed", actual: 0, diagnostic: "wrong output" },
+        ],
+      },
+    },
+  };
+  const mock = recorder(() => json(response));
+  const client = createCloudClient({
+    fetchImpl: mock.fetchImpl,
+    location: { hostname: "python.test" },
+  });
+  const result = await client.runTrustedExamples(
+    "trusted-python12345",
+    { clientRunId: "example:python12345", source: "def solve():\n    return 0" },
+    { challenge },
+  );
+  assert.equal(result.available, true);
+  assert.equal(result.data.result.language, "python");
+  assert.equal(result.data.result.authority, "server-isolated-python");
+  assert.equal(result.data.result.runtime, "python-3.13-linux");
+  assert.equal(result.data.result.publicCaseResults?.length, 2);
+  assert.equal(result.data.result.publicCaseResults?.[1].diagnostic, "wrong output");
+  assert.equal(mock.calls[0].url, "/api/v1/trusted/assignments/trusted-python12345/example-runs");
+});
+
 test("legacy Python receipts remain visible with an explicit missing-contract marker", async () => {
   const legacyAssignment = {
     id: "trusted-legacy123",
