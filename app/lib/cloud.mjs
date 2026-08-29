@@ -6,6 +6,8 @@ const MAX_ATTEMPT_BATCH = 100;
 const MAX_LIST_ENTRIES = 100;
 const MAX_STUDY_WORKSPACE_BYTES = 256 * 1024;
 const MAX_TRUSTED_SOURCE_BYTES = 40_000;
+const MAX_TRUSTED_CUSTOM_CASES = 12;
+const MAX_TRUSTED_CUSTOM_CASE_BYTES = 24_000;
 
 function isRecord(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -724,6 +726,156 @@ function normalizeTrustedExampleRun(value, challenge) {
   };
 }
 
+const TRUSTED_CUSTOM_CASE_STATUSES = new Set([
+  "executed",
+  "passed",
+  "failed",
+  "wrong-answer",
+  "compile-error",
+  "runtime-error",
+  "time-limit",
+  "judge-error",
+  "not-run",
+]);
+
+function normalizeTrustedCustomCaseResults(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_TRUSTED_CUSTOM_CASES)
+    return undefined;
+  const results = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const entry = value[index];
+    if (!isRecord(entry)) return undefined;
+    const caseId = trustedClientId(entry.id ?? entry.caseId) ?? `custom-${index + 1}`;
+    const name = cleanString(entry.name, 120, `Custom case ${index + 1}`);
+    const status = TRUSTED_CUSTOM_CASE_STATUSES.has(entry.status)
+      ? entry.status
+      : typeof entry.passed === "boolean"
+        ? entry.passed ? "passed" : "failed"
+        : undefined;
+    if (!caseId || !name || !status) return undefined;
+    const actual = Object.hasOwn(entry, "actual")
+      ? normalizeTrustedPublicValue(entry.actual)
+      : Object.hasOwn(entry, "actualOutput")
+        ? normalizeTrustedPublicValue(entry.actualOutput)
+        : undefined;
+    const error = optionalString(entry.error ?? entry.runtimeError, 2_000);
+    const diagnostic = optionalString(entry.diagnostic, 2_000);
+    results.push({
+      id: caseId,
+      name,
+      status,
+      passed: status === "passed" || status === "executed" || entry.passed === true,
+      ...(actual !== undefined ? { actual } : {}),
+      ...(error ? { error } : {}),
+      ...(diagnostic ? { diagnostic } : {}),
+    });
+  }
+  return results;
+}
+
+function normalizeTrustedCustomRun(value, challenge) {
+  const raw = isRecord(value) && isRecord(value.customRun)
+    ? value.customRun
+    : isRecord(value) && isRecord(value.run)
+      ? value.run
+      : value;
+  if (!isRecord(raw)) return undefined;
+  const runId = id(raw.id, 96);
+  const assignmentId = id(raw.assignmentId, 96);
+  const clientRunId = trustedClientId(raw.clientRunId);
+  const requestedAt = isoDateTime(raw.requestedAt ?? raw.createdAt);
+  if (!runId || !assignmentId || !clientRunId || !requestedAt) return undefined;
+  const status = raw.status === "pending" ? "pending" : raw.status === "settled" ? "settled" : null;
+  if (!status) return undefined;
+  if (status === "pending") {
+    return {
+      id: runId,
+      assignmentId,
+      clientRunId,
+      status,
+      verdict: null,
+      requestedAt,
+      settledAt: null,
+      result: null,
+    };
+  }
+  const verdicts = new Set([
+    "accepted",
+    "wrong-answer",
+    "compile-error",
+    "runtime-error",
+    "time-limit",
+    "judge-error",
+  ]);
+  const settledAt = isoDateTime(raw.settledAt);
+  const result = isRecord(raw.result) ? raw.result : undefined;
+  if (!verdicts.has(raw.verdict) || !settledAt || !result) return undefined;
+  const cases = normalizeTrustedCustomCaseResults(
+    result.cases ?? result.customCaseResults ?? result.publicCaseResults,
+  );
+  const total = Number.isInteger(result.total)
+    ? result.total
+    : cases?.length ?? 0;
+  const passed = Number.isInteger(result.passed)
+    ? result.passed
+    : cases?.filter((entry) => entry.passed).length ?? 0;
+  const authority = result.authority === "server-isolated-swift"
+    ? result.authority
+    : undefined;
+  const language = result.language === "swift" ? result.language : undefined;
+  const runtime = cleanString(result.runtime, 80);
+  const contractDigest = typeof result.contractDigest === "string" && /^[a-f0-9]{64}$/.test(result.contractDigest)
+    ? result.contractDigest
+    : undefined;
+  const contentRevision = Number.isInteger(result.contentRevision)
+    ? result.contentRevision
+    : challenge?.contentRevision;
+  const judgeRevision = Number.isInteger(result.judgeRevision)
+    ? result.judgeRevision
+    : challenge?.judgeRevision;
+  const failedCaseIndex = result.failedCaseIndex;
+  if (
+    !cases ||
+    total < 1 ||
+    total > MAX_TRUSTED_CUSTOM_CASES ||
+    cases.length !== total ||
+    passed < 0 ||
+    passed > total ||
+    !authority ||
+    !language ||
+    runtime !== "swift-6.3.3-linux" ||
+    (challenge && (language !== challenge.language || runtime !== challenge.runtime)) ||
+    !Number.isInteger(contentRevision) ||
+    !Number.isInteger(judgeRevision) ||
+    (challenge && (contentRevision !== challenge.contentRevision || judgeRevision !== challenge.judgeRevision)) ||
+    (failedCaseIndex !== undefined && (!Number.isInteger(failedCaseIndex) || failedCaseIndex < 0 || failedCaseIndex >= total))
+  ) return undefined;
+  return {
+    id: runId,
+    assignmentId,
+    clientRunId,
+    status,
+    verdict: raw.verdict,
+    requestedAt,
+    settledAt,
+    result: {
+      passed,
+      total,
+      authority,
+      language,
+      runtime,
+      ...(contractDigest ? { contractDigest } : {}),
+      contentRevision,
+      judgeRevision,
+      ...(failedCaseIndex !== undefined ? { failedCaseIndex } : {}),
+      cases,
+      ...(optionalString(result.diagnostic, 2_000)
+        ? { diagnostic: optionalString(result.diagnostic, 2_000) }
+        : {}),
+    },
+  };
+}
+
 function normalizeTrustedAssignment(value) {
   const raw = isRecord(value) && isRecord(value.assignment)
     ? value.assignment
@@ -814,6 +966,32 @@ function trustedSource(value) {
   return bytes >= 1 && bytes <= MAX_TRUSTED_SOURCE_BYTES
     ? normalized
     : undefined;
+}
+
+function trustedCustomCases(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_TRUSTED_CUSTOM_CASES)
+    return undefined;
+  const cases = [];
+  let totalBytes = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const rawCase = value[index];
+    if (!isRecord(rawCase)) return undefined;
+    const caseId = trustedClientId(rawCase.id) ?? `custom-${index + 1}`;
+    const name = cleanString(rawCase.name, 120, `Custom case ${index + 1}`);
+    if (!caseId || !name || !Array.isArray(rawCase.args) || rawCase.args.length > 12)
+      return undefined;
+    let encoded;
+    try {
+      encoded = JSON.stringify(rawCase.args);
+    } catch {
+      return undefined;
+    }
+    if (encoded === undefined) return undefined;
+    totalBytes += new TextEncoder().encode(encoded).byteLength;
+    if (totalBytes > MAX_TRUSTED_CUSTOM_CASE_BYTES) return undefined;
+    cases.push({ id: caseId, name, args: rawCase.args });
+  }
+  return cases;
 }
 
 function normalizeSession(value) {
@@ -1278,6 +1456,27 @@ export function createCloudClient(options = {}) {
               signal,
             },
             (value) => normalizeTrustedExampleRun(value, challenge),
+        )
+        : Promise.resolve(unavailable("invalid-request"));
+    },
+    runTrustedCustomCases(
+      assignmentIdInput,
+      input,
+      { signal, challenge } = {},
+    ) {
+      const assignmentId = trustedClientId(assignmentIdInput);
+      const clientRunId = trustedClientId(input?.clientRunId);
+      const source = trustedSource(input?.source);
+      const cases = trustedCustomCases(input?.cases);
+      return assignmentId && clientRunId && source && cases
+        ? request(
+            `/trusted/assignments/${encodeURIComponent(assignmentId)}/custom-runs`,
+            {
+              method: "POST",
+              body: { clientRunId, source, cases },
+              signal,
+            },
+            (value) => normalizeTrustedCustomRun(value, challenge),
           )
         : Promise.resolve(unavailable("invalid-request"));
     },

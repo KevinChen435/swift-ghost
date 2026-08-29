@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   CloudTrustedAssignment,
+  CloudTrustedCustomCaseInput,
+  CloudTrustedCustomRun,
   CloudTrustedExampleRun,
   CloudTrustedSubmission,
 } from "../lib/cloud.mjs";
@@ -20,9 +22,11 @@ type SwiftSolveConsoleProps = {
   assignment: CloudTrustedAssignment | null;
   submission: CloudTrustedSubmission | null;
   exampleRun: CloudTrustedExampleRun | null;
+  customRun: CloudTrustedCustomRun | null;
   loadState: "idle" | "loading" | "ready" | "error";
   action: "idle" | "loading" | "submitting";
   exampleAction: "idle" | "running";
+  customAction: "idle" | "running";
   message: string;
   available: boolean;
   authenticated: boolean;
@@ -30,6 +34,7 @@ type SwiftSolveConsoleProps = {
   retryAvailable: boolean;
   onRequestAssignment: () => void;
   onRunExamples: () => void;
+  onRunCustom: (input: { cases: CloudTrustedCustomCaseInput[] }) => void;
   onSubmit: () => void;
 };
 
@@ -54,6 +59,113 @@ const EMPTY_NOTES = Object.freeze({
   complexity: "",
   boundary: "",
 } satisfies SwiftPreflightNotes);
+
+type SwiftCustomInputMode = "structured" | "raw";
+type SwiftCustomDraft = {
+  mode: SwiftCustomInputMode;
+  name: string;
+  fields: string[];
+  raw: string;
+};
+
+const SWIFT_CUSTOM_CASE_STORAGE_PREFIX = "swift-ghost:swift-custom-case:v1:";
+const MAX_CUSTOM_DRAFT_CHARACTERS = 24_000;
+
+function swiftTypeLabel(type: string) {
+  return type || "JSON value";
+}
+
+function defaultSwiftValue(type: string, sampleValue?: unknown) {
+  if (sampleValue !== undefined) return valueLabel(sampleValue);
+  if (type.endsWith("?")) return "null";
+  switch (type) {
+    case "Int":
+      return "0";
+    case "Bool":
+      return "false";
+    case "String":
+      return '""';
+    case "[Int]":
+    case "[String]":
+    case "[[Int]]":
+      return "[]";
+    default:
+      return "null";
+  }
+}
+
+function swiftValueMatches(value: unknown, type: string): boolean {
+  if (type.endsWith("?")) return value === null || swiftValueMatches(value, type.slice(0, -1));
+  if (type === "Int") return typeof value === "number" && Number.isSafeInteger(value);
+  if (type === "Bool") return typeof value === "boolean";
+  if (type === "String") return typeof value === "string";
+  if (type === "[Int]") return Array.isArray(value) && value.every((entry) => swiftValueMatches(entry, "Int"));
+  if (type === "[String]") return Array.isArray(value) && value.every((entry) => swiftValueMatches(entry, "String"));
+  if (type === "[[Int]]") return Array.isArray(value) && value.every((entry) => swiftValueMatches(entry, "[Int]"));
+  return false;
+}
+
+function parseSwiftCustomArgs(raw: string, parameters: Array<{ name: string; type: string }>) {
+  if (raw.length > MAX_CUSTOM_DRAFT_CHARACTERS)
+    throw new Error("Custom input is too large. Keep it under 24,000 characters.");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("Use valid JSON for each Swift argument.");
+  }
+  const args = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === "object" && "args" in parsed
+      ? (parsed as { args?: unknown }).args
+      : undefined;
+  if (!Array.isArray(args) || args.length !== parameters.length)
+    throw new Error(`This function expects ${parameters.length} argument${parameters.length === 1 ? "" : "s"}.`);
+  args.forEach((value, index) => {
+    if (!swiftValueMatches(value, parameters[index].type))
+      throw new Error(`${parameters[index].name} must be a ${swiftTypeLabel(parameters[index].type)} value.`);
+  });
+  return args;
+}
+
+function draftArgs(
+  draft: SwiftCustomDraft,
+  parameters: Array<{ name: string; type: string }>,
+) {
+  if (draft.mode === "raw") return parseSwiftCustomArgs(draft.raw, parameters);
+  if (draft.fields.length !== parameters.length)
+    throw new Error("Add one JSON value for every function parameter.");
+  return parseSwiftCustomArgs(
+    JSON.stringify({
+      args: draft.fields.map((field, index) => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(field);
+        } catch {
+          throw new Error(`${parameters[index].name} must be valid JSON.`);
+        }
+        return parsed;
+      }),
+    }),
+    parameters,
+  );
+}
+
+function initialSwiftCustomDraft(
+  challenge: NonNullable<CloudTrustedAssignment["challenge"]>,
+) {
+  const parameters = challenge.entrypoint.parameters ?? [];
+  const sampleArgs = challenge.samples[0]?.args ?? [];
+  const fields = parameters.map((parameter, index) =>
+    defaultSwiftValue(parameter.type, sampleArgs[index]),
+  );
+  return {
+    mode: "structured" as const,
+    name: "My case",
+    fields,
+    raw: JSON.stringify({ args: sampleArgs }, null, 2),
+  } satisfies SwiftCustomDraft;
+}
 
 function valueLabel(value: unknown) {
   try {
@@ -128,9 +240,11 @@ export function SwiftSolveConsole({
   assignment,
   submission,
   exampleRun,
+  customRun,
   loadState,
   action,
   exampleAction,
+  customAction,
   message,
   available,
   authenticated,
@@ -138,6 +252,7 @@ export function SwiftSolveConsole({
   retryAvailable,
   onRequestAssignment,
   onRunExamples,
+  onRunCustom,
   onSubmit,
 }: SwiftSolveConsoleProps) {
   const challenge = assignment?.challenge;
@@ -145,7 +260,64 @@ export function SwiftSolveConsole({
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [sampleTrace, setSampleTrace] = useState<Record<string, SampleTraceState>>({});
   const [notesByChallenge, setNotesByChallenge] = useState<Record<string, SwiftPreflightNotes>>({});
+  const [customDraft, setCustomDraft] = useState<SwiftCustomDraft | null>(null);
+  const [customError, setCustomError] = useState<string | null>(null);
+  const [customRunVisible, setCustomRunVisible] = useState(false);
   const notes = notesByChallenge[challengeKey] ?? EMPTY_NOTES;
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (!challenge) {
+        setCustomDraft(null);
+        setCustomRunVisible(false);
+        return;
+      }
+      const fallback = initialSwiftCustomDraft(challenge);
+      try {
+        const stored = window.localStorage.getItem(
+          `${SWIFT_CUSTOM_CASE_STORAGE_PREFIX}${challenge.key}`,
+        );
+        if (!stored) {
+          setCustomDraft(fallback);
+          setCustomError(null);
+          setCustomRunVisible(false);
+          return;
+        }
+        const parsed = JSON.parse(stored) as Partial<SwiftCustomDraft>;
+        const mode = parsed.mode === "raw" ? "raw" : "structured";
+        const fields = Array.isArray(parsed.fields)
+          ? parsed.fields.filter((field): field is string => typeof field === "string").slice(0, 12)
+          : fallback.fields;
+        setCustomDraft({
+          mode,
+          name: typeof parsed.name === "string" && parsed.name.trim()
+            ? parsed.name.slice(0, 120)
+            : fallback.name,
+          fields: fields.length === fallback.fields.length ? fields : fallback.fields,
+          raw: typeof parsed.raw === "string"
+            ? parsed.raw.slice(0, MAX_CUSTOM_DRAFT_CHARACTERS)
+            : fallback.raw,
+        });
+      } catch {
+        setCustomDraft(fallback);
+      }
+      setCustomError(null);
+      setCustomRunVisible(false);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [challenge, challengeKey]);
+
+  useEffect(() => {
+    if (!challenge || !customDraft) return;
+    try {
+      window.localStorage.setItem(
+        `${SWIFT_CUSTOM_CASE_STORAGE_PREFIX}${challenge.key}`,
+        JSON.stringify(customDraft),
+      );
+    } catch {
+      // Local persistence is best-effort; the editor remains usable if storage is blocked.
+    }
+  }, [challenge, customDraft]);
 
   const entrypointSignature = useMemo(
     () => formatSwiftEntrypoint(challenge?.entrypoint),
@@ -188,6 +360,16 @@ export function SwiftSolveConsole({
       authenticated &&
       sourcePresent,
   );
+  const canRunCustom = Boolean(
+    assignment?.status === "active" &&
+      customDraft &&
+      action === "idle" &&
+      customAction === "idle" &&
+      customRun?.status !== "pending" &&
+      available &&
+      authenticated &&
+      sourcePresent,
+  );
   const statusLabel = submission?.status === "pending"
     ? "Queued in isolated Swift judge"
     : submission?.verdict
@@ -195,6 +377,31 @@ export function SwiftSolveConsole({
       : assignment
         ? "Assignment ready"
         : "No assignment loaded";
+
+  function updateCustomDraft(patch: Partial<SwiftCustomDraft>) {
+    setCustomRunVisible(false);
+    setCustomError(null);
+    setCustomDraft((current) => current ? { ...current, ...patch } : current);
+  }
+
+  function runCustomCase() {
+    if (!customDraft || !challenge?.entrypoint.parameters) return;
+    try {
+      const args = draftArgs(customDraft, challenge.entrypoint.parameters);
+      onRunCustom({
+        cases: [{
+          id: "custom-1",
+          name: customDraft.name.trim().slice(0, 120) || "My case",
+          args,
+        }],
+      });
+      setCustomError(null);
+      setCustomRunVisible(true);
+    } catch (error) {
+      setCustomRunVisible(false);
+      setCustomError(error instanceof Error ? error.message : "Enter valid Swift inputs.");
+    }
+  }
 
   return (
     <section className="swift-solve-console" aria-labelledby="swift-solve-console-title">
@@ -385,6 +592,119 @@ export function SwiftSolveConsole({
               ) : null}
             </section>
           </section>
+          {customDraft && challenge.entrypoint.parameters ? (
+            <section className="swift-custom-rehearsal" aria-label="Swift custom testcase rehearsal">
+              <header>
+                <div>
+                  <span className="eyebrow">Custom rehearsal</span>
+                  <strong>Try an edge case before you submit.</strong>
+                  <p>
+                    Use structured fields or raw JSON. This run is execution-only:
+                    it never changes progress, creates evidence, or reveals sealed cases.
+                  </p>
+                </div>
+                <span className="swift-custom-practice-badge">Practice only</span>
+              </header>
+              <div className="swift-custom-toolbar">
+                <label>
+                  Case name
+                  <input
+                    value={customDraft.name}
+                    maxLength={120}
+                    onChange={(event) => updateCustomDraft({ name: event.target.value.slice(0, 120) })}
+                  />
+                </label>
+                <div className="swift-custom-mode" role="radiogroup" aria-label="Custom input mode">
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={customDraft.mode === "structured"}
+                    className={customDraft.mode === "structured" ? "is-active" : undefined}
+                    onClick={() => updateCustomDraft({ mode: "structured" })}
+                  >
+                    Fields
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={customDraft.mode === "raw"}
+                    className={customDraft.mode === "raw" ? "is-active" : undefined}
+                    onClick={() => updateCustomDraft({ mode: "raw" })}
+                  >
+                    Raw JSON
+                  </button>
+                </div>
+              </div>
+              {customDraft.mode === "structured" ? (
+                <div className="swift-custom-fields">
+                  {challenge.entrypoint.parameters.map((parameter, index) => (
+                    <label key={parameter.name}>
+                      <span>{parameter.name}<small>{parameter.type}</small></span>
+                      <textarea
+                        rows={2}
+                        aria-label={`${parameter.name} JSON value`}
+                        value={customDraft.fields[index] ?? "null"}
+                        onChange={(event) => {
+                          const fields = [...customDraft.fields];
+                          fields[index] = event.target.value.slice(0, 12_000);
+                          updateCustomDraft({ fields });
+                        }}
+                      />
+                      <small>JSON value, bounded to the server’s Swift type allowlist.</small>
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <label className="swift-custom-raw">
+                  <span>Arguments JSON</span>
+                  <textarea
+                    rows={7}
+                    aria-label="Custom arguments JSON"
+                    value={customDraft.raw}
+                    maxLength={MAX_CUSTOM_DRAFT_CHARACTERS}
+                    onChange={(event) => updateCustomDraft({ raw: event.target.value.slice(0, MAX_CUSTOM_DRAFT_CHARACTERS) })}
+                  />
+                  <small>Use an array such as <code>[ [2, 7, 11, 15], 9 ]</code> or <code>{'{"args":[…]}'}</code>.</small>
+                </label>
+              )}
+              <div className="swift-custom-actions">
+                <button
+                  className="outline-button"
+                  type="button"
+                  disabled={!canRunCustom}
+                  onClick={runCustomCase}
+                >
+                  {customAction === "running" || customRun?.status === "pending"
+                    ? "Running custom case…"
+                    : "Run custom case"}
+                </button>
+                <small>Swift {challenge.runtime} · source leaves this tab only for the isolated run.</small>
+              </div>
+              {customError ? <p className="swift-custom-error" role="alert">{customError}</p> : null}
+              {customRunVisible && customRun?.status === "pending" ? (
+                <div className="swift-custom-result pending" role="status">
+                  <strong>Custom case running</strong>
+                  <span>The isolated Swift runtime is compiling your input.</span>
+                </div>
+              ) : customRunVisible && customRun?.status === "settled" && customRun.result ? (
+                <div className="swift-custom-result" role="status" aria-live="polite">
+                  <div className="swift-custom-result-head">
+                    <strong>{customRun.verdict === "accepted" ? "Custom case finished" : verdictLabel(customRun.verdict)}</strong>
+                    <span>{customRun.result.passed}/{customRun.result.total} case passed</span>
+                  </div>
+                  {customRun.result.cases.map((result) => (
+                    <article className={result.passed ? "passed" : "failed"} key={result.id}>
+                      <div><strong>{result.name}</strong><span>{result.passed ? "Passed" : result.status.replaceAll("-", " ")}</span></div>
+                      {Object.hasOwn(result, "actual") ? <code>actual: {valueLabel(result.actual)}</code> : null}
+                      {result.error ? <pre>{result.error}</pre> : null}
+                      {result.diagnostic ? <small>{result.diagnostic}</small> : null}
+                    </article>
+                  ))}
+                  {customRun.result.diagnostic ? <pre className="swift-custom-diagnostic">{customRun.result.diagnostic}</pre> : null}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
           <div className="swift-solve-console-actions">
             <button
               className="outline-button"

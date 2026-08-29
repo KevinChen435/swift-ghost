@@ -594,6 +594,95 @@ test("trusted example runs accept the frozen Python execution contract", async (
   assert.equal(mock.calls[0].url, "/api/v1/trusted/assignments/trusted-python12345/example-runs");
 });
 
+test("trusted Swift custom runs send only bounded arguments and normalize observed output", async () => {
+  const challenge = {
+    key: "swift-two-sum",
+    language: "swift",
+    runtime: "swift-6.3.3-linux",
+    contentRevision: 1,
+    judgeRevision: 1,
+    entrypoint: {
+      kind: "function",
+      name: "twoSum",
+      parameters: [
+        { name: "nums", type: "[Int]" },
+        { name: "target", type: "Int" },
+      ],
+      returns: "[Int]",
+    },
+    samples: [],
+  };
+  const mock = recorder((url, init) => {
+    assert.equal(
+      url,
+      "/api/v1/trusted/assignments/trusted-swift12345/custom-runs",
+    );
+    assert.deepEqual(JSON.parse(init.body), {
+      clientRunId: "custom:abc12345",
+      source: "func twoSum(_ nums: [Int], _ target: Int) -> [Int] { return [] }",
+      cases: [{ id: "custom-1", name: "duplicate values", args: [[3, 3], 6] }],
+    });
+    return json({
+      customRun: {
+        id: "custom-server12345",
+        assignmentId: "trusted-swift12345",
+        clientRunId: "custom:abc12345",
+        status: "settled",
+        verdict: "accepted",
+        requestedAt: "2026-08-29T12:06:00.000Z",
+        settledAt: "2026-08-29T12:06:01.000Z",
+        result: {
+          passed: 1,
+          total: 1,
+          authority: "server-isolated-swift",
+          language: "swift",
+          runtime: "swift-6.3.3-linux",
+          contractDigest: "d".repeat(64),
+          contentRevision: 1,
+          judgeRevision: 1,
+          publicCaseResults: [
+            {
+              id: "custom-1",
+              status: "passed",
+              actualOutput: "[0,1]",
+              diagnostic: "bounded diagnostic",
+              expected: "must never be copied",
+            },
+          ],
+          hiddenCases: ["must never be copied"],
+        },
+      },
+    });
+  });
+  const client = createCloudClient({
+    fetchImpl: mock.fetchImpl,
+    location: { hostname: "swift.test" },
+  });
+  const result = await client.runTrustedCustomCases(
+    "trusted-swift12345",
+    {
+      clientRunId: "custom:abc12345",
+      source: "func twoSum(_ nums: [Int], _ target: Int) -> [Int] { return [] }",
+      cases: [{ id: "custom-1", name: "duplicate values", args: [[3, 3], 6] }],
+    },
+    { challenge },
+  );
+  assert.equal(result.available, true);
+  assert.equal(result.data.result.cases[0].passed, true);
+  assert.equal(result.data.result.cases[0].actual, "[0,1]");
+  assert.equal(result.data.result.cases[0].diagnostic, "bounded diagnostic");
+  assert.equal(Object.hasOwn(result.data.result.cases[0], "expected"), false);
+  assert.equal(Object.hasOwn(result.data.result, "hiddenCases"), false);
+  assert.deepEqual(
+    await client.runTrustedCustomCases("trusted-swift12345", {
+      clientRunId: "custom:invalid123",
+      source: "func twoSum(_ nums: [Int], _ target: Int) -> [Int] { return [] }",
+      cases: [],
+    }),
+    { available: false, reason: "invalid-request" },
+  );
+});
+
 test("legacy Python receipts remain visible with an explicit missing-contract marker", async () => {
   const legacyAssignment = {
     id: "trusted-legacy123",

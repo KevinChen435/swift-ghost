@@ -282,6 +282,50 @@ export type CloudTrustedExampleRun = {
   };
 };
 
+export type CloudTrustedCustomCaseInput = {
+  id: string;
+  name: string;
+  args: unknown[];
+};
+
+export type CloudTrustedCustomRun = {
+  id: string;
+  assignmentId: string;
+  clientRunId: string;
+  status: "pending" | "settled";
+  verdict: CloudTrustedJudgeVerdict | null;
+  requestedAt: string;
+  settledAt: string | null;
+  result: null | {
+    passed: number;
+    total: number;
+    authority: "server-isolated-swift";
+    language: "swift";
+    runtime: string;
+    contractDigest?: string;
+    contentRevision: number;
+    judgeRevision: number;
+    failedCaseIndex?: number;
+    diagnostic?: string;
+    cases: Array<{
+      id: string;
+      name: string;
+      status: "passed" | "executed" | "failed" | "wrong-answer" | "compile-error" | "runtime-error" | "time-limit" | "judge-error" | "not-run";
+      passed: boolean;
+      actual?: unknown;
+      error?: string;
+      diagnostic?: string;
+    }>;
+  };
+};
+
+export type CloudTrustedCustomRunOptions = CloudRequestOptions & {
+  challenge?: Pick<
+    CloudTrustedChallenge,
+    "language" | "runtime" | "contentRevision" | "judgeRevision"
+  >;
+};
+
 export type CloudTrustedAssignmentList = {
   program: {
     id: string;
@@ -365,6 +409,15 @@ export type CloudClient = {
     input: { clientRunId: string; source: string },
     options?: CloudTrustedExampleRunOptions,
   ): Promise<CloudResult<CloudTrustedExampleRun>>;
+  runTrustedCustomCases(
+    assignmentId: string,
+    input: {
+      clientRunId: string;
+      source: string;
+      cases: CloudTrustedCustomCaseInput[];
+    },
+    options?: CloudTrustedCustomRunOptions,
+  ): Promise<CloudResult<CloudTrustedCustomRun>>;
   patchProfile(
     patch: CloudProfilePatch | CloudProfile,
     options?: CloudRequestOptions,

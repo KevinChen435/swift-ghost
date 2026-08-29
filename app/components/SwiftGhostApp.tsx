@@ -162,6 +162,8 @@ import {
   type CloudItemLeaderboard,
   type CloudSession,
   type CloudTrustedAssignment,
+  type CloudTrustedCustomCaseInput,
+  type CloudTrustedCustomRun,
   type CloudTrustedExampleRun,
   type CloudTrustedSubmission,
 } from "../lib/cloud.mjs";
@@ -9551,6 +9553,8 @@ function PracticeView(props: PracticeProps) {
     useState<CloudTrustedSubmission | null>(null);
   const [swiftExampleRun, setSwiftExampleRun] =
     useState<CloudTrustedExampleRun | null>(null);
+  const [swiftCustomRun, setSwiftCustomRun] =
+    useState<CloudTrustedCustomRun | null>(null);
   const [swiftLoadState, setSwiftLoadState] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle");
@@ -9560,12 +9564,21 @@ function PracticeView(props: PracticeProps) {
   const [swiftExampleAction, setSwiftExampleAction] = useState<
     "idle" | "running"
   >("idle");
+  const [swiftCustomAction, setSwiftCustomAction] = useState<
+    "idle" | "running"
+  >("idle");
   const [swiftMessage, setSwiftMessage] = useState("");
   const reconciledSwiftSubmissionIds = useRef(new Set<string>());
   const activeSwiftExampleRequest = useRef<{
     assignmentId: string;
     clientRunId: string;
     source: string;
+  } | null>(null);
+  const activeSwiftCustomRequest = useRef<{
+    assignmentId: string;
+    clientRunId: string;
+    source: string;
+    cases: CloudTrustedCustomCaseInput[];
   } | null>(null);
   const swiftSubmitInFlight = useRef(false);
   const onSwiftSubmissionSettled = props.onSubmissionSettled;
@@ -9667,6 +9680,9 @@ function PracticeView(props: PracticeProps) {
       setSwiftSubmission(null);
       setSwiftExampleRun(null);
       activeSwiftExampleRequest.current = null;
+      setSwiftCustomRun(null);
+      setSwiftCustomAction("idle");
+      activeSwiftCustomRequest.current = null;
       setSwiftRetryAvailable(false);
       return;
     }
@@ -9690,6 +9706,9 @@ function PracticeView(props: PracticeProps) {
         if (swiftAssignment?.id !== matching.id) {
           setSwiftExampleRun(null);
           activeSwiftExampleRequest.current = null;
+          setSwiftCustomRun(null);
+          setSwiftCustomAction("idle");
+          activeSwiftCustomRequest.current = null;
         }
         reconcileSettledSwiftAssignment(matching);
         setSwiftLoadState("ready");
@@ -9719,6 +9738,9 @@ function PracticeView(props: PracticeProps) {
     setSwiftSubmission(issued.data.latestSubmission);
     setSwiftExampleRun(null);
     activeSwiftExampleRequest.current = null;
+    setSwiftCustomRun(null);
+    setSwiftCustomAction("idle");
+    activeSwiftCustomRequest.current = null;
     setSwiftLoadState("ready");
   }, [
     isTrustedSwiftSolve,
@@ -10138,6 +10160,91 @@ function PracticeView(props: PracticeProps) {
     }
   }
 
+  async function runSwiftCustomCases(input: {
+    cases: CloudTrustedCustomCaseInput[];
+  }) {
+    if (
+      !isTrustedSwiftSolve ||
+      isLocked ||
+      !swiftAssignment ||
+      swiftAssignment.status !== "active" ||
+      swiftAction !== "idle" ||
+      swiftCustomAction !== "idle" ||
+      swiftCustomRun?.status === "pending" ||
+      !runnerSource.trim() ||
+      !Array.isArray(input.cases) ||
+      input.cases.length < 1
+    )
+      return;
+    const request = {
+      assignmentId: swiftAssignment.id,
+      clientRunId: `custom:${props.item.itemId}:${makeId()}`,
+      source: runnerSource,
+      cases: input.cases,
+    };
+    activeSwiftCustomRequest.current = request;
+    setSwiftCustomAction("running");
+    setSwiftCustomRun(null);
+    setSwiftMessage("");
+    try {
+      const result = await cloudClient.runTrustedCustomCases(
+        request.assignmentId,
+        {
+          clientRunId: request.clientRunId,
+          source: request.source,
+          cases: request.cases,
+        },
+        { challenge: swiftAssignment.challenge },
+      );
+      if (activeSwiftCustomRequest.current?.clientRunId !== request.clientRunId)
+        return;
+      setSwiftCustomAction("idle");
+      if (!result.available) {
+        activeSwiftCustomRequest.current = null;
+        setSwiftMessage(
+          result.reason === "unauthorized"
+            ? "Sign in again before running a Swift custom case."
+            : result.reason === "rate-limited"
+              ? "Wait for the earlier custom case to finish before trying again."
+              : result.reason === "unsupported"
+                ? "Custom Swift rehearsal is not available on this judge yet."
+                : "The Swift custom case could not reach the isolated judge.",
+        );
+        return;
+      }
+      if (
+        result.data.assignmentId !== request.assignmentId ||
+        result.data.clientRunId !== request.clientRunId
+      ) {
+        activeSwiftCustomRequest.current = null;
+        setSwiftCustomRun(null);
+        setSwiftMessage("The custom result did not match this input. Run it again.");
+        return;
+      }
+      setSwiftCustomRun(result.data);
+      if (result.data.status === "pending") {
+        setSwiftMessage("Custom case queued. The isolated Swift runtime is compiling your source.");
+        return;
+      }
+      activeSwiftCustomRequest.current = null;
+      setSwiftMessage(
+        result.data.verdict === "accepted"
+          ? "Custom case finished. This result is practice-only; submit separately for sealed judging."
+          : "Custom case found a problem. Fix it before using the sealed judge.",
+      );
+    } catch (error) {
+      if (activeSwiftCustomRequest.current?.clientRunId !== request.clientRunId)
+        return;
+      activeSwiftCustomRequest.current = null;
+      setSwiftCustomAction("idle");
+      setSwiftMessage(
+        error instanceof Error
+          ? error.message
+          : "The Swift custom case could not reach the isolated judge.",
+      );
+    }
+  }
+
   useEffect(() => {
     if (
       !isTrustedSwiftSolve ||
@@ -10221,6 +10328,96 @@ function PracticeView(props: PracticeProps) {
   }, [
     isTrustedSwiftSolve,
     swiftExampleRun?.status,
+    trustedJudgeAuthenticated,
+    trustedJudgeAvailable,
+    swiftAssignment?.challenge,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isTrustedSwiftSolve ||
+      !trustedJudgeAvailable ||
+      !trustedJudgeAuthenticated ||
+      swiftCustomRun?.status !== "pending"
+    )
+      return;
+    const request = activeSwiftCustomRequest.current;
+    if (!request) return;
+    const pollRequest = { ...request, cases: request.cases.map((testCase) => ({ ...testCase, args: [...testCase.args] })) };
+    const controller = new AbortController();
+    let timer: number | undefined;
+    let cancelled = false;
+    let pollAttempts = 0;
+    const maxPollAttempts = 40;
+    async function pollSwiftCustomCases() {
+      pollAttempts += 1;
+      const result = await cloudClient.runTrustedCustomCases(
+        pollRequest.assignmentId,
+        {
+          clientRunId: pollRequest.clientRunId,
+          source: pollRequest.source,
+          cases: pollRequest.cases,
+        },
+        { signal: controller.signal, challenge: swiftAssignment?.challenge },
+      );
+      if (cancelled) return;
+      if (
+        result.available &&
+        (result.data.assignmentId !== pollRequest.assignmentId ||
+          result.data.clientRunId !== pollRequest.clientRunId)
+      ) {
+        activeSwiftCustomRequest.current = null;
+        setSwiftCustomRun(null);
+        setSwiftCustomAction("idle");
+        setSwiftMessage("The custom result did not match this input. Run it again.");
+        return;
+      }
+      if (result.available) {
+        setSwiftCustomRun(result.data);
+        if (result.data.status === "settled") {
+          activeSwiftCustomRequest.current = null;
+          setSwiftCustomAction("idle");
+          setSwiftMessage(
+            result.data.verdict === "accepted"
+              ? "Custom case finished. This result is practice-only; submit separately for sealed judging."
+              : "Custom case found a problem. Fix it before using the sealed judge.",
+          );
+          return;
+        }
+      } else if (result.reason !== "aborted") {
+        const retryable = new Set(["rate-limited", "offline", "judge-enqueue-unavailable"]);
+        if (!retryable.has(result.reason) || pollAttempts >= maxPollAttempts) {
+          activeSwiftCustomRequest.current = null;
+          setSwiftCustomRun(null);
+          setSwiftCustomAction("idle");
+          setSwiftMessage(
+            pollAttempts >= maxPollAttempts
+              ? "The Swift custom case took too long to settle. Run it again."
+              : result.reason === "unauthorized"
+                ? "Your sign-in expired. Sign in again before running a custom case."
+                : "The Swift custom case is no longer available. Run it again.",
+          );
+          return;
+        }
+        setSwiftMessage(
+          result.reason === "rate-limited"
+            ? "The isolated judge is rate-limiting retries; waiting before checking again."
+            : result.reason === "judge-enqueue-unavailable"
+              ? "The custom case is still waiting for the isolated judge."
+              : "The custom case is waiting for the connection to return.",
+        );
+      }
+      timer = window.setTimeout(() => void pollSwiftCustomCases(), 1_500);
+    }
+    timer = window.setTimeout(() => void pollSwiftCustomCases(), 1_500);
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [
+    isTrustedSwiftSolve,
+    swiftCustomRun?.status,
     trustedJudgeAuthenticated,
     trustedJudgeAvailable,
     swiftAssignment?.challenge,
@@ -10633,6 +10830,11 @@ function PracticeView(props: PracticeProps) {
         setSwiftExampleRun(null);
         setSwiftExampleAction("idle");
       }
+      if (isTrustedSwiftSolve && (activeSwiftCustomRequest.current || swiftCustomRun)) {
+        activeSwiftCustomRequest.current = null;
+        setSwiftCustomRun(null);
+        setSwiftCustomAction("idle");
+      }
     }
     props.onChange(proposed);
   }
@@ -10655,6 +10857,9 @@ function PracticeView(props: PracticeProps) {
       activeSwiftExampleRequest.current = null;
       setSwiftExampleRun(null);
       setSwiftExampleAction("idle");
+      activeSwiftCustomRequest.current = null;
+      setSwiftCustomRun(null);
+      setSwiftCustomAction("idle");
     }
     props.onReset();
   }
@@ -11504,9 +11709,11 @@ function PracticeView(props: PracticeProps) {
                   assignment={swiftAssignment}
                   submission={swiftSubmission}
                   exampleRun={swiftExampleRun}
+                  customRun={swiftCustomRun}
                   loadState={swiftLoadState}
                   action={swiftAction}
                   exampleAction={swiftExampleAction}
+                  customAction={swiftCustomAction}
                   message={swiftMessage}
                   available={props.trustedJudgeAvailable}
                   authenticated={props.trustedJudgeAuthenticated}
@@ -11514,6 +11721,7 @@ function PracticeView(props: PracticeProps) {
                   retryAvailable={swiftRetryAvailable}
                   onRequestAssignment={() => void loadSwiftAssignment()}
                   onRunExamples={() => void runSwiftExamples()}
+                  onRunCustom={(input) => void runSwiftCustomCases(input)}
                   onSubmit={() => void runSwiftSubmit()}
                 />
               ) : (

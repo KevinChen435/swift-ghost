@@ -10556,6 +10556,237 @@ kbd {
   padding-left: 17px;
 }
 
+.swift-custom-rehearsal {
+  display: grid;
+  gap: 13px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border-soft));
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg-raised));
+}
+
+.swift-custom-rehearsal > header,
+.swift-custom-toolbar,
+.swift-custom-actions,
+.swift-custom-result-head,
+.swift-custom-result article > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.swift-custom-rehearsal > header {
+  align-items: start;
+}
+
+.swift-custom-rehearsal > header > div {
+  display: grid;
+  gap: 5px;
+  min-width: min(100%, 360px);
+}
+
+.swift-custom-rehearsal > header strong {
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.swift-custom-rehearsal > header p {
+  max-width: 700px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
+.swift-custom-practice-badge {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 46%, var(--border-soft));
+  border-radius: 999px;
+  color: var(--accent-strong);
+  font: 700 0.59rem/1.2 var(--font-code);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.swift-custom-toolbar {
+  align-items: end;
+}
+
+.swift-custom-toolbar > label,
+.swift-custom-fields label,
+.swift-custom-raw {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font: 700 0.62rem/1.35 var(--font-code);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.swift-custom-toolbar > label {
+  flex: 1 1 220px;
+}
+
+.swift-custom-toolbar input,
+.swift-custom-fields textarea,
+.swift-custom-raw textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: 0.7rem/1.5 var(--font-code);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.swift-custom-toolbar input {
+  min-height: 36px;
+  padding: 8px 10px;
+}
+
+.swift-custom-mode {
+  display: flex;
+  gap: 5px;
+}
+
+.swift-custom-mode button {
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--muted);
+  font: 700 0.6rem/1.2 var(--font-code);
+}
+
+.swift-custom-mode button.is-active {
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--border-soft));
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  color: var(--text);
+}
+
+.swift-custom-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.swift-custom-fields label > span {
+  display: flex;
+  gap: 7px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.swift-custom-fields label > span small,
+.swift-custom-fields label > small,
+.swift-custom-raw > small,
+.swift-custom-actions small {
+  color: var(--faint);
+  font: 600 0.59rem/1.45 var(--font-code);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.swift-custom-fields textarea,
+.swift-custom-raw textarea {
+  min-height: 62px;
+  padding: 9px 10px;
+  resize: vertical;
+}
+
+.swift-custom-raw textarea {
+  min-height: 142px;
+}
+
+.swift-custom-actions {
+  justify-content: flex-start;
+}
+
+.swift-custom-actions .outline-button {
+  min-height: 38px;
+  padding-inline: 15px;
+}
+
+.swift-custom-error {
+  margin: 0;
+  padding: 9px 11px;
+  border-left: 3px solid var(--danger);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg));
+  color: var(--danger);
+  font: 600 0.66rem/1.45 var(--font-code);
+}
+
+.swift-custom-result {
+  display: grid;
+  gap: 9px;
+  padding-top: 4px;
+}
+
+.swift-custom-result-head strong {
+  color: var(--text);
+  font-size: 0.75rem;
+}
+
+.swift-custom-result-head span,
+.swift-custom-result article > div span {
+  color: var(--muted);
+  font: 600 0.64rem/1.4 var(--font-code);
+}
+
+.swift-custom-result article {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--border-soft);
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.swift-custom-result article.passed {
+  border-left-color: var(--success);
+}
+
+.swift-custom-result article.failed {
+  border-left-color: var(--danger);
+}
+
+.swift-custom-result article code,
+.swift-custom-result article pre,
+.swift-custom-diagnostic {
+  max-width: 100%;
+  margin: 0;
+  padding: 7px 8px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--bg-inset);
+  color: var(--muted);
+  font: 0.64rem/1.45 var(--font-code);
+  white-space: pre-wrap;
+}
+
+.swift-custom-result.pending {
+  padding: 11px 12px;
+  border-left: 3px solid var(--warning);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warning) 7%, var(--bg));
+}
+
+.swift-custom-result.pending strong {
+  color: var(--warning);
+}
+
 .swift-solve-verdict {
   display: flex;
   flex-wrap: wrap;
@@ -10856,6 +11087,16 @@ kbd {
   .swift-explanation-notes,
   .swift-dossier-grid {
     grid-template-columns: 1fr;
+  }
+
+  .swift-custom-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .swift-custom-rehearsal > header,
+  .swift-custom-toolbar,
+  .swift-custom-result-head {
+    align-items: flex-start;
   }
 
   .swift-sample-trace-board > div:first-child {
