@@ -76,7 +76,7 @@ test("opening a transfer prompt records local exposure before practice navigatio
 
   assert.match(
     openItem,
-    /next\.transfer[\s\S]*?transferWorkspace: recordTransferOpened\([\s\S]*?abandoned\.transferWorkspace,[\s\S]*?next\.itemId,[\s\S]*?variantRevision: next\.contentRevision/,
+    /next\.transfer[\s\S]*?transferWorkspace: recordTransferOpened\([\s\S]*?navigated\.transferWorkspace,[\s\S]*?next\.itemId,[\s\S]*?variantRevision: next\.contentRevision/,
   );
 
   const exposureIndex = openItem.indexOf("recordTransferOpened(");

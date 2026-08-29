@@ -15,6 +15,16 @@ test("Studio wires routeable practice recaps to full and weak replay", async () 
   assert.match(app, /result\.sessionComplete[\s\S]*openSessionRecap\(completedSessionId\)/);
 });
 
+test("active session rows can reopen saved entries without losing the cursor contract", async () => {
+  const app = await read("../app/components/SwiftGhostApp.tsx");
+  assert.match(app, /function openSessionEntry\(sessionEntryIndex: number\)/);
+  assert.match(app, /entry\.status !== "pending" && entry\.status !== "completed"/);
+  assert.match(app, /candidate\.contentRevision === entry\.itemRevision/);
+  assert.match(app, /onOpenSessionEntry=\{openSessionEntry\}/);
+  assert.match(app, /aria-label=\{[\s\S]*Open session item/);
+  assert.match(app, /currentIndex: sessionEntryIndex/);
+});
+
 test("recap UI discloses trust boundaries, stale content, and legacy limits", async () => {
   const recap = await read("../app/components/SessionRecap.tsx");
   assert.match(recap, /matched by saved attempt ID, item revision, and session/);
@@ -29,6 +39,7 @@ test("recap UI discloses trust boundaries, stale content, and legacy limits", as
 test("recap layout has desktop, mobile, and forced-colors coverage", async () => {
   const css = await read("../app/globals.css");
   assert.match(css, /\.session-recap-stats \{/);
+  assert.match(css, /\.session-preview-list article > \.outline-button/);
   assert.match(css, /@media \(max-width: 560px\)[\s\S]*\.session-recap-list li/);
   assert.match(css, /@media \(forced-colors: active\)[\s\S]*\.session-recap-hero/);
 });

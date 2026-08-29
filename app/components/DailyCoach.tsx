@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { iosTechnicalScreenScript, pythonInterviewScript } from "../data/interview-scripts";
 import type { PracticeItem } from "../lib/items";
 import { buildDailyPlan } from "../lib/planner.mjs";
 import type { AppState } from "../lib/product";
@@ -33,6 +34,56 @@ function clinicPriorityLabel(status: FluencyClinicModel["records"][number]["stat
   if (status === "reconstruction-ready") return "Full blank reconstruction";
   if (status === "transfer-ready") return "Mapped transfer check";
   return "Implementation fluency";
+}
+
+type CoachCribLane = "python" | "swift" | "ios";
+
+type CoachCribCard = {
+  id: string;
+  lane: CoachCribLane;
+  label: string;
+  title: string;
+  scenario: string;
+  prompt: string;
+  answerLines: string[];
+  note: string;
+};
+
+function coachCribLaneLabel(lane: CoachCribLane) {
+  if (lane === "python") return "Python";
+  if (lane === "swift") return "Swift";
+  return "iOS";
+}
+
+function buildCoachCribCard(
+  item: PracticeItem,
+  lane: CoachCribLane,
+): CoachCribCard {
+  if (lane === "python") {
+    const script = pythonInterviewScript(item);
+    return {
+      id: item.itemId,
+      lane,
+      label: "Python re-entry",
+      title: item.title,
+      scenario: script.scenario,
+      prompt: script.prompts.clarification,
+      answerLines: script.referenceCriteria.slice(0, 4),
+      note: script.prompts.complexity,
+    };
+  }
+
+  const script = iosTechnicalScreenScript(item);
+  return {
+    id: item.itemId,
+    lane,
+    label: lane === "swift" ? "Swift fundamentals" : "iOS fundamentals",
+    title: item.title,
+    scenario: script.scenario,
+    prompt: script.prompts.clarification,
+    answerLines: script.referenceCriteria.slice(0, 4),
+    note: script.prompts.complexity,
+  };
 }
 
 export function DailyCoach({
@@ -95,6 +146,43 @@ export function DailyCoach({
     ],
   );
   const active = state.activeSession;
+  const coachCribCards = useMemo(() => {
+    const planItems = plan.entries
+      .map((entry) => items.find((candidate) => candidate.itemId === entry.itemId))
+      .filter((item): item is PracticeItem => Boolean(item));
+
+    const pickItem = (predicate: (item: PracticeItem) => boolean) =>
+      planItems.find(predicate) ?? items.find(predicate) ?? null;
+
+    const selectedItems: Array<[PracticeItem | null, CoachCribLane]> = [
+      [pickItem((item) => item.track === "interview" && item.language === "python"), "python"],
+      [
+        pickItem((item) => item.track === "ios" && item.conceptLane === "swift"),
+        "swift",
+      ],
+      [
+        pickItem((item) => item.track === "ios" && item.conceptLane === "ios"),
+        "ios",
+      ],
+    ];
+
+    return selectedItems
+      .filter(
+        (
+          entry,
+        ): entry is [PracticeItem, CoachCribLane] =>
+          Boolean(entry[0]),
+      )
+      .map(([item, lane]) => buildCoachCribCard(item, lane));
+  }, [items, plan.entries]);
+  const [focusedCribAnswers, setFocusedCribAnswers] = useState<
+    Record<string, boolean>
+  >({});
+  const [cribLane, setCribLane] = useState<CoachCribLane | "all">("all");
+  const visibleCribCards =
+    cribLane === "all"
+      ? coachCribCards
+      : coachCribCards.filter((card) => card.lane === cribLane);
 
   return (
     <section className="daily-coach" aria-labelledby="daily-coach-title">
@@ -175,6 +263,86 @@ export function DailyCoach({
           );
         })}
       </ol>
+      <section className="coach-crib" aria-labelledby="coach-crib-title">
+        <header className="coach-crib-header">
+          <div>
+            <span className="eyebrow">Grey answer crib</span>
+            <h3 id="coach-crib-title">
+              Read the prompt, keep the answer visible, and decide whether you
+              can type it cleanly from memory.
+            </h3>
+            <p>
+              These are coached references from the interview bank. The answer
+              stays on screen but muted until you choose to focus it.
+            </p>
+          </div>
+          <span>{visibleCribCards.length} cards</span>
+        </header>
+        <div className="coach-crib-filters" role="radiogroup" aria-label="Crib lane">
+          {(["all", "python", "swift", "ios"] as const).map((lane) => (
+            <button
+              key={lane}
+              type="button"
+              role="radio"
+              aria-checked={cribLane === lane}
+              className={cribLane === lane ? "active" : ""}
+              onClick={() => setCribLane(lane)}
+            >
+              {lane === "all" ? "Mixed" : coachCribLaneLabel(lane)}
+            </button>
+          ))}
+        </div>
+        <div className="coach-crib-grid">
+          {visibleCribCards.map((card) => {
+            const focused = focusedCribAnswers[card.id] ?? false;
+            return (
+              <article
+                key={card.id}
+                className={`coach-crib-card lane-${card.lane}${focused ? " is-focused" : ""}`}
+              >
+                <header className="coach-crib-card-head">
+                  <div>
+                    <small>{card.label}</small>
+                    <strong>{card.title}</strong>
+                  </div>
+                  <span>{coachCribLaneLabel(card.lane)}</span>
+                </header>
+                <p className="coach-crib-scenario">{card.scenario}</p>
+                <div className="coach-crib-prompt">
+                  <small>Question</small>
+                  <p>{card.prompt}</p>
+                </div>
+                <div
+                  className={`coach-crib-answer${focused ? " is-focused" : " is-muted"}`}
+                >
+                  <div className="coach-crib-answer-head">
+                    <small>Answer sketch</small>
+                    <button
+                      type="button"
+                      className="text-button"
+                      aria-pressed={focused}
+                      onClick={() =>
+                        setFocusedCribAnswers((current) => ({
+                          ...current,
+                          [card.id]: !current[card.id],
+                        }))
+                      }
+                    >
+                      {focused ? "Soft blur" : "Focus answer"}
+                    </button>
+                  </div>
+                  <ul>
+                    {card.answerLines.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                  <small>{card.note}</small>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
     </section>
   );
 }

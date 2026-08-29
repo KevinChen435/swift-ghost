@@ -9029,6 +9029,18 @@ function TodayView({
     pythonFluency,
     new Date(todayDate.getTime() + 43200000),
   );
+  const swiftSolveDaily = dailyItem(
+    interviewItems.filter(
+      (item) => item.language === "swift" && canSolveItem(item),
+    ),
+    new Date(todayDate.getTime() + 21600000),
+  );
+  const typingTarget =
+    daily ??
+    preferredInterviewItems.find((item) => !canSolveItem(item)) ??
+    preferredInterviewItems[0] ??
+    interviewItems[0] ??
+    null;
   const due = items.filter((item) => isReviewDue(state, item.itemId));
   const dailyDone = state.attempts.some(
     (attempt) =>
@@ -9110,6 +9122,85 @@ function TodayView({
           </button>
         </section>
       )}
+      <section className="today-command-deck" aria-label="Practice re-entry commands">
+        <header>
+          <div>
+            <span className="eyebrow">Re-entry deck</span>
+            <h2>Pick the next kind of reps.</h2>
+          </div>
+          <span>{minutes}/{goal} min today</span>
+        </header>
+        <div className="today-command-grid">
+          <button
+            type="button"
+            className="today-command-row is-priority"
+            disabled={!draftItem}
+            onClick={onResumeDraft}
+          >
+            <span>Resume</span>
+            <strong>{draftItem?.title ?? "No saved draft"}</strong>
+            <small>
+              {draftItem
+                ? `Stage ${state.draft?.stage} ${state.draft?.practiceKind ?? "practice"}`
+                : "Start a fresh rep below"}
+            </small>
+          </button>
+          <button
+            type="button"
+            className="today-command-row"
+            disabled={!typingTarget}
+            onClick={() =>
+              typingTarget &&
+              onOpen(typingTarget, recommendedStage(state, typingTarget))
+            }
+          >
+            <span>Type</span>
+            <strong>{typingTarget?.title ?? "Known-answer typing"}</strong>
+            <small>
+              {typingTarget
+                ? `Stage ${recommendedStage(state, typingTarget)} · ${typingTarget.pattern}`
+                : "No typing item available"}
+            </small>
+          </button>
+          <button
+            type="button"
+            className="today-command-row"
+            disabled={!pythonDaily}
+            onClick={() => pythonDaily && onOpen(pythonDaily)}
+          >
+            <span>Python</span>
+            <strong>{pythonDaily?.title ?? "Python fluency"}</strong>
+            <small>{pythonDaily?.pattern ?? "Syntax warm-up"}</small>
+          </button>
+          <button
+            type="button"
+            className="today-command-row"
+            disabled={!swiftSolveDaily}
+            onClick={() =>
+              swiftSolveDaily &&
+              onOpen(swiftSolveDaily, 5, undefined, undefined, "solving")
+            }
+          >
+            <span>Swift</span>
+            <strong>{swiftSolveDaily?.title ?? "Swift solve"}</strong>
+            <small>
+              {swiftSolveDaily
+                ? `${swiftSolveDaily.difficulty} · isolated judge lane`
+                : "No Swift solve available"}
+            </small>
+          </button>
+          <button
+            type="button"
+            className="today-command-row"
+            disabled={!iosDaily}
+            onClick={() => iosDaily && onOpen(iosDaily)}
+          >
+            <span>iOS</span>
+            <strong>{iosDaily?.title ?? "iOS recall"}</strong>
+            <small>{iosDaily?.pattern ?? "Swift fundamentals"}</small>
+          </button>
+        </div>
+      </section>
       {attemptClosureModel.summary.active > 0 && attemptClosureModel.next && (
         <section
           className="today-weakness today-attempt-closure"
