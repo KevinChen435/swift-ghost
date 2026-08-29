@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   DEFAULT_ONBOARDING_STATE,
+  DAILY_COACH_BUDGETS,
   ONBOARDING_DAILY_PACES,
   ONBOARDING_FOCUSES,
+  buildDailyCoachProfile,
   buildStarterSessionIntent,
+  nearestDailyCoachBudget,
+  resolveDailyCoachPreferences,
   normalizeOnboardingState,
   shouldShowOnboarding,
 } from "../app/lib/onboarding.mjs";
@@ -74,4 +78,43 @@ test("starter intent maps focus and pace onto current session concepts", () => {
   assert.equal(both.language, "all");
   assert.equal(both.count, 3);
   assert.equal(both.profile.dailyGoalMinutes, 30);
+});
+
+test("daily coach inherits persisted onboarding focus and settings pace", () => {
+  assert.deepEqual(DAILY_COACH_BUDGETS, [15, 30, 45]);
+  assert.equal(nearestDailyCoachBudget(20), 15);
+  assert.equal(nearestDailyCoachBudget(25), 30);
+  assert.equal(nearestDailyCoachBudget(120), 45);
+  assert.equal(nearestDailyCoachBudget("bad"), 15);
+
+  const python = buildDailyCoachProfile({
+    onboarding: { focus: "python", dailyMinutes: 15 },
+    dailyGoalMinutes: 40,
+  });
+  assert.deepEqual(
+    {
+      focus: python.focus,
+      dailyGoalMinutes: python.dailyGoalMinutes,
+      pythonShare: python.pythonShare,
+      reviewShare: python.reviewShare,
+      iosShare: python.iosShare,
+    },
+    {
+      focus: "python",
+      dailyGoalMinutes: 40,
+      pythonShare: 0.8,
+      reviewShare: 0.2,
+      iosShare: 0,
+    },
+  );
+
+  const ios = resolveDailyCoachPreferences({
+    onboarding: { focus: "ios", dailyMinutes: 45 },
+    dailyGoalMinutes: 55,
+  });
+  assert.equal(ios.focus, "ios");
+  assert.equal(ios.budgetMinutes, 45);
+  assert.equal(ios.profile.pythonShare, 0);
+  assert.equal(ios.profile.reviewShare, 0.2);
+  assert.equal(ios.profile.iosShare, 0.8);
 });

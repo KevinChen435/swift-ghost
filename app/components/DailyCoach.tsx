@@ -3,20 +3,14 @@
 import { useMemo, useState } from "react";
 import { iosTechnicalScreenScript, pythonInterviewScript } from "../data/interview-scripts";
 import type { PracticeItem } from "../lib/items";
+import {
+  DAILY_COACH_BUDGETS,
+  resolveDailyCoachPreferences,
+} from "../lib/onboarding.mjs";
 import { buildDailyPlan } from "../lib/planner.mjs";
 import type { AppState } from "../lib/product";
 import type { SessionQueueEntry } from "../lib/sessions.mjs";
 import type { FluencyClinicModel } from "../lib/fluency-clinic.mjs";
-
-const BUDGETS = [15, 30, 45] as const;
-
-function nearestBudget(minutes: number) {
-  return BUDGETS.reduce((best, candidate) =>
-    Math.abs(candidate - minutes) < Math.abs(best - minutes)
-      ? candidate
-      : best,
-  );
-}
 
 function taskLabel(item: PracticeItem | undefined, entry: SessionQueueEntry) {
   if (entry.practiceKind === "solving")
@@ -71,6 +65,12 @@ function coachCribActionLabel(item: PracticeItem) {
   if (item.track === "ios" && item.recallChecks && item.conceptAnswers)
     return "Open recall card";
   return "Start ghost typing";
+}
+
+function coachFocusLabel(focus: "python" | "ios" | "both") {
+  if (focus === "python") return "Python interview";
+  if (focus === "ios") return "Swift + iOS";
+  return "Python + Swift/iOS";
 }
 
 function buildCoachCribCard(
@@ -128,9 +128,22 @@ export function DailyCoach({
   onOpenFluencyClinic: (caseId?: string) => void;
   onOpenCribItem: (item: PracticeItem) => void;
 }) {
-  const [budgetMinutes, setBudgetMinutes] = useState<15 | 30 | 45>(() =>
-    nearestBudget(state.settings.dailyGoalMinutes),
+  const coachPreferences = useMemo(
+    () =>
+      resolveDailyCoachPreferences({
+        onboarding: state.settings.onboarding,
+        dailyGoalMinutes: state.settings.dailyGoalMinutes,
+      }),
+    [
+      state.settings.dailyGoalMinutes,
+      state.settings.onboarding,
+    ],
   );
+  const [budgetOverride, setBudgetOverride] = useState<15 | 30 | 45 | null>(
+    null,
+  );
+  const budgetOverridden = budgetOverride !== null;
+  const budgetMinutes = budgetOverride ?? coachPreferences.budgetMinutes;
   const planningDate = useMemo(
     () =>
       ready
@@ -148,11 +161,7 @@ export function DailyCoach({
           learningEvents: state.learningEvents,
           favorites: state.favorites,
           profile: {
-            preferredLanguage: state.settings.preferredLanguage,
-            dailyGoalMinutes: state.settings.dailyGoalMinutes,
-            pythonShare: 0.6,
-            reviewShare: 0.2,
-            iosShare: 0.2,
+            ...coachPreferences.profile,
           },
           recentLaneMinutes: state.sessionHistory
             .filter((session) => session.laneMinutes)
@@ -169,9 +178,8 @@ export function DailyCoach({
       state.typingProgress,
       state.learningEvents,
       state.favorites,
-      state.settings.dailyGoalMinutes,
-      state.settings.preferredLanguage,
       state.sessionHistory,
+      coachPreferences.profile,
     ],
   );
   const active = state.activeSession;
@@ -226,17 +234,24 @@ export function DailyCoach({
           and iOS maintenance separate. Every task says why it earned time.
         </p>
         <div className="coach-budget" aria-label="Plan duration">
-          {BUDGETS.map((minutes) => (
+          {DAILY_COACH_BUDGETS.map((minutes) => (
             <button
               key={minutes}
               className={budgetMinutes === minutes ? "active" : ""}
               aria-pressed={budgetMinutes === minutes}
-              onClick={() => setBudgetMinutes(minutes)}
+              onClick={() => {
+                setBudgetOverride(minutes);
+              }}
             >
               {minutes} min
             </button>
           ))}
         </div>
+        <small className="coach-budget-note" aria-live="polite">
+          {budgetOverridden
+            ? `Manual block · ${coachFocusLabel(coachPreferences.focus)} focus`
+            : `Synced to the ${state.settings.dailyGoalMinutes}-minute goal · ${coachFocusLabel(coachPreferences.focus)} focus`}
+        </small>
         <div className="coach-summary" aria-label="Plan allocation">
           <span>{plan.entries.length} focused tasks</span>
           <span>{plan.estimatedMinutes} min planned</span>

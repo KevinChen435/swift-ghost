@@ -3,6 +3,7 @@
 
 export const ONBOARDING_FOCUSES = Object.freeze(["python", "ios", "both"]);
 export const ONBOARDING_DAILY_PACES = Object.freeze([15, 30, 45]);
+export const DAILY_COACH_BUDGETS = Object.freeze([15, 30, 45]);
 export const ONBOARDING_STATUSES = Object.freeze([
   "not-started",
   "skipped",
@@ -133,6 +134,59 @@ function countForPace(dailyMinutes) {
   if (dailyMinutes >= 45) return 4;
   if (dailyMinutes >= 30) return 3;
   return 2;
+}
+
+/**
+ * Map the settings goal onto the three deliberate Daily Coach blocks. The
+ * goal can be any 5-minute increment in Settings, so nearest matching keeps
+ * the coach useful without silently inventing a fourth plan shape.
+ */
+export function nearestDailyCoachBudget(minutes, fallback = 15) {
+  const value = Number(minutes);
+  const safeFallback = DAILY_COACH_BUDGETS.includes(Number(fallback))
+    ? Number(fallback)
+    : DAILY_COACH_BUDGETS[0];
+  if (!Number.isFinite(value)) return safeFallback;
+  return DAILY_COACH_BUDGETS.reduce((best, candidate) =>
+    Math.abs(candidate - value) < Math.abs(best - value) ? candidate : best,
+  );
+}
+
+/**
+ * Convert the persisted re-entry focus into the planner profile used by the
+ * Daily Coach. `dailyGoalMinutes` intentionally comes from Settings when it
+ * is supplied: onboarding chooses a starting pace, while Settings remains
+ * the ongoing source of truth for the daily goal.
+ */
+export function buildDailyCoachProfile(value = {}) {
+  const state = normalizeOnboardingState(value);
+  const config = FOCUS_CONFIG[state.focus];
+  const requestedGoal = Number(value?.dailyGoalMinutes);
+  const dailyGoalMinutes = Number.isFinite(requestedGoal)
+    ? Math.min(120, Math.max(5, Math.round(requestedGoal)))
+    : state.dailyMinutes;
+  return {
+    preferredLanguage: config.preferredLanguage,
+    dailyGoalMinutes,
+    pythonShare: config.pythonShare,
+    reviewShare: config.reviewShare,
+    iosShare: config.iosShare,
+    focus: state.focus,
+  };
+}
+
+/**
+ * Return the complete coach preference hand-off for UI and planner callers.
+ * Keeping this pure makes preference changes easy to test without mounting
+ * the app shell.
+ */
+export function resolveDailyCoachPreferences(value = {}) {
+  const profile = buildDailyCoachProfile(value);
+  return {
+    focus: profile.focus,
+    profile,
+    budgetMinutes: nearestDailyCoachBudget(profile.dailyGoalMinutes),
+  };
 }
 
 /**

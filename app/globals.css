@@ -6548,6 +6548,12 @@ kbd {
   background: var(--accent-soft);
   color: var(--accent);
 }
+.coach-budget-note {
+  margin-top: -4px;
+  color: var(--faint);
+  font: 7px/1.45 var(--font-code);
+  letter-spacing: 0.2px;
+}
 .coach-summary {
   display: flex;
   flex-wrap: wrap;

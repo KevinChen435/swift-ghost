@@ -32,6 +32,11 @@ test("daily coach exposes a muted-answer crib for python, swift, and iOS study",
   assert.match(component, /Soft blur/);
   assert.match(component, /is-focused/);
   assert.match(component, /function localPlanningDate\(now = new Date\(\)\)/);
+  assert.match(component, /resolveDailyCoachPreferences/);
+  assert.match(component, /budgetOverridden/);
+  assert.match(component, /coachPreferences\.profile/);
+  assert.match(component, /Synced to the \$\{state\.settings\.dailyGoalMinutes\}-minute goal/);
+  assert.match(component, /Manual block/);
   assert.match(component, /new Date\(now\.getFullYear\(\), now\.getMonth\(\), now\.getDate\(\), 12\)/);
   assert.match(component, /now\?: number;/);
   assert.match(component, /localPlanningDate\(now && now > 0 \? new Date\(now\) : new Date\(\)\)/);
