@@ -6,6 +6,26 @@ import {
 
 export const SESSION_REPLAY_MODES = ["all", "weak"];
 
+// Replay must preserve the same execution boundary as the session builder:
+// only trusted Swift contracts can be reopened as an independent solve. In
+// particular, a Python verification payload is not evidence that a Swift item
+// is runnable, and server-backed Swift items intentionally do not carry one.
+function isServerRunnableSwift(item) {
+  return Boolean(
+    item?.solveCapability === "server" &&
+      item?.language === "swift" &&
+      typeof item?.trustedChallengeKey === "string" &&
+      item.trustedChallengeKey.length > 0,
+  );
+}
+
+function canReplayAsSolving(item) {
+  return (
+    isServerRunnableSwift(item) ||
+    (item?.language === "python" && Boolean(item?.verification))
+  );
+}
+
 function boundedNumber(value, fallback, min, max) {
   const number = Number(value);
   return Number.isFinite(number)
@@ -264,7 +284,7 @@ export function buildSessionReplayQueue(
     .map((entry) => {
       const item = entry.item;
       const practiceKind =
-        entry.practiceKind === "solving" && item.verification
+        entry.practiceKind === "solving" && canReplayAsSolving(item)
           ? "solving"
           : entry.practiceKind === "concept" && supportsConceptPractice(item)
             ? "concept"

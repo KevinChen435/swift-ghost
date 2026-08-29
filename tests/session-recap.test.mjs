@@ -446,6 +446,50 @@ test("targeted replay keeps order, uses current revisions, and drops unavailable
   assert.deepEqual(weak.map((entry) => entry.itemId), ["swift:window"]);
 });
 
+test("replay preserves solving for server-judged Swift without a local verification payload", () => {
+  const serverSwift = {
+    itemId: "swift:two-sum",
+    title: "Two Sum in Swift",
+    contentRevision: 1,
+    language: "swift",
+    track: "interview",
+    source: "builtin",
+    solveCapability: "server",
+    trustedChallengeKey: "swift-two-sum",
+  };
+  const serverRecord = {
+    ...record,
+    entries: [
+      {
+        itemId: serverSwift.itemId,
+        itemRevision: serverSwift.contentRevision,
+        stage: 5,
+        status: "completed",
+        practiceKind: "solving",
+        attemptId: "attempt-swift-solve",
+      },
+    ],
+  };
+  const replay = buildSessionReplayQueue(
+    serverRecord,
+    [
+      {
+        ...attempts[0],
+        id: "attempt-swift-solve",
+        itemId: serverSwift.itemId,
+        itemRevision: serverSwift.contentRevision,
+        practiceKind: "solving",
+        verification: { passed: 2, total: 2 },
+      },
+    ],
+    [serverSwift],
+  );
+  assert.equal(replay.length, 1);
+  assert.equal(replay[0].practiceKind, "solving");
+  assert.equal(replay[0].stage, 5);
+  assert.equal(replay[0].itemRevision, 1);
+});
+
 test("legacy aggregate-only records stay readable but cannot fabricate a replay queue", () => {
   const legacy = { ...record, entries: undefined };
   const recap = buildSessionRecap(legacy, attempts, items);
