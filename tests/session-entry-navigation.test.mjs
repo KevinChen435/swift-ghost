@@ -84,6 +84,7 @@ test("session builder exposes the practice-mode queue contract", async () => {
   assert.match(sessions, /<option value="typing">Known-answer typing<\/option>/);
   assert.match(sessions, /<option value="solving">Swift judge solves<\/option>/);
   assert.match(sessions, /if \(next === "solving"\)/);
+  assert.match(sessions, /setTrack\("interview"\)/);
   assert.match(sessions, /setLanguage\("swift"\)/);
   assert.match(sessions, /Only current server-judged Swift contracts appear/);
   assert.match(sessions, /disabled=\{practiceMode === "solving"\}/);
