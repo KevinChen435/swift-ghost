@@ -86,8 +86,10 @@ test("the worker, runner, and local server support the pinned MicroPython runtim
   );
   assert.match(
     runnerSource,
-    new RegExp(`python-runner\\.worker\\.mjs\\?v=${PINNED_VERSION.replaceAll(".", "\\.")}-micropython-1`),
+    new RegExp(`python-runner\\.worker\\.mjs\\?v=${PINNED_VERSION.replaceAll(".", "\\.")}-micropython-2`),
   );
+  assert.match(workerSource, /MICROPYTHON_HEAP_SIZE_BYTES = 8 \* 1024 \* 1024/);
+  assert.doesNotMatch(workerSource, /heapsize:\s*32 \* 1024 \* 1024/);
   assert.doesNotMatch(`${workerSource}\n${runnerSource}`, /pyodide/i);
   assert.match(startSource, /CONTENT_TYPES\["\.wasm"\] = "application\/wasm"/);
 

@@ -196,7 +196,7 @@ test("execution timeout starts after readiness and a timed-out worker is replace
     assert.equal(workers[0].options.type, "module");
     assert.equal(
       workers[0].url.href,
-      "https://example.test/swift-ghost/python-runner.worker.mjs?v=1.28.0-6-micropython-1",
+      "https://example.test/swift-ghost/python-runner.worker.mjs?v=1.28.0-6-micropython-2",
     );
     assert.equal(workers[0].messages[0].type, "init");
     assert.equal(timers.length, 1);
@@ -294,6 +294,11 @@ test("worker loads only the pinned same-origin runtime and closes browser networ
     /`\.\/vendor\/micropython-\$\{MICROPYTHON_VERSION\}\/`/,
   );
   assert.match(workerSource, /import \{ loadMicroPython \}/);
+  assert.match(
+    workerSource,
+    /MICROPYTHON_HEAP_SIZE_BYTES = 8 \* 1024 \* 1024/,
+  );
+  assert.doesNotMatch(workerSource, /heapsize:\s*32 \* 1024 \* 1024/);
   assert.match(workerSource, /linebuffer: false/);
   assert.doesNotMatch(workerSource, /https?:\/\//);
   for (const primitive of [

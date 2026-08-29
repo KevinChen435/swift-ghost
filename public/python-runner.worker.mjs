@@ -1,6 +1,11 @@
 import { loadMicroPython } from "./vendor/micropython-1.28.0-6/micropython.mjs";
 
 const MICROPYTHON_VERSION = "1.28.0-6";
+// Each worker is short-lived and is replaced after a run, failure, or timeout.
+// Keep its linear memory bounded so opening a Python exercise cannot reserve
+// the previous 32 MiB budget on every tab. 8 MiB covers the shipped catalog
+// and harness (including all 56 built-in/transfer verification fixtures).
+const MICROPYTHON_HEAP_SIZE_BYTES = 8 * 1024 * 1024;
 const MICROPYTHON_BASE_URL = new URL(
   `./vendor/micropython-${MICROPYTHON_VERSION}/`,
   import.meta.url,
@@ -88,7 +93,7 @@ async function loadRuntime() {
         throw new Error("vendored Python runtime is invalid");
       const loaded = await loadMicroPython({
         url: MICROPYTHON_WASM_URL.href,
-        heapsize: 32 * 1024 * 1024,
+        heapsize: MICROPYTHON_HEAP_SIZE_BYTES,
         stdout: (line) => appendOutput("stdout", line),
         stderr: (line) => appendOutput("stderr", line),
         linebuffer: false,

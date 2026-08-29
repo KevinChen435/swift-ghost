@@ -5,7 +5,7 @@ const MAX_CASE_NAME_BYTES = 120;
 const EXECUTION_TIMEOUT_MS = 4_000;
 const INITIALIZATION_TIMEOUT_MS = 12_000;
 const DEFAULT_WORKER_PATH =
-  "./python-runner.worker.mjs?v=1.28.0-6-micropython-1";
+  "./python-runner.worker.mjs?v=1.28.0-6-micropython-2";
 
 const ENTRYPOINT_KINDS = new Set(["function", "method"]);
 const CODECS = new Set([
