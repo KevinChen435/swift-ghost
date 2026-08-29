@@ -4244,6 +4244,7 @@ export default function SwiftGhostApp() {
     assessment?: { runId: string; probeId: string },
     virtualRoundId?: string,
     forceFresh = false,
+    sessionEntryIndex?: number,
   ) {
     if (!virtualRoundId && blockVirtualRoundNavigation()) return;
     const chosenPracticeKind = coercePracticeKind(next, nextPracticeKind);
@@ -4266,12 +4267,36 @@ export default function SwiftGhostApp() {
         current.draft.assessmentProbeId === assessment?.probeId &&
         current.draft.virtualRoundId === virtualRoundId;
       const abandoned = resuming ? current : recordAbandon(current);
+      // Reconcile the old draft before moving the session cursor. This keeps an
+      // abandoned attempt attached to the entry the learner actually left,
+      // even when they jump backwards to a completed problem.
+      let navigated = abandoned;
+      const activeSession = abandoned.activeSession;
+      if (
+        sessionEntryIndex !== undefined &&
+        Number.isInteger(sessionEntryIndex) &&
+        activeSession
+      ) {
+        if (
+          sessionEntryIndex >= 0 &&
+          activeSession.id === sessionId &&
+          sessionEntryIndex < activeSession.entries.length
+        ) {
+          navigated = {
+            ...abandoned,
+            activeSession: {
+              ...activeSession,
+              currentIndex: sessionEntryIndex,
+            },
+          };
+        }
+      }
       const base =
         next.transfer
           ? {
-              ...abandoned,
+              ...navigated,
               transferWorkspace: recordTransferOpened(
-                abandoned.transferWorkspace,
+                navigated.transferWorkspace,
                 next.itemId,
                 {
                   now: new Date().toISOString(),
@@ -4279,7 +4304,7 @@ export default function SwiftGhostApp() {
                 },
               ),
             }
-          : abandoned;
+          : navigated;
       const mockWorkspaceSource =
         sessionId &&
         base.activeSession?.kind === "mock" &&
@@ -7480,6 +7505,69 @@ export default function SwiftGhostApp() {
     setToast("Time is up · the mock workspace is now locked");
   }
 
+  function openSessionEntry(sessionEntryIndex: number) {
+    const session = stateRef.current.activeSession;
+    if (!session) {
+      setToast("There is no active session to open");
+      return;
+    }
+    if (
+      !Number.isInteger(sessionEntryIndex) ||
+      sessionEntryIndex < 0 ||
+      sessionEntryIndex >= session.entries.length
+    ) {
+      setToast("That session item is unavailable");
+      return;
+    }
+    const entry = session.entries[sessionEntryIndex];
+    if (
+      !entry ||
+      (entry.status !== "pending" && entry.status !== "completed")
+    ) {
+      setToast("Skipped session items cannot be reopened");
+      return;
+    }
+    if (
+      !Number.isInteger(entry.stage) ||
+      entry.stage < 1 ||
+      entry.stage > 5 ||
+      !Number.isInteger(entry.itemRevision) ||
+      entry.itemRevision < 1
+    ) {
+      setToast("That session item has an invalid saved revision");
+      return;
+    }
+    const next = allItems.find(
+      (candidate) =>
+        candidate.itemId === entry.itemId &&
+        candidate.contentRevision === entry.itemRevision &&
+        !candidate.transfer,
+    );
+    if (!next) {
+      setToast("That session item is no longer available at its saved revision");
+      return;
+    }
+    const practiceKind = coercePracticeKind(
+      next,
+      entry.practiceKind ?? "typing",
+    );
+    if (session.kind === "mock" && practiceKind !== "solving") {
+      setToast("That mock item cannot be reopened safely");
+      return;
+    }
+    openItem(
+      next,
+      entry.stage,
+      undefined,
+      session.id,
+      practiceKind,
+      undefined,
+      undefined,
+      false,
+      sessionEntryIndex,
+    );
+  }
+
   function resumeSession() {
     const session = state.activeSession;
     if (!session) return;
@@ -8566,6 +8654,7 @@ export default function SwiftGhostApp() {
           onOpenSessionRecap={openSessionRecap}
           onCloseSessionRecap={closeSessionRecap}
           onReplaySession={replayPracticeSession}
+          onOpenSessionEntry={openSessionEntry}
           onOpenItem={(item, nextStage, nextPracticeKind) =>
             openItem(
               item,
@@ -12205,6 +12294,7 @@ function SessionsView({
   onCloseSessionRecap,
   onReplaySession,
   onOpenItem,
+  onOpenSessionEntry,
 }: {
   state: AppState;
   items: PracticeItem[];
@@ -12239,6 +12329,7 @@ function SessionsView({
     stage: number,
     practiceKind?: PracticeKind,
   ) => void;
+  onOpenSessionEntry: (sessionEntryIndex: number) => void;
 }) {
   const [name, setName] = useState("Focused interview set");
   const [count, setCount] = useState(5);
@@ -12579,6 +12670,19 @@ function SessionsView({
               const item = items.find(
                 (candidate) => candidate.itemId === entry.itemId,
               );
+              const revisionAvailable =
+                Boolean(item) && item?.contentRevision === entry.itemRevision;
+              const canOpen =
+                revisionAvailable &&
+                (entry.status === "pending" || entry.status === "completed");
+              const statusLabel =
+                index === active.currentIndex
+                  ? "Current"
+                  : entry.status === "completed"
+                    ? "Completed"
+                    : entry.status === "skipped"
+                      ? "Skipped"
+                      : "Queued";
               return (
                 <article
                   className={`${entry.status} ${index === active.currentIndex ? "current" : ""}`}
@@ -12603,9 +12707,29 @@ function SessionsView({
                         ? ` · ${entry.estimatedMinutes} min`
                         : ""}
                       {` · revision ${entry.itemRevision}`}
+                      {` · ${statusLabel}`}
+                      {!revisionAvailable ? " · unavailable" : ""}
                     </small>
                     {entry.rationale && <small>{entry.rationale}</small>}
                   </div>
+                  <button
+                    className="outline-button"
+                    type="button"
+                    disabled={!canOpen || index === active.currentIndex}
+                    aria-current={
+                      index === active.currentIndex ? "step" : undefined
+                    }
+                    aria-label={
+                      index === active.currentIndex
+                        ? `Current session item ${index + 1}`
+                        : canOpen
+                          ? `Open session item ${index + 1}: ${item?.title ?? "item"}`
+                          : `Session item ${index + 1} unavailable`
+                    }
+                    onClick={() => onOpenSessionEntry(index)}
+                  >
+                    {index === active.currentIndex ? "Current" : "Open"}
+                  </button>
                 </article>
               );
             })}
