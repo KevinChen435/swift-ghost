@@ -1215,6 +1215,68 @@ test("Python built-ins are eligible for the same defensive upload path", async (
   assert.equal(sent.attempts[0].track, "interview");
 });
 
+test("server-backed Swift IDs pass cloud upload and leaderboard validation", async () => {
+  let sent;
+  const mock = recorder((url, init) => {
+    if (url === "/api/v1/attempts/batch") {
+      sent = JSON.parse(init.body);
+      return json({ accepted: ["attempt-swift"], duplicates: [], rejected: [] });
+    }
+    if (url.startsWith("/api/v1/community/recent")) {
+      return json({
+        entries: [
+          {
+            user: { displayName: "Swift learner" },
+            itemId: "swift:swift-two-sum",
+            itemRevision: 1,
+            itemTitle: "Two Sum in Swift",
+            track: "interview",
+            stage: 5,
+            wpm: 50,
+            accuracy: 98,
+            durationMs: 60_000,
+            completedAt: "2026-07-25T20:01:00Z",
+          },
+        ],
+      });
+    }
+    return json({
+      itemId: "swift:swift-two-sum",
+      itemRevision: 1,
+      stage: 5,
+      entries: [],
+    });
+  });
+  const client = createCloudClient({
+    location: { hostname: "swift.test" },
+    fetchImpl: mock.fetchImpl,
+  });
+  const upload = await client.postAttemptBatch([
+    attempt(0, {
+      id: "attempt-swift",
+      itemId: "swift:swift-two-sum",
+      track: "interview",
+    }),
+  ]);
+  assert.equal(upload.available, true);
+  assert.equal(sent.attempts[0].itemId, "swift:swift-two-sum");
+
+  const recent = await client.communityRecent();
+  assert.equal(recent.available, true);
+  assert.equal(recent.data.entries[0].itemId, "swift:swift-two-sum");
+
+  const leaderboard = await client.itemLeaderboard("swift:swift-two-sum", {
+    itemRevision: 1,
+    stage: 5,
+  });
+  assert.equal(leaderboard.available, true);
+  assert.equal(leaderboard.data.itemId, "swift:swift-two-sum");
+  assert.equal(
+    mock.calls[2].url,
+    "/api/v1/leaderboards/items/swift%3Aswift-two-sum?limit=25&itemRevision=1&stage=5&mode=strict",
+  );
+});
+
 test("community results drop malformed rows and bound fields and limits", async () => {
   const mock = recorder(() =>
     json({

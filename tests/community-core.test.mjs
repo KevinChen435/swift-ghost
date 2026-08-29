@@ -118,6 +118,27 @@ test("Python catalog identities validate as built-in interview attempts", () => 
   assert.equal(result.value.track, "interview");
 });
 
+test("server-backed Swift identities validate as built-in interview attempts", () => {
+  const result = validateAttemptUpload(
+    {
+      ...validAttempt,
+      itemId: "swift:swift-two-sum",
+      title: "Two Sum in Swift",
+    },
+    NOW,
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.value.itemId, "swift:swift-two-sum");
+  assert.equal(result.value.track, "interview");
+  assert.equal(
+    validateAttemptUpload(
+      { ...validAttempt, itemId: `swift:${"a".repeat(81)}` },
+      NOW,
+    ).ok,
+    false,
+  );
+});
+
 test("free, peeked, inaccurate, and implausibly fast passes never rank", () => {
   for (const attempt of [
     { ...validAttempt, mode: "free" },

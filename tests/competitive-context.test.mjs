@@ -55,6 +55,21 @@ test("trusted WPM uses only canonical source length and duration", () => {
   assert.equal(assessed.activity, "recall");
 });
 
+test("server-backed Swift identities are comparable with built-in attempts", () => {
+  const swiftItem = { ...item, itemId: "swift:swift-two-sum" };
+  const swiftAttempt = { ...attempt, itemId: "swift:swift-two-sum" };
+  const assessed = assessCommunityComparability(swiftAttempt, swiftItem);
+  assert.equal(assessed.eligible, true);
+  assert.equal(assessed.trustedWpm, 50);
+  assert.equal(
+    assessCommunityComparability(
+      { ...swiftAttempt, itemId: `swift:${"a".repeat(81)}` },
+      { ...swiftItem, itemId: `swift:${"a".repeat(81)}` },
+    ).reason,
+    "not-built-in",
+  );
+});
+
 test("comparability requires a current built-in completed strict typing or recall pass", () => {
   const cases = [
     [{ ...item, source: "custom" }, attempt, "not-built-in"],

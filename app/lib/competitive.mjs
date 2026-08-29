@@ -6,7 +6,7 @@ const MAX_TRUSTED_WPM = 300;
 const DEFAULT_CONTEXT_SIZE = 5;
 const MAX_CONTEXT_SIZE = 9;
 
-const BUILTIN_ITEM_ID = /^(?:builtin:\d+|python:\d+|ios:[a-z0-9][a-z0-9-]*)$/i;
+const BUILTIN_ITEM_ID = /^(?:builtin:\d+|python:\d+|swift:[a-z0-9][a-z0-9-]{0,79}|ios:[a-z0-9][a-z0-9-]*)$/i;
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);

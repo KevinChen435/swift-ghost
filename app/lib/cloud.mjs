@@ -51,9 +51,7 @@ function dayKey(value) {
 
 function itemId(value) {
   const cleaned = cleanString(value, 96);
-  return /^(?:builtin:\d{1,8}|python:\d{1,8}|ios:[a-z0-9][a-z0-9-]{0,79})$/i.test(
-    cleaned,
-  )
+  return /^(?:builtin:\d{1,8}|python:\d{1,8}|swift:[a-z0-9][a-z0-9-]{0,79}|ios:[a-z0-9][a-z0-9-]{0,79})$/i.test(cleaned)
     ? cleaned
     : undefined;
 }

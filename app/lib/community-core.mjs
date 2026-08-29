@@ -142,7 +142,7 @@ export function validateAttemptUpload(raw, now = Date.now()) {
       120,
       { required: true },
     );
-    if (!/^(?:builtin:\d+|python:\d+|ios:[a-z0-9][a-z0-9-]*)$/i.test(itemId))
+    if (!/^(?:builtin:\d+|python:\d+|swift:[a-z0-9][a-z0-9-]{0,79}|ios:[a-z0-9][a-z0-9-]*)$/i.test(itemId))
       throw new Error("only built-in items can be uploaded");
     if (
       !Number.isInteger(raw.itemRevision) ||
