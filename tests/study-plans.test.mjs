@@ -95,6 +95,58 @@ test("ships four evidence-based plan templates with the recommended reactivation
   assert.ok(STUDY_PLAN_TEMPLATES.some((entry) => entry.id === "swift-ios-reactivation"));
 });
 
+test("Swift and iOS reactivation enrollment keeps server Swift companions in their own module", () => {
+  const swift = {
+    itemId: "swift:swift-two-sum",
+    contentRevision: 1,
+    source: "builtin",
+    title: "Two Sum",
+    language: "swift",
+    track: "interview",
+    solveCapability: "server",
+    pattern: "Arrays & Hashing",
+    difficulty: "Easy",
+  };
+  const iosSwift = {
+    itemId: "ios:value-reference-snapshots",
+    contentRevision: 2,
+    source: "builtin",
+    title: "Values",
+    language: "swift",
+    track: "ios",
+    conceptLane: "swift",
+    pattern: "Swift Semantics",
+    difficulty: "Easy",
+    recallChecks: ["a", "b", "c"],
+    conceptAnswers: ["a", "b", "c"],
+  };
+  const iosSystem = {
+    ...iosSwift,
+    itemId: "ios:uikit-lifecycle-boundaries",
+    title: "Lifecycle",
+    conceptLane: "ios",
+    pattern: "UIKit",
+  };
+  const workspace = instantiateStudyPlanTemplate(
+    createStudyWorkspace(),
+    "swift-ios-reactivation",
+    [swift, iosSwift, iosSystem],
+    { now: at },
+  );
+  assert.deepEqual(
+    workspace.collections[0].itemIds,
+    [swift.itemId, iosSwift.itemId, iosSystem.itemId],
+  );
+  assert.deepEqual(
+    workspace.collections[0].modules.map((module) => [module.id, module.itemIds]),
+    [
+      ["swift-semantics", [iosSwift.itemId]],
+      ["swift-algorithms", [swift.itemId]],
+      ["ios-systems", [iosSystem.itemId]],
+    ],
+  );
+});
+
 test("instantiating a template snapshots current catalog membership and activates one plan", () => {
   const workspace = instantiateStudyPlanTemplate(
     createStudyWorkspace(at),

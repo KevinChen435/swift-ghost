@@ -71,6 +71,7 @@ export const STUDY_PLAN_TEMPLATES = Object.freeze([
     lanes: ["Swift / iOS", "Delayed review", "Interview simulation"],
     modules: [
       { id: "swift-semantics", title: "Swift language and ownership", outcome: "Explain values, references, optionals, protocols, ARC, and captures.", patterns: ["Swift Semantics", "Optionals & Errors", "Protocols & Generics", "Memory Management"] },
+      { id: "swift-algorithms", title: "Swift interview patterns", outcome: "Translate a familiar invariant into clear, current Swift and verify it against examples.", solveCapability: "server" },
       { id: "ios-systems", title: "iOS systems reasoning", outcome: "Reason about concurrency, lifecycle, networking, architecture, testing, and accessibility.", track: "ios" },
     ],
     selector: { track: "ios" },
@@ -138,7 +139,7 @@ function entityId(prefix, requested) {
 
 function itemId(value) {
   const id = cleanText(value, 160);
-  return /^(?:builtin:\d+|python:\d+|ios:[\w-]+|custom:[\w-]+)$/.test(id) ? id : "";
+  return /^(?:builtin:\d+|python:\d+|swift:[\w-]+|transfer:\d+|ios:[\w-]+|custom:[\w-]+)$/.test(id) ? id : "";
 }
 
 function uniqueIds(value, limit = STUDY_PLAN_LIMITS.maxItemsPerCollection) {
@@ -444,7 +445,11 @@ function matchesTemplateItem(item, template) {
   if (!item || item.source !== "builtin") return false;
   const selector = template.selector ?? {};
   if (selector.language && item.language !== selector.language) return false;
-  if (selector.track && item.track !== selector.track) return false;
+  if (
+    selector.track &&
+    item.track !== selector.track &&
+    !(template.id === "swift-ios-reactivation" && item.language === "swift" && item.solveCapability === "server")
+  ) return false;
   if (selector.excludeHard && item.difficulty === "Hard") return false;
   if (selector.excludePatterns?.includes(item.pattern)) return false;
   if (template.id === "back-to-interview-shape")
@@ -455,6 +460,9 @@ function matchesTemplateItem(item, template) {
     return (item.language === "python" && item.verification) ||
       (item.language === "swift" && item.solveCapability === "server") ||
       item.track === "ios";
+  if (template.id === "swift-ios-reactivation")
+    return item.track === "ios" ||
+      (item.language === "swift" && item.solveCapability === "server");
   return true;
 }
 
@@ -474,7 +482,16 @@ export function instantiateStudyPlanTemplate(workspace, templateId, items = [], 
     outcome: module.outcome,
     patterns: module.patterns ?? [],
     simulation: module.simulation === true,
-    itemIds: selected.filter((item) => module.simulation || module.track === "ios" ? item.track === "ios" : !module.patterns?.length || module.patterns.includes(item.pattern)).map((item) => item.itemId),
+    itemIds: selected.filter((item) => {
+      if (template.id === "swift-ios-reactivation") {
+        if (module.id === "swift-algorithms") return item.language === "swift" && item.solveCapability === "server";
+        if (module.id === "ios-systems") return item.track === "ios" && item.conceptLane === "ios";
+        if (module.id === "swift-semantics") return item.track === "ios" && item.conceptLane === "swift";
+      }
+      return module.simulation || module.track === "ios"
+        ? item.track === "ios"
+        : !module.patterns?.length || module.patterns.includes(item.pattern);
+    }).map((item) => item.itemId),
   }));
   const collectionId = entityId("collection", options.collectionId);
   const collection = normalizeCollection({

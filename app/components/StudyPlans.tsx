@@ -1,13 +1,15 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { itemDisplayId, type PracticeItem, type ItemId } from "../lib/items";
+import { canSolveItem, itemDisplayId, type PracticeItem, type ItemId } from "../lib/items";
+import { IOSReactivationTrack } from "./IOSReactivationTrack";
 import {
   discoverCatalog,
   type CatalogRecord,
 } from "../lib/catalog-discovery.mjs";
 import type {
   AttemptRecord,
+  PracticeKind,
   SessionHistoryRecord,
   TrainingSession,
 } from "../lib/product";
@@ -95,6 +97,7 @@ export type StudyPlansProps = {
     format: InterviewStudioFormat,
     mode: InterviewStudioMode,
   ) => void;
+  onOpenItem: (item: PracticeItem, stage: number, practiceKind?: PracticeKind) => void;
 };
 
 type PlanView = {
@@ -329,6 +332,7 @@ export function StudyPlans({
   onStartFocusBlock,
   onResumeActiveSession,
   onStartCapstone,
+  onOpenItem,
 }: StudyPlansProps) {
   const lists = workspaceLists(workspace);
   const planViews = lists.plans.map(planView);
@@ -484,6 +488,23 @@ export function StudyPlans({
           <span>{cloudCopy.detail}</span>
         </div>
       </header>
+
+      <IOSReactivationTrack
+        items={items}
+        attempts={attempts}
+        learningEvents={learningEvents}
+        typingProgress={typingProgress}
+        now={evidenceContext.now}
+        onOpenItem={(itemId) => {
+          const item = items.find((candidate) => candidate.itemId === itemId);
+          if (!item) return;
+          onOpenItem(
+            item,
+            5,
+            canSolveItem(item) ? "solving" : item.track === "ios" ? "concept" : "typing",
+          );
+        }}
+      />
 
       {activePlan && progress && nextBlock ? (
         <section className="study-active-hero" aria-labelledby="active-plan-title">

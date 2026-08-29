@@ -8842,6 +8842,9 @@ export default function SwiftGhostApp() {
           onStartFocusBlock={startStudyFocusBlock}
           onResumeActiveSession={resumeSession}
           onStartCapstone={startStudyCapstone}
+          onOpenItem={(item, stage, practiceKind) =>
+            openItem(item, stage, undefined, undefined, practiceKind)
+          }
         />
       )}
       {view === "learn" && patternReviewMode === "mixed" && (

@@ -6766,6 +6766,61 @@ kbd {
     var(--panel)
   );
 }
+.ios-reactivation-track {
+  margin: 18px 0 24px;
+}
+.ios-reactivation-track h2,
+.ios-reactivation-track h3 {
+  letter-spacing: -0.02em;
+}
+.ios-reactivation-track summary {
+  list-style-position: outside;
+}
+.ios-reactivation-count,
+.ios-reactivation-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font: 700 9px/1.2 var(--font-code);
+  white-space: nowrap;
+}
+.ios-reactivation-status.is-independent {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--border));
+  color: var(--accent);
+}
+.ios-reactivation-status.is-due,
+.ios-reactivation-status.is-outdated {
+  border-color: color-mix(in srgb, var(--warning) 54%, var(--border));
+  color: var(--warning);
+}
+.ios-reactivation-status.is-unavailable {
+  color: var(--faint);
+}
+.ios-reactivation-item-list li {
+  padding: 8px 0;
+  border-top: 1px solid var(--border-soft);
+}
+.ios-reactivation-item-list li:first-child {
+  border-top: 0;
+}
+.ios-reactivation-track progress {
+  accent-color: var(--accent);
+}
+@media (max-width: 720px) {
+  .ios-reactivation-track {
+    padding: 1rem !important;
+  }
+  .ios-reactivation-track .ios-reactivation-item-list li {
+    align-items: flex-start !important;
+  }
+  .ios-reactivation-track .ios-reactivation-item-list li > button {
+    width: 100%;
+  }
+}
 .track-tabs {
   display: flex;
   gap: 7px;
