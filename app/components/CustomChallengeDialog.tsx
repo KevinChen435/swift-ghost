@@ -85,6 +85,96 @@ const DEFAULT_CASES: EditableCase[] = [
   },
 ];
 
+type SwiftPracticeTemplate = {
+  id: string;
+  title: string;
+  track: "interview" | "ios";
+  pattern: Pattern;
+  difficulty: Difficulty;
+  code: string;
+  cue: string;
+  invariant: string;
+  complexity: string;
+  languageNote: string;
+};
+
+const SWIFT_PRACTICE_TEMPLATES: readonly SwiftPracticeTemplate[] = [
+  {
+    id: "swift-two-pointer-filter",
+    title: "Stable Even Filter",
+    track: "interview",
+    pattern: "Two Pointers",
+    difficulty: "Easy",
+    code:
+      "func stableEvenFilter(_ values: [Int]) -> [Int] {\n" +
+      "    var result: [Int] = []\n" +
+      "    result.reserveCapacity(values.count)\n" +
+      "\n" +
+      "    for value in values {\n" +
+      "        if value % 2 == 0 {\n" +
+      "            result.append(value)\n" +
+      "        }\n" +
+      "    }\n" +
+      "\n" +
+      "    return result\n" +
+      "}",
+    cue: "Preserve input order while filtering with one forward scan.",
+    invariant: "result contains exactly the even values already visited, in their original order.",
+    complexity: "O(n) time, O(n) output space.",
+    languageNote: "Use reserveCapacity before repeated append when the upper bound is known.",
+  },
+  {
+    id: "swift-optional-boundary",
+    title: "Optional Profile Name",
+    track: "ios",
+    pattern: "Optionals & Errors",
+    difficulty: "Easy",
+    code:
+      "struct Profile {\n" +
+      "    let displayName: String?\n" +
+      "}\n" +
+      "\n" +
+      "func normalizedDisplayName(for profile: Profile?) -> String {\n" +
+      "    guard let name = profile?.displayName?.trimmingCharacters(in: .whitespacesAndNewlines),\n" +
+      "          !name.isEmpty else {\n" +
+      "        return \"Guest\"\n" +
+      "    }\n" +
+      "\n" +
+      "    return name\n" +
+      "}",
+    cue: "Collapse nested optional and empty-string cases at the boundary.",
+    invariant: "The return value is never empty, even when the profile or display name is missing.",
+    complexity: "O(k) time for trimming the name, O(k) space for the trimmed string.",
+    languageNote: "Optional chaining plus guard keeps the happy path unwrapped and non-empty.",
+  },
+  {
+    id: "swift-value-semantics",
+    title: "Independent Draft Copies",
+    track: "ios",
+    pattern: "Swift Semantics",
+    difficulty: "Medium",
+    code:
+      "struct DraftSettings {\n" +
+      "    var selectedTags: [String]\n" +
+      "\n" +
+      "    mutating func addTag(_ tag: String) {\n" +
+      "        guard !selectedTags.contains(tag) else { return }\n" +
+      "        selectedTags.append(tag)\n" +
+      "    }\n" +
+      "}\n" +
+      "\n" +
+      "func makeEditedCopy(from settings: DraftSettings, adding tag: String) -> DraftSettings {\n" +
+      "    var copy = settings\n" +
+      "    copy.addTag(tag)\n" +
+      "    return copy\n" +
+      "}",
+    cue: "Copy the value before mutation when the original draft must remain unchanged.",
+    invariant: "settings is never mutated; only the local copy receives the new tag.",
+    complexity: "O(n) time for the contains check, O(n) copy-on-write storage when mutation happens.",
+    languageNote: "Swift arrays are values with copy-on-write storage; mutation after assignment preserves the original value.",
+  },
+];
+
 function defaultStarter(
   kind: "function" | "method",
   className: string,
@@ -494,6 +584,21 @@ export function CustomChallengeDialog({
       );
   }
 
+  function applySwiftTemplate(template: SwiftPracticeTemplate) {
+    setTitle(template.title);
+    setTrack(template.track);
+    setLanguage("swift");
+    setPattern(template.pattern);
+    setDifficulty(template.difficulty);
+    setChallengeEnabled(false);
+    setCode(template.code);
+    setCue(template.cue);
+    setInvariant(template.invariant);
+    setComplexity(template.complexity);
+    setLanguageNote(template.languageNote);
+    setStep("solution");
+  }
+
   return (
     <div
       className="dialog-backdrop"
@@ -523,8 +628,8 @@ export function CustomChallengeDialog({
               {item ? "Edit practice item" : "Build a practice item"}
             </h2>
             <p>
-              Author the prompt, callable contract, examples, hidden checks, and
-              solution. Nothing in this studio uploads to the community.
+              Author a Python judge challenge or a Swift/iOS recall drill.
+              Nothing in this studio uploads to the community.
             </p>
           </div>
           <div className="challenge-studio-status" aria-live="polite">
@@ -673,6 +778,35 @@ export function CustomChallengeDialog({
                   Runnable local judging currently supports Python. Swift and iOS items remain progressive typing and recall drills.
                 </div>
               )}
+              {language === "swift" || track === "ios" ? (
+                <section className="swift-template-picker" aria-label="Swift drill templates">
+                  <div className="builder-list-heading">
+                    <div>
+                      <span>Swift drill templates</span>
+                      <small>Start from an answer worth typing until the syntax feels automatic.</small>
+                    </div>
+                  </div>
+                  <div className="swift-template-grid">
+                    {SWIFT_PRACTICE_TEMPLATES.map((template) => (
+                      <article key={template.id}>
+                        <div>
+                          <span>{template.track === "ios" ? "iOS recall" : "Swift interview"}</span>
+                          <strong>{template.title}</strong>
+                          <small>{template.pattern} · {template.difficulty}</small>
+                        </div>
+                        <p>{template.cue}</p>
+                        <button
+                          className="outline-button compact-button"
+                          type="button"
+                          onClick={() => applySwiftTemplate(template)}
+                        >
+                          Use template
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
             </div>
           ) : null}
 

@@ -83,6 +83,8 @@ The optional Verified Python and Swift lanes are the explicit exceptions to loca
 
 Custom Python challenge studio: Library → Build practice item can now create a complete local challenge with a problem statement, function or class-method contract, typed parameters, visible samples, hidden submission cases, starter code, and a reference solution. The reference must pass the complete local judge before the item can be saved. Editing prompt or code content creates a new content revision; editing the callable or judge cases also creates a new judge revision while older attempt and submission evidence remains in Records.
 
+Custom Swift and iOS recall templates in the same studio prefill realistic answer code, pattern cue, invariant, complexity, and language detail for progressive ghost-typing drills without claiming local Swift judging.
+
 ## Development
 
 Requires Node.js 22.13 or later.
@@ -123,7 +125,7 @@ Interview problem names link to their public LeetCode pages; iOS fundamentals li
 
 ## Roadmap
 
-The local-first training core remains the priority. Planned work includes richer boundary suites, authored semantic masks, deeper Swift rehearsal authoring (templates and shareable case sets), server-assigned private transfer judging, broader server-backed Python verification, and private cross-device sync for learning evidence beyond the current Study Plan structure.
+The local-first training core remains the priority. Planned work includes richer boundary suites, authored semantic masks, deeper Swift rehearsal authoring with shareable case sets, server-assigned private transfer judging, broader server-backed Python verification, and private cross-device sync for learning evidence beyond the current Study Plan structure.
 
 ## License
 

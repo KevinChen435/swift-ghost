@@ -64,6 +64,18 @@ test("the Library launches the builder and labels runnable custom items", () => 
   assert.match(catalog, />\s*Solve\s*</);
 });
 
+test("the studio offers Swift and iOS templates for recall drills", () => {
+  assert.match(studio, /SWIFT_PRACTICE_TEMPLATES/);
+  assert.match(studio, /Stable Even Filter/);
+  assert.match(studio, /Optional Profile Name/);
+  assert.match(studio, /Independent Draft Copies/);
+  assert.match(studio, /applySwiftTemplate/);
+  assert.match(studio, /setChallengeEnabled\(false\)/);
+  assert.match(studio, /setStep\("solution"\)/);
+  assert.match(studio, /Swift drill templates/);
+  assert.match(styles, /\.swift-template-grid/);
+});
+
 test("the studio becomes a full-height mobile workspace with safe-area actions", () => {
   assert.match(styles, /\.challenge-studio-dialog\s*\{/);
   assert.match(styles, /grid-template-rows: auto auto minmax\(0, 1fr\) auto/);

@@ -7260,6 +7260,49 @@ kbd {
 .builder-callout {
   padding: 14px 16px;
 }
+.swift-template-picker {
+  display: grid;
+  gap: 12px;
+  margin-top: 4px;
+}
+.swift-template-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.swift-template-grid article {
+  display: grid;
+  align-content: space-between;
+  gap: 12px;
+  min-height: 190px;
+  padding: 15px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-raised) 86%, transparent);
+}
+.swift-template-grid article > div {
+  display: grid;
+  gap: 5px;
+}
+.swift-template-grid article span {
+  color: var(--accent);
+  font: 800 7px var(--font-code);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.swift-template-grid article strong {
+  color: var(--text);
+  font-size: 13px;
+}
+.swift-template-grid article small,
+.swift-template-grid article p {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.55;
+}
+.swift-template-grid article p {
+  margin: 0;
+}
 .builder-empty-state {
   display: grid;
   justify-items: start;
@@ -7431,9 +7474,13 @@ kbd {
     padding: 20px 0 120px;
   }
   .practice-kind-picker,
+  .swift-template-grid,
   .builder-repeat-grid,
   .challenge-builder-panel .form-pair {
     grid-template-columns: 1fr;
+  }
+  .swift-template-grid article {
+    min-height: auto;
   }
   .builder-span-two {
     grid-column: auto;
