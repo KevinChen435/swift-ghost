@@ -58,6 +58,7 @@ import { SessionRecap } from "./SessionRecap";
 import { CustomChallengeDialog } from "./CustomChallengeDialog";
 import { SubmissionWorkLog } from "./SubmissionWorkLog";
 import { AttemptClosureCenter } from "./AttemptClosureCenter";
+import { PracticeActivityCalendar } from "./PracticeActivityCalendar";
 import { SolutionReviewWorkspace } from "./SolutionReviewWorkspace";
 import { WeaknessLab } from "./WeaknessLab";
 import { PatternAcademy } from "./PatternAcademy";
@@ -11400,6 +11401,7 @@ function PracticeView(props: PracticeProps) {
         status:
           visibleVerificationState.status === "idle" ? "loading" : "running",
         purpose,
+        submissionId: submissionRequest?.id,
       });
       const result = await runner.verify(
         sourceToVerify,
@@ -11411,12 +11413,15 @@ function PracticeView(props: PracticeProps) {
       const passedCount = result.cases.filter(
         (testCase) => testCase.passed,
       ).length;
+      const submissionStatus = submissionRequest
+        ? classifySubmissionResult(result)
+        : undefined;
       if (
         submissionRequest &&
         activeSubmissionRequest.current?.id === submissionRequest.id
       ) {
         const settledSubmission = compatibleSubmissionRecord(submissionRequest, {
-          status: classifySubmissionResult(result),
+          status: submissionStatus!,
           durationMs: result.durationMs,
           passed: passedCount,
           total: result.cases.length,
@@ -11434,6 +11439,8 @@ function PracticeView(props: PracticeProps) {
         result,
         source: sourceToVerify,
         runs,
+        submissionId: submissionRequest?.id,
+        submissionStatus,
       });
       if (activeStudio) {
         props.onInterviewRunnerEvidence(
@@ -11464,12 +11471,12 @@ function PracticeView(props: PracticeProps) {
         submissionRequest &&
         activeSubmissionRequest.current?.id === submissionRequest.id
       ) {
+        const submissionStatus =
+          error instanceof Error && /time(?:d)? out|time limit/i.test(error.message)
+            ? "time-limit"
+            : "judge-error";
         const settledSubmission = compatibleSubmissionRecord(submissionRequest, {
-          status:
-            error instanceof Error &&
-            /time(?:d)? out|time limit/i.test(error.message)
-              ? "time-limit"
-              : "judge-error",
+          status: submissionStatus,
           durationMs: Math.max(0, performance.now() - verificationStartedAt),
           passed: 0,
           total: 0,
@@ -11493,6 +11500,11 @@ function PracticeView(props: PracticeProps) {
         itemId: props.item.itemId,
         status: "error",
         purpose,
+        submissionId: submissionRequest?.id,
+        submissionStatus:
+          error instanceof Error && /time(?:d)? out|time limit/i.test(error.message)
+            ? "time-limit"
+            : "judge-error",
         message:
           error instanceof Error
             ? error.message
@@ -12556,6 +12568,11 @@ function PracticeView(props: PracticeProps) {
                   onRunExamples={() => void runSwiftExamples()}
                   onRunCustom={(input) => void runSwiftCustomCases(input)}
                   onSubmit={() => void runSwiftSubmit()}
+                  onOpenAttemptClosure={
+                    !isLocked && !isStudio
+                      ? props.onOpenAttemptClosure
+                      : undefined
+                  }
                 />
               ) : (
               <ChallengeConsole
@@ -12635,6 +12652,11 @@ function PracticeView(props: PracticeProps) {
                 onSubmit={() => runPythonChecks("submit")}
                 onRunFull={() => runPythonChecks("full")}
                 onCancelRun={cancelPythonRun}
+                onOpenAttemptClosure={
+                  !isLocked && !isStudio
+                    ? props.onOpenAttemptClosure
+                    : undefined
+                }
                 submissionHistory={submissionHistory.filter(
                   (submission) => submission.itemId === props.item.itemId,
                 )}
@@ -12910,6 +12932,9 @@ function PracticeView(props: PracticeProps) {
             onSubmit={() => runPythonChecks("submit")}
             onRunFull={() => runPythonChecks("full")}
             onCancelRun={cancelPythonRun}
+            onOpenAttemptClosure={
+              !isLocked && !isStudio ? props.onOpenAttemptClosure : undefined
+            }
             submissionHistory={submissionHistory.filter(
               (submission) => submission.itemId === props.item.itemId,
             )}
@@ -14444,6 +14469,13 @@ function RecordsView({
         copy="Your learning history stays local. If you opt in, built-in completed runs can also power a private profile, recent activity, and server-ranked community records."
       />
       <RecordsSectionSwitch section="overview" onChange={onSectionChange} />
+      <PracticeActivityCalendar
+        attempts={state.attempts}
+        sessionHistory={state.sessionHistory}
+        now={now}
+        locale={typeof navigator === "undefined" ? undefined : navigator.language}
+        timeZone={Intl.DateTimeFormat().resolvedOptions().timeZone}
+      />
       <CommunityPanel
         state={state}
         items={curriculumRecordItems}

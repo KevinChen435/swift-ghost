@@ -58,6 +58,7 @@ test("failure anchors remain visible and immutable while reflection fields are c
 test("selected failures expose a repair script with bounded prompt-fill actions", () => {
   assert.match(component, /function buildAttemptClosureRepairPlan/);
   assert.match(component, /Wrong answer repair: find the first input state/);
+  assert.match(component, /Compile repair: make the submitted source match/);
   assert.match(component, /Runtime repair: remove the unsafe operation first/);
   assert.match(component, /Time limit repair: replace repeated work/);
   assert.match(component, /Entrypoint repair: match the required function contract/);

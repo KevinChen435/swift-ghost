@@ -36,6 +36,7 @@ type SwiftSolveConsoleProps = {
   onRunExamples: () => void;
   onRunCustom: (input: { cases: CloudTrustedCustomCaseInput[] }) => void;
   onSubmit: () => void;
+  onOpenAttemptClosure?: (submissionId: string) => void;
 };
 
 type SampleTraceState = "untried" | "matched" | "mismatch";
@@ -390,6 +391,7 @@ export function SwiftSolveConsole({
   onRunExamples,
   onRunCustom,
   onSubmit,
+  onOpenAttemptClosure,
 }: SwiftSolveConsoleProps) {
   const challenge = assignment?.challenge;
   const challengeKey = challenge?.key ?? "none";
@@ -504,6 +506,14 @@ export function SwiftSolveConsole({
     notes,
   });
   const verdictGuidance = swiftVerdictGuidance(submission?.verdict);
+  const repairableSubmission = Boolean(
+    submission?.status === "settled" &&
+      submission.verdict &&
+      submission.verdict !== "accepted" &&
+      submission.verdict !== "judge-error" &&
+      submission.clientSubmissionId &&
+      onOpenAttemptClosure,
+  );
   const canSubmit = Boolean(
     assignment?.status === "active" &&
       (submission?.status !== "pending" || retryAvailable) &&
@@ -1069,6 +1079,17 @@ export function SwiftSolveConsole({
                   ))}
                 </ol>
               </section>
+              {repairableSubmission ? (
+                <button
+                  className="outline-button failure-repair-link"
+                  type="button"
+                  onClick={() =>
+                    onOpenAttemptClosure?.(submission.clientSubmissionId!)
+                  }
+                >
+                  Open repair plan →
+                </button>
+              ) : null}
             </>
           ) : null}
           <div className="swift-solve-samples">

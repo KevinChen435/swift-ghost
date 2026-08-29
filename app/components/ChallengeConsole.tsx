@@ -25,6 +25,8 @@ export type ChallengeVerificationState = {
   purpose?: "examples" | "submit" | "full";
   result?: PythonVerificationResult;
   message?: string;
+  submissionId?: string;
+  submissionStatus?: SubmissionRecord["status"];
 };
 
 export type ChallengeCustomExecutionState = {
@@ -73,6 +75,7 @@ export type ChallengeConsoleProps = {
   onSubmit: () => void | Promise<void>;
   onRunFull: () => void | Promise<void>;
   onCancelRun: () => void;
+  onOpenAttemptClosure?: (submissionId: string) => void;
   submissionHistory: readonly SubmissionRecord[];
   currentItemRevision: number;
   currentVerificationRevision: number;
@@ -230,9 +233,13 @@ function VerificationOutput({
   verificationState,
   exampleExpectedValues,
   isMock,
+  onOpenAttemptClosure,
 }: Pick<
   ChallengeConsoleProps,
-  "verificationState" | "exampleExpectedValues" | "isMock"
+  | "verificationState"
+  | "exampleExpectedValues"
+  | "isMock"
+  | "onOpenAttemptClosure"
 >) {
   const result = verificationState.result;
   const showsExampleDetails =
@@ -282,6 +289,13 @@ function VerificationOutput({
   const passed = passedCount(result);
   const isSubmission = verificationState.purpose === "submit";
   const isRedacted = isMock || isSubmission;
+  const repairableSubmission = [
+    "wrong-answer",
+    "compile-error",
+    "runtime-error",
+    "time-limit",
+    "invalid-entrypoint",
+  ].includes(verificationState.submissionStatus ?? "");
 
   return (
     <div
@@ -300,6 +314,21 @@ function VerificationOutput({
             : `${passed}/${result.cases.length} checks passed`}
       </strong>
       <small>{Math.round(result.durationMs)} ms</small>
+
+      {isSubmission &&
+        !isMock &&
+        !result.ok &&
+        repairableSubmission &&
+        verificationState.submissionId &&
+        onOpenAttemptClosure ? (
+        <button
+          className="outline-button failure-repair-link"
+          type="button"
+          onClick={() => onOpenAttemptClosure(verificationState.submissionId!)}
+        >
+          Open repair plan →
+        </button>
+      ) : null}
 
       {isRedacted ? (
         <p className="mock-test-note">
@@ -412,6 +441,7 @@ export function ChallengeConsole({
   onSubmit,
   onRunFull,
   onCancelRun,
+  onOpenAttemptClosure,
   submissionHistory,
   currentItemRevision,
   currentVerificationRevision,
@@ -530,6 +560,7 @@ export function ChallengeConsole({
                   verificationState={verificationState}
                   exampleExpectedValues={exampleExpectedValues}
                   isMock={isMock}
+                  onOpenAttemptClosure={onOpenAttemptClosure}
                 />
               )}
           </div>
@@ -571,6 +602,7 @@ export function ChallengeConsole({
             verificationState={verificationState}
             exampleExpectedValues={exampleExpectedValues}
             isMock={isMock}
+            onOpenAttemptClosure={onOpenAttemptClosure}
           />
         )}
         {activeTab === "submissions" && !isMock && isSolving && (

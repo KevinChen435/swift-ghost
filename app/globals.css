@@ -999,6 +999,154 @@ textarea:focus-visible {
   color: var(--accent);
   font-size: 20px;
 }
+
+.practice-activity-calendar {
+  display: grid;
+  gap: 18px;
+  padding: clamp(20px, 4vw, 30px);
+  border: 1px solid var(--border-soft);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--accent) 4%, var(--bg));
+}
+.practice-activity-calendar-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: start;
+}
+.practice-activity-calendar-header h2 {
+  margin: 5px 0 7px;
+  font-size: clamp(1.3rem, 3vw, 1.8rem);
+}
+.practice-activity-calendar-header p,
+.practice-activity-calendar-summary {
+  max-width: 680px;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.practice-activity-calendar-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(70px, 1fr));
+  min-width: min(100%, 360px);
+  margin: 0;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.practice-activity-calendar-stat {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 11px 12px;
+  border-right: 1px solid var(--border-soft);
+  background: var(--bg-raised);
+}
+.practice-activity-calendar-stat:last-child { border-right: 0; }
+.practice-activity-calendar-stat dt {
+  color: var(--faint);
+  font: 700 8px var(--font-code);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.practice-activity-calendar-stat dd {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+.practice-activity-calendar-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--faint);
+  font: 700 9px var(--font-code);
+}
+.practice-activity-calendar-legend {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+.practice-activity-calendar-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 3px;
+  background: var(--bg-raised);
+}
+.practice-activity-calendar-legend-swatch[data-level="1"] { background: color-mix(in srgb, var(--accent) 22%, var(--bg-raised)); }
+.practice-activity-calendar-legend-swatch[data-level="2"] { background: color-mix(in srgb, var(--accent) 42%, var(--bg-raised)); }
+.practice-activity-calendar-legend-swatch[data-level="3"] { background: color-mix(in srgb, var(--accent) 66%, var(--bg-raised)); }
+.practice-activity-calendar-legend-swatch[data-level="4"] { background: var(--accent); }
+.practice-activity-calendar-empty {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.practice-activity-calendar-scroll {
+  overflow-x: auto;
+  padding-bottom: 3px;
+  outline: none;
+}
+.practice-activity-calendar-scroll:focus-visible {
+  border-radius: 8px;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.practice-activity-calendar-grid {
+  display: grid;
+  grid-template-columns: 30px minmax(620px, 1fr);
+  gap: 7px;
+  min-width: 650px;
+}
+.practice-activity-calendar-weekdays,
+.practice-activity-calendar-week {
+  display: grid;
+  grid-template-rows: repeat(7, 15px);
+  gap: 5px;
+}
+.practice-activity-calendar-weekdays { color: var(--faint); font: 700 8px/15px var(--font-code); text-align: right; }
+.practice-activity-calendar-weeks { display: grid; grid-template-columns: repeat(12, minmax(15px, 1fr)); gap: 5px; }
+.practice-activity-calendar-week { grid-template-columns: 1fr; }
+.practice-activity-calendar-day {
+  display: block;
+  width: 15px;
+  height: 15px;
+  border: 1px solid var(--border-soft);
+  border-radius: 3px;
+  background: var(--bg-raised);
+  outline: none;
+}
+.practice-activity-calendar-day[data-level="1"] { background: color-mix(in srgb, var(--accent) 22%, var(--bg-raised)); }
+.practice-activity-calendar-day[data-level="2"] { background: color-mix(in srgb, var(--accent) 42%, var(--bg-raised)); }
+.practice-activity-calendar-day[data-level="3"] { background: color-mix(in srgb, var(--accent) 66%, var(--bg-raised)); }
+.practice-activity-calendar-day[data-level="4"] { background: var(--accent); }
+.practice-activity-calendar-day[data-today="true"] { box-shadow: 0 0 0 2px var(--text); }
+.practice-activity-calendar-day[data-future="true"] { opacity: .42; }
+.practice-activity-calendar-day:focus-visible { box-shadow: 0 0 0 3px var(--accent); }
+.practice-activity-calendar-day:hover { border-color: var(--accent); }
+
+@media (max-width: 760px) {
+  .practice-activity-calendar-header { grid-template-columns: 1fr; }
+  .practice-activity-calendar-stats { min-width: 0; }
+  .practice-activity-calendar-grid { grid-template-columns: 27px minmax(520px, 1fr); }
+}
+
+@media (forced-colors: active) {
+  .practice-activity-calendar,
+  .practice-activity-calendar-stats,
+  .practice-activity-calendar-stat,
+  .practice-activity-calendar-empty { border-color: CanvasText; background: Canvas; }
+  .practice-activity-calendar-day,
+  .practice-activity-calendar-legend-swatch { border-color: CanvasText; background: Canvas; }
+  .practice-activity-calendar-day[data-level="1"],
+  .practice-activity-calendar-day[data-level="2"],
+  .practice-activity-calendar-day[data-level="3"],
+  .practice-activity-calendar-day[data-level="4"] { background: Highlight; }
+}
 .launcher-trigger {
   font-size: 13px;
   font-weight: 800;
@@ -2030,6 +2178,10 @@ kbd {
   margin-left: 8px;
   color: var(--muted);
   font-size: 11px;
+}
+.python-verification-results .failure-repair-link {
+  margin-top: 10px;
+  align-self: flex-start;
 }
 .python-verification-results code {
   display: block;
@@ -3311,6 +3463,17 @@ kbd {
   margin: 16px 0 0;
   color: var(--muted);
   font-size: 11px;
+}
+.failure-repair-link {
+  margin: 10px 0 2px;
+  border-color: color-mix(in srgb, var(--warning) 62%, var(--border));
+  color: var(--warning);
+}
+.failure-repair-link:hover:not(:disabled),
+.failure-repair-link:focus-visible {
+  border-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, var(--panel));
+  color: var(--text);
 }
 .result-stats {
   display: grid;

@@ -52,6 +52,13 @@ test("solve workbench ships accessible split and mobile panel controls", async (
   assert.match(submissionInspector, /"compile-error": "Compile error"/);
   assert.match(product, /\| "compile-error"/);
   assert.match(consoleUi, /Unshown judge details stay out of the interface/);
+  assert.match(consoleUi, /onOpenAttemptClosure\?: \(submissionId: string\) => void/);
+  assert.match(consoleUi, /repairableSubmission/);
+  assert.match(consoleUi, /verificationState\.submissionId/);
+  assert.match(consoleUi, /Open repair plan/);
+  assert.match(app, /openAttemptClosureForSubmission/);
+  assert.match(app, /onOpenAttemptClosure=\{/);
+  assert.match(css, /\.python-verification-results \.failure-repair-link/);
   assert.doesNotMatch(consoleUi, /<pre>\{submission\.source\}<\/pre>/);
   assert.match(consoleUi, /availableTabs\.includes\(consoleTab\)/);
 

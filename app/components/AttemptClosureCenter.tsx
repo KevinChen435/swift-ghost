@@ -167,6 +167,16 @@ function buildAttemptClosureRepairPlan(
       verificationNotes: `Run a hand trace with duplicates, empties, extremes, or the shortest valid input. Expected invariant: ${invariant}`,
     };
   }
+  if (outcome === "compile-error") {
+    return {
+      ...base,
+      summary: `Compile repair: make the submitted source match the required contract before tuning the algorithm.`,
+      tags: ["syntax-fluency", "api", "verification"],
+      firstWrongDecision: `I submitted a source shape the judge could not compile. The first contract or syntax decision to fix is: `,
+      verificationNotes: `Check the function name, parameter labels and types, return type, imports, optionals, and top-level syntax before tracing logic.`,
+      teachBack: `A compiling entrypoint is part of correctness: ${languageNote} I will verify the exact callable shape first, then trace the algorithm.`,
+    };
+  }
   if (outcome === "runtime-error") {
     return {
       ...base,
