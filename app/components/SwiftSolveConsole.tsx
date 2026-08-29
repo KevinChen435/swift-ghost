@@ -316,6 +316,10 @@ function verdictLabel(verdict: CloudTrustedSubmission["verdict"]) {
     : "Pending";
 }
 
+function customExecutionLabel(verdict: CloudTrustedCustomRun["verdict"]) {
+  return verdict === "accepted" ? "Execution complete" : verdictLabel(verdict);
+}
+
 function exampleStatusFor(
   exampleRun: CloudTrustedExampleRun | null,
   sampleId: string,
@@ -963,7 +967,7 @@ export function SwiftSolveConsole({
               ) : customRunVisible && customRun?.status === "settled" && customRun.result ? (
                 <div className="swift-custom-result" role="status" aria-live="polite">
                   <div className="swift-custom-result-head">
-                    <strong>{customRun.verdict === "accepted" ? "Custom case finished" : verdictLabel(customRun.verdict)}</strong>
+                    <strong>{customExecutionLabel(customRun.verdict)}</strong>
                     <span>{customRun.result.passed}/{customRun.result.total} case{customRun.result.total === 1 ? "" : "s"} produced output</span>
                   </div>
                   {customRun.result.cases.map((result) => (
@@ -990,7 +994,7 @@ export function SwiftSolveConsole({
                     {customWorkspace.history.map((entry) => (
                       <article key={entry.id}>
                         <div>
-                          <strong>{entry.verdict === "accepted" ? "Finished" : verdictLabel(entry.verdict)}</strong>
+                          <strong>{customExecutionLabel(entry.verdict)}</strong>
                           <span>{entry.passed}/{entry.total} case{entry.total === 1 ? "" : "s"} produced output</span>
                         </div>
                         <small>

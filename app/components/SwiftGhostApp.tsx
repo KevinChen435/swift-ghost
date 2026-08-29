@@ -9540,6 +9540,19 @@ function compatibleSubmissionRecord(
   };
 }
 
+function snapshotSwiftCustomValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(snapshotSwiftCustomValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nested]) => [
+        key,
+        snapshotSwiftCustomValue(nested),
+      ]),
+    );
+  }
+  return value;
+}
+
 type PracticeProps = {
   state: AppState;
   items: PracticeItem[];
@@ -10360,7 +10373,14 @@ function PracticeView(props: PracticeProps) {
       assignmentId: swiftAssignment.id,
       clientRunId: `custom:${props.item.itemId}:${makeId()}`,
       source: runnerSource,
-      cases: input.cases,
+      // Snapshot the complete request before the first network call. The
+      // custom editor can continue changing its draft while the server keeps
+      // this run pending; retries must replay the exact idempotency envelope,
+      // not whatever values happen to be in the editor later.
+      cases: input.cases.map((testCase) => ({
+        ...testCase,
+        args: testCase.args.map(snapshotSwiftCustomValue),
+      })),
     };
     activeSwiftCustomRequest.current = request;
     setSwiftCustomAction("running");
@@ -10385,7 +10405,7 @@ function PracticeView(props: PracticeProps) {
           // local pending envelope and the same clientRunId so the polling
           // effect can ask the server to retry that exact saved run.
           setSwiftCustomRun({
-            id: `pending-${request.clientRunId}`,
+            id: request.clientRunId,
             assignmentId: request.assignmentId,
             clientRunId: request.clientRunId,
             status: "pending",
