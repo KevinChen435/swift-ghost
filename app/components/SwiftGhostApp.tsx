@@ -25,6 +25,7 @@ import { AttemptForensics } from "./AttemptForensics";
 import { LearningAnalytics } from "./LearningAnalytics";
 import { FluencyClinic } from "./FluencyClinic";
 import { DailyCoach } from "./DailyCoach";
+import { ReentryOnboarding } from "./ReentryOnboarding";
 import {
   StudyPlans,
   type StudyCollectionInput,
@@ -136,6 +137,11 @@ import {
   type SessionStageMode,
   type SessionTrack,
 } from "../lib/sessions.mjs";
+import {
+  buildStarterSessionIntent,
+  shouldShowOnboarding,
+  type OnboardingState,
+} from "../lib/onboarding.mjs";
 import {
   buildSessionReplayQueue,
   type SessionReplayMode,
@@ -1025,6 +1031,44 @@ export default function SwiftGhostApp() {
   const curriculumItems = useMemo(
     () => allItems.filter((candidate) => !candidate.transfer),
     [allItems],
+  );
+  const showOnboarding = useMemo(
+    () =>
+      view === "today" &&
+      shouldShowOnboarding({
+        ready,
+        onboarding: state.settings.onboarding,
+        attempts: state.attempts,
+        draft: state.draft,
+        activeSession: state.activeSession,
+        interviewStudio: state.interviewStudio,
+        isReturningUser: Boolean(
+          state.assessments.activeRunId ||
+            state.virtualRoundWorkspace.active?.status === "active" ||
+            state.patternLearning.activeSprint?.status === "active" ||
+            state.testDesign.activeSprint?.status === "active" ||
+            state.conceptTransfer.activeAttemptId ||
+            state.runManifests.manifests.some(
+              (manifest) => manifest.status === "active",
+            ),
+        ),
+        hasDeepLink: view !== "today",
+      }),
+    [
+      ready,
+      state.settings.onboarding,
+      state.attempts,
+      state.draft,
+      state.activeSession,
+      state.interviewStudio,
+      state.assessments.activeRunId,
+      state.virtualRoundWorkspace.active,
+      state.patternLearning.activeSprint,
+      state.testDesign.activeSprint,
+      state.conceptTransfer.activeAttemptId,
+      state.runManifests.manifests,
+      view,
+    ],
   );
   const transferSubmissionEvidence = useMemo(
     () => submissionEvidence(state),
@@ -7190,6 +7234,106 @@ export default function SwiftGhostApp() {
     startInterviewStudio(format, mode, 45, planId);
   }
 
+  function startOnboarding(next: OnboardingState) {
+    const normalized = {
+      ...next,
+      status: "started" as const,
+    };
+    const intent = buildStarterSessionIntent(normalized);
+    const starterEntries = buildOnboardingStarterEntries(intent);
+    mutateState((current) => ({
+      ...current,
+      settings: {
+        ...current.settings,
+        preferredLanguage: intent.profile.preferredLanguage,
+        dailyGoalMinutes: intent.dailyMinutes,
+        onboarding: normalized,
+      },
+    }));
+    startSession(intent, starterEntries);
+  }
+
+  function buildOnboardingStarterEntries(
+    intent: ReturnType<typeof buildStarterSessionIntent>,
+  ): SessionQueueEntry[] {
+    const rank = (left: PracticeItem, right: PracticeItem) => {
+      const leftStats = itemStats(state, left.itemId);
+      const rightStats = itemStats(state, right.itemId);
+      const leftDue = isReviewDue(state, left.itemId) ? 0 : 1;
+      const rightDue = isReviewDue(state, right.itemId) ? 0 : 1;
+      return (
+        leftDue - rightDue ||
+        leftStats.completions - rightStats.completions ||
+        left.itemId.localeCompare(right.itemId)
+      );
+    };
+    const python = curriculumItems
+      .filter(
+        (candidate) =>
+          !candidate.transfer &&
+          candidate.track === "interview" &&
+          candidate.language === "python",
+      )
+      .sort(rank);
+    const native = curriculumItems
+      .filter(
+        (candidate) =>
+          !candidate.transfer &&
+          candidate.track === "ios" &&
+          candidate.language === "swift",
+      )
+      .sort(rank);
+    const selected: PracticeItem[] = [];
+    if (intent.focus === "python") selected.push(...python);
+    else if (intent.focus === "ios") selected.push(...native);
+    else {
+      // A balanced first pass always contains both lanes when both are
+      // available, instead of asking the generic random queue to guess.
+      for (let index = 0; selected.length < intent.count; index += 1) {
+        if (python[index]) selected.push(python[index]);
+        if (native[index] && selected.length < intent.count)
+          selected.push(native[index]);
+        if (!python[index] && !native[index]) break;
+      }
+    }
+    return selected.slice(0, intent.count).map((candidate) => {
+      const practiceKind =
+        candidate.language === "swift" && canSolveItem(candidate)
+          ? "solving"
+          : supportsConceptPractice(candidate)
+            ? "concept"
+            : "typing";
+      return {
+        itemId: candidate.itemId,
+        itemRevision: candidate.contentRevision,
+        stage:
+          practiceKind === "solving"
+            ? 5
+            : practiceKind === "concept"
+              ? 5
+              : recommendedStage(state, candidate),
+        status: "pending",
+        practiceKind,
+        rationale: "First re-entry rep · current evidence sets the order",
+        lane: candidate.track === "ios" ? "ios" : "python",
+      };
+    });
+  }
+
+  function skipOnboarding() {
+    mutateState((current) => ({
+      ...current,
+      settings: {
+        ...current.settings,
+        onboarding: {
+          ...current.settings.onboarding,
+          status: "skipped",
+        },
+      },
+    }));
+    setToast("Setup saved · you can start a session whenever you’re ready");
+  }
+
   function startSession(
     options: SessionBuildOptions,
     plannedEntries?: SessionQueueEntry[],
@@ -8758,6 +8902,8 @@ export default function SwiftGhostApp() {
           fluencyClinic={fluencyClinicModel}
           weaknessCase={weaknessModel.nextCase}
           weaknessActiveCount={weaknessModel.summary.active}
+          showOnboarding={showOnboarding}
+          onboarding={state.settings.onboarding}
           onOpen={openItem}
           onResumeDraft={resumeSavedDraft}
           onReview={() => randomItem("due")}
@@ -8797,6 +8943,8 @@ export default function SwiftGhostApp() {
               entries,
             )
           }
+          onStartOnboarding={startOnboarding}
+          onSkipOnboarding={skipOnboarding}
           onResumeSession={resumeSession}
         />
       )}
@@ -9367,6 +9515,8 @@ function TodayView({
   fluencyClinic,
   weaknessCase,
   weaknessActiveCount,
+  showOnboarding,
+  onboarding,
   onOpen,
   onResumeDraft,
   onReview,
@@ -9382,6 +9532,8 @@ function TodayView({
   onTestDesign,
   onConceptTransfer,
   onStartCoach,
+  onStartOnboarding,
+  onSkipOnboarding,
   onResumeSession,
 }: {
   ready: boolean;
@@ -9394,6 +9546,8 @@ function TodayView({
   fluencyClinic: ReturnType<typeof deriveFluencyClinicModel>;
   weaknessCase: WeaknessCase | null;
   weaknessActiveCount: number;
+  showOnboarding: boolean;
+  onboarding: OnboardingState;
   onOpen: (
     item: PracticeItem,
     stage?: number,
@@ -9418,6 +9572,8 @@ function TodayView({
     entries: SessionQueueEntry[],
     budgetMinutes: number,
   ) => void;
+  onStartOnboarding: (next: OnboardingState) => void;
+  onSkipOnboarding: () => void;
   onResumeSession: () => void;
 }) {
   const todayDate = ready ? new Date() : new Date(2000, 0, 1, 12);
@@ -9544,6 +9700,13 @@ function TodayView({
         title="Build recall, one clean pass at a time."
         copy="Reactivate Python for interviews, keep Swift and iOS sharp, and return to each solution on a spaced schedule."
       />
+      {showOnboarding && (
+        <ReentryOnboarding
+          initial={onboarding}
+          onStart={onStartOnboarding}
+          onSkip={onSkipOnboarding}
+        />
+      )}
       {activePlan && (
         <section className="today-study-plan" aria-label="Active study plan">
           <div>

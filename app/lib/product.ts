@@ -72,6 +72,10 @@ import type {
   SessionTrack,
 } from "./sessions.mjs";
 import {
+  normalizeOnboardingState,
+  type OnboardingState,
+} from "./onboarding.mjs";
+import {
   createMockProblemWorkspace,
   normalizeMockDebrief,
   normalizeMockProblemWorkspace,
@@ -250,6 +254,7 @@ export type Settings = {
   showKeyboard: boolean;
   dailyGoalMinutes: number;
   preferredLanguage: CodeLanguage;
+  onboarding: OnboardingState;
 };
 
 export type AttemptRecord = {
@@ -482,6 +487,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showKeyboard: false,
   dailyGoalMinutes: 20,
   preferredLanguage: "python",
+  onboarding: normalizeOnboardingState(),
 };
 
 export const EMPTY_STATE: AppState = {
@@ -617,6 +623,7 @@ function normalizeSettings(value: unknown): Settings {
       ),
     ),
     preferredLanguage: raw.preferredLanguage === "swift" ? "swift" : "python",
+    onboarding: normalizeOnboardingState(raw.onboarding),
   };
 }
 
