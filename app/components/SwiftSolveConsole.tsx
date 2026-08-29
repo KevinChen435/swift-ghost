@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   CloudTrustedAssignment,
   CloudTrustedCustomCaseInput,
@@ -68,8 +68,29 @@ type SwiftCustomDraft = {
   raw: string;
 };
 
+type SwiftCustomCaseDraft = SwiftCustomDraft & {
+  id: string;
+};
+
+type SwiftCustomHistoryEntry = {
+  id: string;
+  settledAt: string;
+  verdict: CloudTrustedCustomRun["verdict"];
+  passed: number;
+  total: number;
+  caseNames: string[];
+};
+
+type SwiftCustomWorkspace = {
+  cases: SwiftCustomCaseDraft[];
+  selectedId: string;
+  history: SwiftCustomHistoryEntry[];
+};
+
 const SWIFT_CUSTOM_CASE_STORAGE_PREFIX = "swift-ghost:swift-custom-case:v1:";
 const MAX_CUSTOM_DRAFT_CHARACTERS = 24_000;
+const MAX_CUSTOM_CASES = 6;
+const MAX_CUSTOM_HISTORY = 5;
 
 function swiftTypeLabel(type: string) {
   return type || "JSON value";
@@ -167,6 +188,101 @@ function initialSwiftCustomDraft(
   } satisfies SwiftCustomDraft;
 }
 
+function initialSwiftCustomWorkspace(
+  challenge: NonNullable<CloudTrustedAssignment["challenge"]>,
+): SwiftCustomWorkspace {
+  return {
+    cases: [{ id: "case-1", ...initialSwiftCustomDraft(challenge) }],
+    selectedId: "case-1",
+    history: [],
+  };
+}
+
+function normalizedCustomCase(
+  candidate: Partial<SwiftCustomCaseDraft> | undefined,
+  fallback: SwiftCustomCaseDraft,
+  id: string,
+  parameterCount: number,
+): SwiftCustomCaseDraft {
+  const fields = Array.isArray(candidate?.fields)
+    ? candidate.fields
+        .filter((field): field is string => typeof field === "string")
+        .slice(0, parameterCount)
+    : fallback.fields;
+  return {
+    id,
+    mode: candidate?.mode === "raw" ? "raw" : "structured",
+    name: typeof candidate?.name === "string" && candidate.name.trim()
+      ? candidate.name.slice(0, 120)
+      : fallback.name,
+    fields: fields.length === parameterCount ? fields : fallback.fields,
+    raw: typeof candidate?.raw === "string"
+      ? candidate.raw.slice(0, MAX_CUSTOM_DRAFT_CHARACTERS)
+      : fallback.raw,
+  };
+}
+
+function normalizeCustomWorkspace(
+  value: unknown,
+  challenge: NonNullable<CloudTrustedAssignment["challenge"]>,
+): SwiftCustomWorkspace {
+  const fallback = initialSwiftCustomWorkspace(challenge);
+  const parameterCount = challenge.entrypoint.parameters?.length ?? 0;
+  if (!value || typeof value !== "object") return fallback;
+  const parsed = value as Partial<SwiftCustomWorkspace> & Partial<SwiftCustomDraft>;
+  if (!Array.isArray(parsed.cases)) {
+    // Migrate the original one-case local draft without discarding it.
+    return {
+      ...fallback,
+      cases: [{
+        ...normalizedCustomCase(parsed, fallback.cases[0], "case-1", parameterCount),
+      }],
+    };
+  }
+  const cases: SwiftCustomCaseDraft[] = [];
+  const used = new Set<string>();
+  parsed.cases.slice(0, MAX_CUSTOM_CASES).forEach((candidate, index) => {
+    if (!candidate || typeof candidate !== "object") return;
+    const requestedId = typeof candidate.id === "string" && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,40}$/.test(candidate.id)
+      ? candidate.id
+      : `case-${index + 1}`;
+    let id = requestedId;
+    let suffix = 2;
+    while (used.has(id)) id = `${requestedId}-${suffix++}`;
+    used.add(id);
+    const defaultCase = fallback.cases[0];
+    cases.push(normalizedCustomCase(candidate, defaultCase, id, parameterCount));
+  });
+  if (!cases.length) return fallback;
+  const selectedId = typeof parsed.selectedId === "string" && cases.some((item) => item.id === parsed.selectedId)
+    ? parsed.selectedId
+    : cases[0].id;
+  const history = Array.isArray(parsed.history)
+    ? parsed.history
+        .filter((entry): entry is SwiftCustomHistoryEntry => Boolean(
+          entry && typeof entry === "object" &&
+          typeof entry.id === "string" &&
+          typeof entry.settledAt === "string" &&
+          Array.isArray(entry.caseNames) &&
+          typeof entry.passed === "number" &&
+          typeof entry.total === "number",
+        ))
+        .slice(0, MAX_CUSTOM_HISTORY)
+        .map((entry) => ({
+          id: entry.id.slice(0, 160),
+          settledAt: entry.settledAt.slice(0, 64),
+          verdict: entry.verdict ?? null,
+          passed: Math.max(0, Math.floor(entry.passed)),
+          total: Math.max(0, Math.floor(entry.total)),
+          caseNames: entry.caseNames
+            .filter((name): name is string => typeof name === "string")
+            .slice(0, MAX_CUSTOM_CASES)
+            .map((name) => name.slice(0, 120)),
+        }))
+    : [];
+  return { cases, selectedId, history };
+}
+
 function valueLabel(value: unknown) {
   try {
     return JSON.stringify(value);
@@ -260,64 +376,87 @@ export function SwiftSolveConsole({
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [sampleTrace, setSampleTrace] = useState<Record<string, SampleTraceState>>({});
   const [notesByChallenge, setNotesByChallenge] = useState<Record<string, SwiftPreflightNotes>>({});
-  const [customDraft, setCustomDraft] = useState<SwiftCustomDraft | null>(null);
+  const [customWorkspace, setCustomWorkspace] = useState<SwiftCustomWorkspace | null>(null);
   const [customError, setCustomError] = useState<string | null>(null);
   const [customRunVisible, setCustomRunVisible] = useState(false);
+  const recordedCustomRunIds = useRef(new Set<string>());
+  const hydratedCustomChallengeKey = useRef<string | null>(null);
+  const customCases = customWorkspace?.cases ?? [];
+  const customDraft = customWorkspace?.cases.find(
+    (customCase) => customCase.id === customWorkspace.selectedId,
+  ) ?? customCases[0] ?? null;
   const notes = notesByChallenge[challengeKey] ?? EMPTY_NOTES;
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       if (!challenge) {
-        setCustomDraft(null);
+        hydratedCustomChallengeKey.current = null;
+        setCustomWorkspace(null);
         setCustomRunVisible(false);
         return;
       }
-      const fallback = initialSwiftCustomDraft(challenge);
       try {
         const stored = window.localStorage.getItem(
           `${SWIFT_CUSTOM_CASE_STORAGE_PREFIX}${challenge.key}`,
         );
-        if (!stored) {
-          setCustomDraft(fallback);
-          setCustomError(null);
-          setCustomRunVisible(false);
-          return;
-        }
-        const parsed = JSON.parse(stored) as Partial<SwiftCustomDraft>;
-        const mode = parsed.mode === "raw" ? "raw" : "structured";
-        const fields = Array.isArray(parsed.fields)
-          ? parsed.fields.filter((field): field is string => typeof field === "string").slice(0, 12)
-          : fallback.fields;
-        setCustomDraft({
-          mode,
-          name: typeof parsed.name === "string" && parsed.name.trim()
-            ? parsed.name.slice(0, 120)
-            : fallback.name,
-          fields: fields.length === fallback.fields.length ? fields : fallback.fields,
-          raw: typeof parsed.raw === "string"
-            ? parsed.raw.slice(0, MAX_CUSTOM_DRAFT_CHARACTERS)
-            : fallback.raw,
-        });
+        setCustomWorkspace(
+          normalizeCustomWorkspace(stored ? JSON.parse(stored) : null, challenge),
+        );
       } catch {
-        setCustomDraft(fallback);
+        setCustomWorkspace(initialSwiftCustomWorkspace(challenge));
       }
+      hydratedCustomChallengeKey.current = challenge.key;
       setCustomError(null);
       setCustomRunVisible(false);
+      recordedCustomRunIds.current.clear();
     }, 0);
     return () => window.clearTimeout(timer);
   }, [challenge, challengeKey]);
 
   useEffect(() => {
-    if (!challenge || !customDraft) return;
+    if (
+      !challenge ||
+      !customWorkspace ||
+      hydratedCustomChallengeKey.current !== challenge.key
+    ) return;
     try {
       window.localStorage.setItem(
         `${SWIFT_CUSTOM_CASE_STORAGE_PREFIX}${challenge.key}`,
-        JSON.stringify(customDraft),
+        JSON.stringify(customWorkspace),
       );
     } catch {
       // Local persistence is best-effort; the editor remains usable if storage is blocked.
     }
-  }, [challenge, customDraft]);
+  }, [challenge, customWorkspace]);
+
+  useEffect(() => {
+    if (
+      !challenge ||
+      !assignment ||
+      !customWorkspace ||
+      !customRunVisible ||
+      customRun?.status !== "settled" ||
+      !customRun.result ||
+      customRun.assignmentId !== assignment.id ||
+      recordedCustomRunIds.current.has(customRun.clientRunId)
+    ) return;
+    recordedCustomRunIds.current.add(customRun.clientRunId);
+    const historyEntry: SwiftCustomHistoryEntry = {
+      id: customRun.clientRunId,
+      settledAt: customRun.settledAt ?? new Date().toISOString(),
+      verdict: customRun.verdict,
+      passed: customRun.result.passed,
+      total: customRun.result.total,
+      caseNames: customRun.result.cases.map((result) => result.name),
+    };
+    setCustomWorkspace((current) => current ? {
+      ...current,
+      history: [
+        historyEntry,
+        ...current.history.filter((entry) => entry.id !== historyEntry.id),
+      ].slice(0, MAX_CUSTOM_HISTORY),
+    } : current);
+  }, [assignment, challenge, customRun, customRunVisible, customWorkspace]);
 
   const entrypointSignature = useMemo(
     () => formatSwiftEntrypoint(challenge?.entrypoint),
@@ -381,19 +520,90 @@ export function SwiftSolveConsole({
   function updateCustomDraft(patch: Partial<SwiftCustomDraft>) {
     setCustomRunVisible(false);
     setCustomError(null);
-    setCustomDraft((current) => current ? { ...current, ...patch } : current);
+    setCustomWorkspace((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        cases: current.cases.map((customCase) =>
+          customCase.id === current.selectedId
+            ? { ...customCase, ...patch }
+            : customCase,
+        ),
+      };
+    });
   }
 
-  function runCustomCase() {
-    if (!customDraft || !challenge?.entrypoint.parameters) return;
+  function selectCustomCase(id: string) {
+    setCustomWorkspace((current) => current && current.cases.some((customCase) => customCase.id === id)
+      ? { ...current, selectedId: id }
+      : current);
+    setCustomError(null);
+  }
+
+  function addCustomCase() {
+    if (!challenge || !customWorkspace || customWorkspace.cases.length >= MAX_CUSTOM_CASES) return;
+    const used = new Set(customWorkspace.cases.map((customCase) => customCase.id));
+    let index = customWorkspace.cases.length + 1;
+    let id = `case-${index}`;
+    while (used.has(id)) id = `case-${++index}`;
+    const nextCase: SwiftCustomCaseDraft = {
+      id,
+      ...initialSwiftCustomDraft(challenge),
+      name: `Case ${customWorkspace.cases.length + 1}`,
+    };
+    setCustomWorkspace({
+      ...customWorkspace,
+      cases: [...customWorkspace.cases, nextCase],
+      selectedId: id,
+    });
+    setCustomRunVisible(false);
+    setCustomError(null);
+  }
+
+  function duplicateCustomCase() {
+    if (!customWorkspace || !customDraft || customWorkspace.cases.length >= MAX_CUSTOM_CASES) return;
+    const used = new Set(customWorkspace.cases.map((customCase) => customCase.id));
+    let index = customWorkspace.cases.length + 1;
+    let id = `case-${index}`;
+    while (used.has(id)) id = `case-${++index}`;
+    const nextCase: SwiftCustomCaseDraft = {
+      ...customDraft,
+      id,
+      name: `${customDraft.name.trim() || "Case"} copy`.slice(0, 120),
+      fields: [...customDraft.fields],
+    };
+    setCustomWorkspace({
+      ...customWorkspace,
+      cases: [...customWorkspace.cases, nextCase],
+      selectedId: id,
+    });
+    setCustomRunVisible(false);
+    setCustomError(null);
+  }
+
+  function deleteCustomCase() {
+    if (!customWorkspace || !customDraft || customWorkspace.cases.length <= 1) return;
+    const nextCases = customWorkspace.cases.filter((customCase) => customCase.id !== customDraft.id);
+    const nextSelected = nextCases[Math.max(0, customWorkspace.cases.findIndex((customCase) => customCase.id === customDraft.id) - 1)] ?? nextCases[0];
+    setCustomWorkspace({
+      ...customWorkspace,
+      cases: nextCases,
+      selectedId: nextSelected.id,
+    });
+    setCustomRunVisible(false);
+    setCustomError(null);
+  }
+
+  function runCustomCases() {
+    if (!customWorkspace || !customCases.length || !challenge?.entrypoint.parameters) return;
     try {
-      const args = draftArgs(customDraft, challenge.entrypoint.parameters);
+      const cases = customCases.map((customCase, index) => ({
+        id: customCase.id,
+        name: customCase.name.trim().slice(0, 120) || `Custom case ${index + 1}`,
+        args: draftArgs(customCase, challenge.entrypoint.parameters!),
+      }));
       onRunCustom({
-        cases: [{
-          id: "custom-1",
-          name: customDraft.name.trim().slice(0, 120) || "My case",
-          args,
-        }],
+        cases,
       });
       setCustomError(null);
       setCustomRunVisible(true);
@@ -605,6 +815,34 @@ export function SwiftSolveConsole({
                 </div>
                 <span className="swift-custom-practice-badge">Practice only</span>
               </header>
+              <div className="swift-custom-case-tabs" aria-label="Custom Swift cases">
+                <div className="swift-custom-case-tab-list" role="tablist" aria-label="Custom cases">
+                  {customCases.map((customCase, index) => (
+                    <button
+                      key={customCase.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={customCase.id === customWorkspace?.selectedId}
+                      className={customCase.id === customWorkspace?.selectedId ? "is-active" : undefined}
+                      onClick={() => selectCustomCase(customCase.id)}
+                    >
+                      <span>{index + 1}</span>
+                      {customCase.name.trim() || `Case ${index + 1}`}
+                    </button>
+                  ))}
+                </div>
+                <div className="swift-custom-case-controls">
+                  <small>{customCases.length}/{MAX_CUSTOM_CASES} cases</small>
+                  <button
+                    type="button"
+                    className="swift-custom-small-button"
+                    disabled={customCases.length >= MAX_CUSTOM_CASES}
+                    onClick={addCustomCase}
+                  >
+                    + Add case
+                  </button>
+                </div>
+              </div>
               <div className="swift-custom-toolbar">
                 <label>
                   Case name
@@ -632,6 +870,24 @@ export function SwiftSolveConsole({
                     onClick={() => updateCustomDraft({ mode: "raw" })}
                   >
                     Raw JSON
+                  </button>
+                </div>
+                <div className="swift-custom-case-actions" aria-label="Selected custom case actions">
+                  <button
+                    type="button"
+                    className="swift-custom-small-button"
+                    disabled={customCases.length >= MAX_CUSTOM_CASES}
+                    onClick={duplicateCustomCase}
+                  >
+                    Duplicate
+                  </button>
+                  <button
+                    type="button"
+                    className="swift-custom-small-button danger"
+                    disabled={customCases.length <= 1}
+                    onClick={deleteCustomCase}
+                  >
+                    Delete
                   </button>
                 </div>
               </div>
@@ -672,13 +928,13 @@ export function SwiftSolveConsole({
                   className="outline-button"
                   type="button"
                   disabled={!canRunCustom}
-                  onClick={runCustomCase}
+                  onClick={runCustomCases}
                 >
                   {customAction === "running" || customRun?.status === "pending"
-                    ? "Running custom case…"
-                    : "Run custom case"}
+                    ? `Running ${customCases.length} custom case${customCases.length === 1 ? "" : "s"}…`
+                    : `Run ${customCases.length} custom case${customCases.length === 1 ? "" : "s"}`}
                 </button>
-                <small>Swift {challenge.runtime} · source leaves this tab only for the isolated run.</small>
+                <small>{customCases.length} case{customCases.length === 1 ? "" : "s"} · Swift {challenge.runtime} · source leaves this tab only for the isolated run.</small>
               </div>
               {customError ? <p className="swift-custom-error" role="alert">{customError}</p> : null}
               {customRunVisible && customRun?.status === "pending" ? (
@@ -702,6 +958,33 @@ export function SwiftSolveConsole({
                   ))}
                   {customRun.result.diagnostic ? <pre className="swift-custom-diagnostic">{customRun.result.diagnostic}</pre> : null}
                 </div>
+              ) : null}
+              {customWorkspace?.history.length ? (
+                <section className="swift-custom-history" aria-label="Recent custom rehearsals">
+                  <header>
+                    <div>
+                      <small>Recent rehearsals</small>
+                      <strong>Local run history</strong>
+                    </div>
+                    <span>Practice-only summaries</span>
+                  </header>
+                  <div className="swift-custom-history-list">
+                    {customWorkspace.history.map((entry) => (
+                      <article key={entry.id}>
+                        <div>
+                          <strong>{entry.verdict === "accepted" ? "Finished" : verdictLabel(entry.verdict)}</strong>
+                          <span>{entry.passed}/{entry.total} case{entry.total === 1 ? "" : "s"} produced output</span>
+                        </div>
+                        <small>
+                          {entry.caseNames.slice(0, 3).join(", ") || "Custom cases"}
+                          {entry.caseNames.length > 3 ? ` +${entry.caseNames.length - 3}` : ""}
+                          {" · "}
+                          {new Date(entry.settledAt).toLocaleString()}
+                        </small>
+                      </article>
+                    ))}
+                  </div>
+                </section>
               ) : null}
             </section>
           ) : null}

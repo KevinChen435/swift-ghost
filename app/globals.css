@@ -10614,6 +10614,93 @@ kbd {
   white-space: nowrap;
 }
 
+.swift-custom-case-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bg) 68%, transparent);
+}
+
+.swift-custom-case-tab-list,
+.swift-custom-case-controls,
+.swift-custom-case-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.swift-custom-case-tab-list {
+  flex: 1 1 320px;
+}
+
+.swift-custom-case-tab-list button,
+.swift-custom-small-button {
+  min-height: 30px;
+  padding: 6px 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--muted);
+  font: 700 0.59rem/1.2 var(--font-code);
+  letter-spacing: 0.02em;
+}
+
+.swift-custom-case-tab-list button {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.swift-custom-case-tab-list button > span {
+  display: inline-flex;
+  width: 17px;
+  height: 17px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--bg-inset);
+  color: var(--faint);
+  font-size: 0.55rem;
+}
+
+.swift-custom-case-tab-list button.is-active,
+.swift-custom-small-button:not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--border-soft));
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  color: var(--text);
+}
+
+.swift-custom-case-controls {
+  justify-content: flex-end;
+}
+
+.swift-custom-case-controls > small {
+  color: var(--faint);
+  font: 600 0.59rem/1.3 var(--font-code);
+}
+
+.swift-custom-small-button.danger:not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--danger) 60%, var(--border-soft));
+  background: color-mix(in srgb, var(--danger) 9%, var(--bg));
+  color: var(--danger);
+}
+
+.swift-custom-small-button:disabled,
+.swift-custom-case-tab-list button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .swift-custom-toolbar {
   align-items: end;
 }
@@ -10785,6 +10872,63 @@ kbd {
 
 .swift-custom-result.pending strong {
   color: var(--warning);
+}
+
+.swift-custom-history {
+  display: grid;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.swift-custom-history > header,
+.swift-custom-history article > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.swift-custom-history > header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.swift-custom-history > header small,
+.swift-custom-history > header span,
+.swift-custom-history article > small {
+  color: var(--faint);
+  font: 600 0.59rem/1.4 var(--font-code);
+}
+
+.swift-custom-history > header strong {
+  color: var(--text);
+  font-size: 0.72rem;
+}
+
+.swift-custom-history-list {
+  display: grid;
+  gap: 6px;
+}
+
+.swift-custom-history article {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  background: var(--bg);
+}
+
+.swift-custom-history article strong {
+  color: var(--text);
+  font: 700 0.65rem/1.35 var(--font-code);
+}
+
+.swift-custom-history article > div span {
+  color: var(--muted);
+  font: 600 0.61rem/1.35 var(--font-code);
 }
 
 .swift-solve-verdict {
