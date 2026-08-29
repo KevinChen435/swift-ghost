@@ -999,6 +999,11 @@ textarea:focus-visible {
   color: var(--accent);
   font-size: 20px;
 }
+.launcher-trigger {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
 
 .practice-layout {
   display: grid;
@@ -3182,6 +3187,74 @@ kbd {
   line-height: 1.6;
   max-width: 390px;
   margin: 0 auto;
+}
+.launcher-dialog {
+  width: min(960px, 100%);
+  text-align: left;
+}
+.launcher-dialog > p {
+  max-width: 720px;
+  margin: 8px 0 0;
+}
+.launcher-search {
+  margin: 18px 0 10px;
+  width: 100%;
+}
+.launcher-search input {
+  width: 100%;
+}
+.launcher-hints {
+  color: var(--faint);
+  font: 700 8px var(--font-code);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.launcher-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+.launcher-action {
+  min-height: 104px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-raised) 88%, transparent);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.launcher-action:hover,
+.launcher-action:focus-visible {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 50%, var(--panel));
+}
+.launcher-action strong {
+  font-size: 14px;
+  line-height: 1.25;
+}
+.launcher-action small {
+  color: var(--muted);
+  font: 8px/1.5 var(--font-code);
+}
+.launcher-action kbd {
+  margin-top: auto;
+  padding: 3px 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--accent);
+  font: 700 7px var(--font-code);
+}
+.launcher-empty {
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: 11px;
 }
 .result-stats {
   display: grid;

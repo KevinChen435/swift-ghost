@@ -19,12 +19,12 @@ test("session entry navigation reconciles the old draft before moving the cursor
   assert.match(openItem, /const abandoned = resuming \? current : recordAbandon\(current\)/);
   assert.ok(
     openItem.indexOf("const abandoned =") <
-      openItem.indexOf("currentIndex: sessionEntryIndex"),
+      openItem.indexOf("currentIndex: requestedSessionEntry.index"),
     "the old draft must be recorded before the session cursor changes",
   );
   assert.match(openItem, /activeSession\.id === sessionId/);
   assert.match(openItem, /sessionEntryIndex < activeSession\.entries\.length/);
-  assert.match(openItem, /currentIndex: sessionEntryIndex/);
+  assert.match(openItem, /currentIndex: requestedSessionEntry\.index/);
   assert.match(openItem, /mockWorkspaceSource/);
 });
 

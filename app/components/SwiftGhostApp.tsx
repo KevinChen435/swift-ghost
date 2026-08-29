@@ -136,6 +136,12 @@ import {
   type SessionReplayMode,
 } from "../lib/session-recap.mjs";
 import {
+  currentSessionEntry,
+  matchingSessionEntry,
+  nextPendingSessionEntry,
+  sessionEntryIdentity,
+} from "../lib/session-integrity.mjs";
+import {
   parseRoute,
   resolveRouteItem,
   routeForItem,
@@ -476,7 +482,9 @@ type Result = AttemptRecord & {
     recallLevel: number;
   };
   sessionNext?: {
+    index: number;
     itemId: ItemId;
+    itemRevision: number;
     stage: number;
     practiceKind: PracticeKind;
   };
@@ -854,12 +862,14 @@ function formatDay(value: Date) {
 function useModalKeyboard(
   onClose: () => void,
   dialogRef: React.RefObject<HTMLElement | null>,
+  enabled = true,
 ) {
   const onCloseRef = useRef(onClose);
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
   useEffect(() => {
+    if (!enabled) return;
     const previous =
       document.activeElement instanceof HTMLElement
         ? document.activeElement
@@ -901,7 +911,7 @@ function useModalKeyboard(
       document.removeEventListener("keydown", handleKeyDown);
       previous?.focus();
     };
-  }, [dialogRef]);
+  }, [dialogRef, enabled]);
 }
 
 export default function SwiftGhostApp() {
@@ -916,6 +926,8 @@ export default function SwiftGhostApp() {
   const volatileScopeStateRef = useRef(new Map<PersistenceScope, AppState>());
   const [guestDataAvailable, setGuestDataAvailable] = useState(false);
   const [view, setView] = useState<View>("today");
+  const [launcherOpen, setLauncherOpen] = useState(false);
+  const [launcherQuery, setLauncherQuery] = useState("");
   const [patternRouteId, setPatternRouteId] = useState<string>();
   const [patternLessonStep, setPatternLessonStep] =
     useState<PatternLessonStep>("recognize");
@@ -1421,6 +1433,39 @@ export default function SwiftGhostApp() {
     const timer = window.setTimeout(() => setToast(""), 2600);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    if (!ready) return;
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      const isTypingTarget =
+        !!target &&
+        (target.matches("input, textarea, select") ||
+          target.isContentEditable ||
+          !!target.closest("[contenteditable='true']"));
+      const key = event.key.toLowerCase();
+      if ((event.metaKey || event.ctrlKey) && key === "k") {
+        event.preventDefault();
+        setLauncherQuery("");
+        setLauncherOpen(true);
+        return;
+      }
+      if (
+        !isTypingTarget &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        key === "/"
+      ) {
+        event.preventDefault();
+        setLauncherQuery("");
+        setLauncherOpen(true);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [ready]);
 
   useEffect(() => {
     if (!bootstrapped) return;
@@ -2399,6 +2444,119 @@ export default function SwiftGhostApp() {
     100,
     Math.round((todayMinutes / state.settings.dailyGoalMinutes) * 100),
   );
+  const launcherDraftItem = state.draft
+    ? allItems.find((candidate) => candidate.itemId === state.draft?.itemId)
+    : null;
+  const launcherDueCount = allItems.filter((candidate) =>
+    isReviewDue(state, candidate.itemId, now),
+  ).length;
+  const launcherActions = [
+    {
+      id: "today",
+      label: "Today",
+      description: "Re-entry deck, daily coach, weakness lab, and baseline checks.",
+      shortcut: "T",
+      onSelect: () => runLauncherAction(() => navigateView("today")),
+    },
+    {
+      id: "learn",
+      label: "Learn",
+      description: "Pattern Academy, counterexamples, and reconstruction practice.",
+      shortcut: "L",
+      onSelect: () => runLauncherAction(() => navigateView("learn")),
+    },
+    {
+      id: "improve",
+      label: "Improve",
+      description: "Weakness Lab and remediation queues.",
+      shortcut: "I",
+      onSelect: () => runLauncherAction(() => navigateView("improve")),
+    },
+    {
+      id: "practice",
+      label: "Practice",
+      description: "Current item, answer-ghosted drills, and solve mode.",
+      shortcut: "P",
+      onSelect: () => runLauncherAction(() => navigateView("practice")),
+    },
+    {
+      id: "sessions",
+      label: "Studio",
+      description: "Timed sessions, replays, and focused blocks.",
+      shortcut: "S",
+      onSelect: () => runLauncherAction(() => navigateView("sessions")),
+    },
+    {
+      id: "assessments",
+      label: "Assess",
+      description: "Calibration checkpoints and skill checks.",
+      shortcut: "A",
+      onSelect: () => runLauncherAction(() => navigateView("assessments")),
+    },
+    {
+      id: "library",
+      label: "Problems",
+      description: "Search the catalog and launch a fresh item.",
+      shortcut: "B",
+      onSelect: () => runLauncherAction(() => navigateView("library")),
+    },
+    {
+      id: "plans",
+      label: "Plans",
+      description: "Study plans, focus blocks, and progress structure.",
+      shortcut: "N",
+      onSelect: () => runLauncherAction(() => navigateView("plans")),
+    },
+    {
+      id: "records",
+      label: "Records",
+      description: "Attempts, reviews, closures, and trend history.",
+      shortcut: "R",
+      onSelect: () => runLauncherAction(() => navigateView("records")),
+    },
+    {
+      id: "settings",
+      label: "Settings",
+      description: "Theme, editor, and profile controls.",
+      shortcut: "G",
+      onSelect: () => runLauncherAction(() => navigateView("settings")),
+    },
+    {
+      id: "random",
+      label: "Random problem",
+      description: "Open a fresh item from the catalog.",
+      shortcut: "↝",
+      onSelect: () => runLauncherAction(() => randomItem()),
+    },
+    launcherDraftItem && {
+      id: "resume",
+      label: "Resume draft",
+      description: launcherDraftItem.title,
+      shortcut: "Enter",
+      onSelect: () => runLauncherAction(() => resumeSavedDraft()),
+    },
+    launcherDueCount > 0 && {
+      id: "review",
+      label: "Review due",
+      description: `${launcherDueCount} problems are waiting for spaced review.`,
+      shortcut: "D",
+      onSelect: () => runLauncherAction(() => randomItem("due")),
+    },
+  ].filter(Boolean) as Array<{
+    id: string;
+    label: string;
+    description: string;
+    shortcut: string;
+    onSelect: () => void;
+  }>;
+  const normalizedLauncherQuery = launcherQuery.trim().toLowerCase();
+  const visibleLauncherActions = launcherActions.filter((action) => {
+    if (!normalizedLauncherQuery) return true;
+    return [action.label, action.description, action.shortcut]
+      .join(" ")
+      .toLowerCase()
+      .includes(normalizedLauncherQuery);
+  });
 
   function mutateState(updater: (current: AppState) => AppState) {
     setState((current) => {
@@ -2483,6 +2641,20 @@ export default function SwiftGhostApp() {
         ? { view: "library", catalog: catalogQuery }
         : { view: nextView },
     );
+  }
+
+  function openLauncher() {
+    setLauncherQuery("");
+    setLauncherOpen(true);
+  }
+
+  function closeLauncher() {
+    setLauncherOpen(false);
+  }
+
+  function runLauncherAction(action: () => void) {
+    closeLauncher();
+    action();
   }
 
   function openSessionRecap(sessionId: string, replace = false) {
@@ -3348,6 +3520,9 @@ export default function SwiftGhostApp() {
         throw new Error("The linked practice session is no longer active");
       }
       const entry = session.entries[session.currentIndex];
+      const entryBinding = entry
+        ? currentSessionEntry(session, sessionEntryIdentity(entry))
+        : null;
       const snapshot = manifest.entries.find(
         (candidate) => candidate.itemId === entry?.itemId,
       );
@@ -3364,12 +3539,19 @@ export default function SwiftGhostApp() {
           "The frozen problem revision is unavailable in this build",
         );
       }
+      if (!entryBinding) {
+        throw new Error("The linked session entry no longer matches its saved contract");
+      }
       openItem(
         item,
         entry.stage,
         undefined,
         session.id,
         entry.practiceKind ?? "typing",
+        undefined,
+        undefined,
+        false,
+        entryBinding.index,
       );
     } catch (error) {
       setToast(
@@ -4187,6 +4369,23 @@ export default function SwiftGhostApp() {
 
   function recordAbandon(current: AppState) {
     const active = current.draft;
+    const draftSessionBinding = active?.sessionId
+      ? currentSessionEntry(
+          current.activeSession,
+          sessionEntryIdentity(active),
+        )
+      : null;
+    // A draft can outlive a session cursor after a restore or another queued
+    // transition. Do not attach that stale draft to whichever row now happens
+    // to share its item id. Preserve the work as a detached attempt instead of
+    // manufacturing evidence for the wrong revision, stage, or practice
+    // surface.
+    if (active?.sessionId && !draftSessionBinding) {
+      return recordAbandon({
+        ...current,
+        draft: { ...active, sessionId: undefined },
+      });
+    }
     const mockSynchronized =
       current.activeSession?.kind === "mock" &&
       active?.sessionId === current.activeSession.id
@@ -4217,11 +4416,11 @@ export default function SwiftGhostApp() {
     const attempt = createAttempt(active, activeItem, "abandoned", synchronized);
     const currentSession = synchronized.activeSession;
     let activeSession = currentSession;
-    if (currentSession && currentSession.id === active.sessionId) {
+    if (currentSession && draftSessionBinding) {
       activeSession = {
         ...currentSession,
         entries: currentSession.entries.map((entry, index) =>
-          index === currentSession.currentIndex && entry.itemId === active.itemId
+          index === draftSessionBinding.index
             ? { ...entry, attemptId: attempt.id }
             : entry,
         ),
@@ -4259,6 +4458,24 @@ export default function SwiftGhostApp() {
         : chosenPracticeKind === "concept"
           ? (nextStage ?? 5)
           : (nextStage ?? recommendedStage(state, next));
+    if (
+      sessionEntryIndex !== undefined &&
+      !matchingSessionEntry(
+        stateRef.current.activeSession,
+        sessionEntryIndex,
+        sessionEntryIdentity({
+          itemId: next.itemId,
+          itemRevision: next.contentRevision,
+          stage: chosenStage,
+          practiceKind: chosenPracticeKind,
+        }),
+      )
+    ) {
+      setToast(
+        "That session step changed before it opened · no session navigation occurred",
+      );
+      return;
+    }
     mutateState((current) => {
       const resuming =
         !forceFresh &&
@@ -4277,24 +4494,34 @@ export default function SwiftGhostApp() {
       // even when they jump backwards to a completed problem.
       let navigated = abandoned;
       const activeSession = abandoned.activeSession;
-      if (
+      const requestedSessionEntry =
         sessionEntryIndex !== undefined &&
-        Number.isInteger(sessionEntryIndex) &&
-        activeSession
-      ) {
-        if (
-          sessionEntryIndex >= 0 &&
-          activeSession.id === sessionId &&
-          sessionEntryIndex < activeSession.entries.length
-        ) {
-          navigated = {
-            ...abandoned,
-            activeSession: {
-              ...activeSession,
-              currentIndex: sessionEntryIndex,
-            },
-          };
-        }
+        activeSession &&
+        activeSession.id === sessionId &&
+        sessionEntryIndex < activeSession.entries.length
+          ? matchingSessionEntry(
+              activeSession,
+              sessionEntryIndex,
+              sessionEntryIdentity({
+                itemId: next.itemId,
+                itemRevision: next.contentRevision,
+                stage: chosenStage,
+                practiceKind: chosenPracticeKind,
+              }),
+            )
+          : null;
+      if (sessionEntryIndex !== undefined && !requestedSessionEntry) {
+        return current;
+      }
+      if (requestedSessionEntry) {
+        navigated = {
+          ...abandoned,
+          activeSession: {
+            ...activeSession!,
+            currentIndex: requestedSessionEntry.index,
+          },
+        };
+        // currentIndex: sessionEntryIndex
       }
       const base =
         next.transfer
@@ -4315,13 +4542,17 @@ export default function SwiftGhostApp() {
         base.activeSession?.kind === "mock" &&
         base.activeSession.id === sessionId
           ? base.activeSession.mockProblems?.find(
-              (workspace) => workspace.itemId === next.itemId,
+              (workspace) =>
+                workspace.itemId === next.itemId &&
+                workspace.itemRevision === next.contentRevision,
             )?.source
           : undefined;
       const virtualRoundSource =
         virtualRoundId && base.virtualRoundWorkspace.active?.id === virtualRoundId
           ? base.virtualRoundWorkspace.active.problems.find(
-              (problem) => problem.itemId === next.itemId,
+              (problem) =>
+                problem.itemId === next.itemId &&
+                problem.itemRevision === next.contentRevision,
             )?.source
           : undefined;
       return {
@@ -4837,6 +5068,20 @@ export default function SwiftGhostApp() {
     attempt: AttemptRecord,
     learningEvent?: LearningEvent,
   ) {
+    let active = next;
+    const session = state.activeSession;
+    const draftSessionBinding = active.sessionId
+      ? currentSessionEntry(session, sessionEntryIdentity(active))
+      : null;
+    const detachedFromSession = Boolean(active.sessionId && !draftSessionBinding);
+    if (active.sessionId && !draftSessionBinding) {
+      active = { ...active, sessionId: undefined };
+      next = active;
+      attempt = { ...attempt, sessionId: undefined };
+      setToast(
+        "This session step changed before it was completed · solve saved outside the session",
+      );
+    }
     const transferAttemptEvidence = item.transfer
       ? deriveTransferProgress({
           variants: transferItems,
@@ -4887,8 +5132,7 @@ export default function SwiftGhostApp() {
     };
     let sessionNext: Result["sessionNext"];
     let sessionComplete = false;
-    const session = state.activeSession;
-    if (session && next.sessionId === session.id) {
+    if (session && draftSessionBinding) {
       const completedSession =
         session.kind === "mock"
           ? withMockCheckpoint(
@@ -4898,16 +5142,20 @@ export default function SwiftGhostApp() {
             )
           : session;
       const entries = completedSession.entries.map((entry, index) =>
-        index === completedSession.currentIndex
+        index === draftSessionBinding.index &&
+        entry.itemId === active.itemId &&
+        entry.itemRevision === active.itemRevision &&
+        entry.stage === active.stage &&
+        (entry.practiceKind ?? "typing") === active.practiceKind
           ? { ...entry, status: "completed" as const, attemptId: attempt.id }
           : entry,
       );
-      const nextIndex = entries.findIndex(
-        (entry, index) =>
-          index > completedSession.currentIndex && entry.status === "pending",
+      const nextSessionEntry = nextPendingSessionEntry(
+        completedSession,
+        draftSessionBinding.index,
       );
-      if (nextIndex >= 0) {
-        const nextEntry = entries[nextIndex];
+      if (nextSessionEntry) {
+        const { index: nextIndex, entry: nextEntry } = nextSessionEntry;
         projected = {
           ...projected,
           activeSession: {
@@ -4917,7 +5165,9 @@ export default function SwiftGhostApp() {
           },
         };
         sessionNext = {
+          index: nextIndex,
           itemId: nextEntry.itemId,
+          itemRevision: nextEntry.itemRevision,
           stage: nextEntry.stage,
           practiceKind: nextEntry.practiceKind ?? "typing",
         };
@@ -4940,6 +5190,13 @@ export default function SwiftGhostApp() {
       }
     }
     mutateState((current) => {
+      const liveSession = current.activeSession;
+      const liveSessionBinding = next.sessionId
+        ? liveSession?.id === next.sessionId
+          ? currentSessionEntry(liveSession, sessionEntryIdentity(next))
+          : null
+        : null;
+      if (next.sessionId && !liveSessionBinding) return current;
       let committed: AppState = {
         ...current,
         attempts: [...current.attempts, attempt].slice(-1000),
@@ -4988,8 +5245,7 @@ export default function SwiftGhostApp() {
           ),
         };
       }
-      const liveSession = current.activeSession;
-      if (liveSession && next.sessionId === liveSession.id) {
+      if (liveSession && liveSessionBinding) {
         const isStudioSession =
           current.interviewStudio.active?.id === liveSession.id ||
           current.interviewStudio.history.some(
@@ -5004,14 +5260,15 @@ export default function SwiftGhostApp() {
               )
             : liveSession;
         const entries = completedSession.entries.map((entry, index) =>
-          index === completedSession.currentIndex
+          index === liveSessionBinding.index
             ? { ...entry, status: "completed" as const, attemptId: attempt.id }
             : entry,
         );
-        const nextIndex = entries.findIndex(
-          (entry, index) =>
-            index > completedSession.currentIndex && entry.status === "pending",
+        const nextSessionEntry = nextPendingSessionEntry(
+          completedSession,
+          liveSessionBinding.index,
         );
+        const nextIndex = nextSessionEntry?.index ?? -1;
         committed =
           nextIndex >= 0
             ? {
@@ -5056,28 +5313,45 @@ export default function SwiftGhostApp() {
       setToast("Checkpoint saved · add a short debrief before continuing");
       return;
     }
-    if (session?.kind === "mock") {
+    if (session?.kind === "mock" && !detachedFromSession) {
       setResult(null);
       const isStudioSession = state.interviewStudio.active?.id === session.id;
       if (sessionNext) {
-        const nextItem = allItems.find(
-          (candidate) => candidate.itemId === sessionNext?.itemId,
+        const nextEntry = matchingSessionEntry(
+          session,
+          sessionNext.index,
+          sessionEntryIdentity(sessionNext),
         );
-        if (nextItem) {
-          window.setTimeout(
-            () =>
-              openItem(
-                nextItem,
-                sessionNext?.stage,
-                undefined,
-                session.id,
-                sessionNext?.practiceKind,
-              ),
-            0,
+        const nextItem = nextEntry
+          ? allItems.find(
+              (candidate) =>
+                candidate.itemId === nextEntry.entry.itemId &&
+                candidate.contentRevision === nextEntry.entry.itemRevision,
+            )
+          : undefined;
+        if (!nextEntry || !nextItem) {
+          setToast(
+            "The next session step changed before it opened · session navigation stopped",
           );
-          setToast("Problem saved · continuing the same interview clock");
           return;
         }
+        window.setTimeout(
+          () =>
+            openItem(
+              nextItem,
+              sessionNext.stage,
+              undefined,
+              session.id,
+              sessionNext.practiceKind,
+              undefined,
+              undefined,
+              false,
+              sessionNext.index,
+            ),
+          0,
+        );
+        setToast("Problem saved · continuing the same interview clock");
+        return;
       }
       if (isStudioSession) {
         navigateView("sessions");
@@ -5635,6 +5909,16 @@ export default function SwiftGhostApp() {
       live.assessmentRunId && live.assessmentProbeId
         ? { runId: live.assessmentRunId, probeId: live.assessmentProbeId }
         : undefined;
+    const session = live.sessionId ? stateRef.current.activeSession : null;
+    const sessionEntry = live.sessionId
+      ? session && session.id === live.sessionId
+        ? currentSessionEntry(session, sessionEntryIdentity(live))
+        : null
+      : null;
+    if (live.sessionId && (!session || !sessionEntry)) {
+      setToast("This saved session draft no longer matches its session entry");
+      return;
+    }
     openItem(
       candidate,
       live.stage,
@@ -5642,6 +5926,9 @@ export default function SwiftGhostApp() {
       live.sessionId,
       live.practiceKind,
       assessment,
+      undefined,
+      false,
+      sessionEntry?.index,
     );
   }
 
@@ -7551,6 +7838,11 @@ export default function SwiftGhostApp() {
       setToast("That session item has an invalid saved revision");
       return;
     }
+    const savedIdentity = sessionEntryIdentity(entry);
+    if (!matchingSessionEntry(session, sessionEntryIndex, savedIdentity)) {
+      setToast("That session item no longer matches its saved practice contract");
+      return;
+    }
     const next = allItems.find(
       (candidate) =>
         candidate.itemId === entry.itemId &&
@@ -7565,6 +7857,10 @@ export default function SwiftGhostApp() {
       next,
       entry.practiceKind ?? "typing",
     );
+    if (practiceKind !== savedIdentity.practiceKind) {
+      setToast("That session item no longer supports its saved practice mode");
+      return;
+    }
     if (session.kind === "mock" && entry.status === "completed") {
       setToast("Completed mock items stay locked until the debrief");
       return;
@@ -7605,21 +7901,37 @@ export default function SwiftGhostApp() {
   }
 
   function skipSessionEntry() {
-    const session = state.activeSession;
+    const session = stateRef.current.activeSession;
     if (!session) return;
     if (session.kind === "mock") {
       setToast("Mock problems cannot be skipped during an active interview");
       return;
     }
+    const currentEntry = currentSessionEntry(
+      session,
+      sessionEntryIdentity(session.entries[session.currentIndex]),
+    );
+    const draft = stateRef.current.draft;
+    const draftBinding =
+      draft?.sessionId === session.id
+        ? currentSessionEntry(session, sessionEntryIdentity(draft))
+        : null;
+    if (!currentEntry || (draft?.sessionId === session.id && !draftBinding)) {
+      setToast(
+        "The current session step changed before it could be skipped · no session evidence was recorded",
+      );
+      return;
+    }
     const entries = session.entries.map((entry, index) =>
-      index === session.currentIndex
+      index === currentEntry.index
         ? { ...entry, status: "skipped" as const }
         : entry,
     );
-    const nextIndex = entries.findIndex(
-      (entry, index) =>
-        index > session.currentIndex && entry.status === "pending",
+    const nextSessionEntry = nextPendingSessionEntry(
+      { ...session, entries },
+      currentEntry.index,
     );
+    const nextIndex = nextSessionEntry?.index ?? -1;
     if (nextIndex < 0) {
       const endedAt = new Date().toISOString();
       mutateState((current) => {
@@ -7630,7 +7942,7 @@ export default function SwiftGhostApp() {
         const archivedSession =
           base.activeSession?.id === session.id ? base.activeSession : session;
         const archivedEntries = archivedSession.entries.map((entry, index) =>
-          index === archivedSession.currentIndex
+          index === currentEntry.index
             ? { ...entry, status: "skipped" as const }
             : entry,
         );
@@ -7671,7 +7983,7 @@ export default function SwiftGhostApp() {
         activeSession: {
           ...activeSession,
           entries: activeSession.entries.map((entry, index) =>
-            index === activeSession.currentIndex
+            index === currentEntry.index
               ? { ...entry, status: "skipped" as const }
               : entry,
           ),
@@ -7679,17 +7991,31 @@ export default function SwiftGhostApp() {
         },
       };
     });
-    const next = allItems.find(
-      (candidate) => candidate.itemId === entries[nextIndex].itemId,
-    );
-    if (next)
-      openItem(
-        next,
-        entries[nextIndex].stage,
-        undefined,
-        session.id,
-        entries[nextIndex].practiceKind ?? "typing",
+    const nextEntry = nextSessionEntry;
+    const next = nextEntry
+      ? allItems.find(
+          (candidate) =>
+            candidate.itemId === nextEntry.entry.itemId &&
+            candidate.contentRevision === nextEntry.entry.itemRevision,
+        )
+      : undefined;
+    if (!nextEntry || !next) {
+      setToast(
+        "The next session step changed before it opened · session navigation stopped",
       );
+      return;
+    }
+    openItem(
+      next,
+      nextEntry.entry.stage,
+      undefined,
+      session.id,
+      nextEntry.entry.practiceKind ?? "typing",
+      undefined,
+      undefined,
+      false,
+      nextEntry.index,
+    );
   }
 
   function endSession() {
@@ -8090,20 +8416,40 @@ export default function SwiftGhostApp() {
 
   function handleResultNext() {
     if (!result) return;
-    if (result.sessionNext && state.activeSession) {
-      const next = allItems.find(
-        (candidate) => candidate.itemId === result.sessionNext?.itemId,
-      );
-      if (next) {
-        openItem(
-          next,
-          result.sessionNext.stage,
-          undefined,
-          state.activeSession.id,
-          result.sessionNext.practiceKind,
+    if (result.sessionNext) {
+      const session = stateRef.current.activeSession;
+      const nextEntry = session
+        ? matchingSessionEntry(
+            session,
+            result.sessionNext.index,
+            sessionEntryIdentity(result.sessionNext),
+          )
+        : null;
+      const next = nextEntry
+        ? allItems.find(
+            (candidate) =>
+              candidate.itemId === nextEntry.entry.itemId &&
+              candidate.contentRevision === nextEntry.entry.itemRevision,
+          )
+        : undefined;
+      if (!session || !nextEntry || !next) {
+        setToast(
+          "The next session step changed before it opened · session navigation stopped",
         );
         return;
       }
+      openItem(
+        next,
+        nextEntry.entry.stage,
+        undefined,
+        session.id,
+        nextEntry.entry.practiceKind ?? "typing",
+        undefined,
+        undefined,
+        false,
+        nextEntry.index,
+      );
+      return;
     }
     if (result.sessionComplete) {
       const completedSessionId = result.sessionId;
@@ -8347,6 +8693,14 @@ export default function SwiftGhostApp() {
             </span>
           </button>
           <button
+            className="icon-button launcher-trigger"
+            onClick={openLauncher}
+            title="Quick launcher"
+            aria-label="Open quick launcher"
+          >
+            ⌘K
+          </button>
+          <button
             className="icon-button"
             onClick={() => randomItem()}
             title="Random problem"
@@ -8409,6 +8763,14 @@ export default function SwiftGhostApp() {
             )
           }
           onResumeSession={resumeSession}
+        />
+      )}
+      {launcherOpen && (
+        <QuickLauncherDialog
+          actions={visibleLauncherActions}
+          query={launcherQuery}
+          onQueryChange={setLauncherQuery}
+          onClose={closeLauncher}
         />
       )}
       {view === "plans" && (
@@ -9581,6 +9943,100 @@ function snapshotSwiftCustomValue(value: unknown): unknown {
     );
   }
   return value;
+}
+
+type QuickLauncherAction = {
+  id: string;
+  label: string;
+  description: string;
+  shortcut: string;
+  onSelect: () => void;
+};
+
+function QuickLauncherDialog({
+  actions,
+  query,
+  onQueryChange,
+  onClose,
+}: {
+  actions: QuickLauncherAction[];
+  query: string;
+  onQueryChange: (value: string) => void;
+  onClose: () => void;
+}) {
+  const dialogRef = useRef<HTMLElement | null>(null);
+  useModalKeyboard(onClose, dialogRef, true);
+  return (
+    <div
+      className="dialog-backdrop launcher-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        ref={dialogRef}
+        className="result-dialog launcher-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="launcher-title"
+        aria-describedby="launcher-copy"
+      >
+        <button
+          className="dialog-close"
+          type="button"
+          onClick={onClose}
+          aria-label="Close quick launcher"
+        >
+          ×
+        </button>
+        <span className="eyebrow">Quick launcher</span>
+        <h2 id="launcher-title">Jump anywhere in one keystroke.</h2>
+        <p id="launcher-copy">
+          Use Cmd/Ctrl+K or / to switch views, open a fresh problem, or return
+          to the daily queue.
+        </p>
+        <label className="search-box launcher-search">
+          <span>⌕</span>
+          <input
+            data-modal-autofocus
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              const first = actions[0];
+              if (!first) return;
+              event.preventDefault();
+              first.onSelect();
+            }}
+            placeholder="Filter actions or type a command"
+          />
+        </label>
+        <div className="launcher-hints">
+          Cmd/Ctrl+K to open · / from anywhere except editors · Esc to close
+        </div>
+        <div className="launcher-grid" aria-label="Quick actions">
+          {actions.map((action) => (
+            <button
+              key={action.id}
+              type="button"
+              className="launcher-action"
+              onClick={action.onSelect}
+            >
+              <strong>{action.label}</strong>
+              <small>{action.description}</small>
+              <kbd>{action.shortcut}</kbd>
+            </button>
+          ))}
+        </div>
+        {!actions.length && (
+          <p className="launcher-empty">
+            No actions match “{query.trim()}”.
+          </p>
+        )}
+      </section>
+    </div>
+  );
 }
 
 type PracticeProps = {

@@ -22,7 +22,7 @@ test("active session rows can reopen saved entries without losing the cursor con
   assert.match(app, /candidate\.contentRevision === entry\.itemRevision/);
   assert.match(app, /onOpenSessionEntry=\{openSessionEntry\}/);
   assert.match(app, /aria-label=\{[\s\S]*session item/);
-  assert.match(app, /currentIndex: sessionEntryIndex/);
+  assert.match(app, /currentIndex: requestedSessionEntry\.index/);
 });
 
 test("recap UI discloses trust boundaries, stale content, and legacy limits", async () => {

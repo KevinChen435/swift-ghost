@@ -511,7 +511,8 @@ test("current state persists session snapshots while retaining the complete fall
   assert.match(product, /entries\?: SessionQueueEntry\[\]/);
   assert.match(product, /kind === "practice" && stateVersion >= 27[\s\S]*normalizeSessionHistoryEntries\(raw\.entries\)/);
   assert.match(app, /entries: entries\.slice\(0, 20\)\.map/);
-  assert.match(app, /entry\.itemId === active\.itemId[\s\S]*attemptId: attempt\.id/);
+  assert.match(app, /currentSessionEntry\(\s*current\.activeSession[\s\S]*sessionEntryIdentity\(active\)/);
+  assert.match(app, /index === draftSessionBinding\.index[\s\S]*attemptId: attempt\.id/);
   assert.match(app, /sessionHistoryRecord\(\s*archivedSession,\s*archivedEntries,\s*"ended",\s*endedAt,\s*\)/);
   assert.match(app, /buildSessionReplayQueue\(\s*record,\s*current\.attempts,\s*curriculumItems,\s*mode,\s*current\.typingProgress,\s*\)/);
   assert.match(recapUi, /buildSessionRecap\(record, state\.attempts, items, state\.typingProgress\)/);
