@@ -66,6 +66,7 @@ import {
 import type {
   SessionLanguage,
   SessionQueueEntry,
+  SessionPracticeMode,
   SessionSource,
   SessionStageMode,
   SessionTrack,
@@ -322,6 +323,7 @@ export type TrainingSession = {
   track: SessionTrack;
   language: SessionLanguage;
   stageMode: SessionStageMode;
+  practiceMode?: SessionPracticeMode;
   createdAt: string;
   entries: SessionQueueEntry[];
   currentIndex: number;
@@ -342,6 +344,7 @@ export type SessionHistoryRecord = {
   completedAt: string;
   completed: number;
   total: number;
+  practiceMode?: SessionPracticeMode;
   entries?: SessionQueueEntry[];
   durationMinutes?: number;
   outcome?: "completed" | "ended" | "expired";
@@ -993,6 +996,11 @@ function normalizeActiveSession(
     track: sessionTrack,
     language: sessionLanguage,
     stageMode: value.stageMode === "recall" ? "recall" : "recommended",
+    practiceMode: (["smart", "typing", "solving"] as const).includes(
+      value.practiceMode as SessionPracticeMode,
+    )
+      ? (value.practiceMode as SessionPracticeMode)
+      : "smart",
     createdAt,
     entries,
     currentIndex,
@@ -1061,6 +1069,11 @@ function normalizeSessionHistory(
           : [];
       const total =
         kind === "mock" ? problemCount : entries.length || rawTotal;
+      const practiceMode = (["smart", "typing", "solving"] as const).includes(
+        raw.practiceMode as SessionPracticeMode,
+      )
+        ? (raw.practiceMode as SessionPracticeMode)
+        : "smart";
       const completed = entries.length
         ? entries.filter((entry) => entry.status === "completed").length
         : Math.round(finiteNumber(raw.completed, 0, 0, total));
@@ -1098,6 +1111,7 @@ function normalizeSessionHistory(
               : new Date(0).toISOString(),
           completed,
           total,
+          practiceMode,
           ...(entries.length ? { entries } : {}),
           studyPlanId:
             typeof raw.studyPlanId === "string" &&

@@ -72,6 +72,7 @@ test("active session preview exposes accessible open controls without changing m
 
 test("session builder exposes the practice-mode queue contract", async () => {
   const app = await read("../app/components/SwiftGhostApp.tsx");
+  const product = await read("../app/lib/product.ts");
   const sessions = section(
     app,
     "function SessionsView(",
@@ -82,5 +83,11 @@ test("session builder exposes the practice-mode queue contract", async () => {
   assert.match(sessions, /<span>Practice mode<\/span>/);
   assert.match(sessions, /<option value="typing">Known-answer typing<\/option>/);
   assert.match(sessions, /<option value="solving">Swift judge solves<\/option>/);
+  assert.match(sessions, /if \(next === "solving"\)/);
+  assert.match(sessions, /setLanguage\("swift"\)/);
+  assert.match(sessions, /Only current server-judged Swift contracts appear/);
   assert.match(sessions, /disabled=\{practiceMode === "solving"\}/);
+  assert.match(product, /practiceMode\?: SessionPracticeMode/);
+  assert.match(product, /value\.practiceMode as SessionPracticeMode/);
+  assert.match(app, /practiceMode: options\.practiceMode \?\? "smart"/);
 });
