@@ -10,6 +10,8 @@ import {
   cleanTrustedSource,
   normalizeTrustedGatewayResult,
   normalizeTrustedGatewayExampleResult,
+  normalizeTrustedCustomCases,
+  normalizeTrustedCustomCaseResults,
   normalizeTrustedPublicCaseResults,
   normalizeTrustedJudgeResult,
   privateJudgeSpec,
@@ -18,6 +20,8 @@ import {
   trustedChallengeForKey,
   trustedChallengeForSequence,
   trustedGatewaySubmission,
+  trustedGatewayExecution,
+  customJudgeSpec,
 } from "../worker/trusted-assessments.mjs";
 
 test("server-only challenge projections never expose sealed cases", () => {
@@ -263,6 +267,51 @@ test("Swift example contracts include only public samples and expose only public
       failedCaseIndex: 1,
       diagnostic: "bounded public diagnostic",
     },
+  );
+});
+
+test("Swift custom executions use a separate no-expected-value contract", async () => {
+  const challenge = trustedChallengeForKey("swift-two-sum");
+  assert.ok(challenge);
+  const cases = normalizeTrustedCustomCases(challenge, [
+    { id: "case-1", name: "front pair", args: [[2, 7, 11, 15], 9] },
+    { id: "case-2", name: "middle pair", args: [[3, 2, 4], 6] },
+  ]);
+  assert.ok(cases);
+  const spec = customJudgeSpec(challenge, cases);
+  assert.ok(spec);
+  assert.equal(spec.executionMode, "custom");
+  assert.equal(spec.cases.length, 2);
+  assert.equal(Object.hasOwn(spec.cases[0], "expected"), false);
+  const request = await trustedGatewayExecution({
+    executionId: "custom-swift12345",
+    source: "import Foundation\nfunc twoSum(_ nums: [Int], _ target: Int) -> [Int] { [0, 1] }",
+    judgeSpec: spec,
+    callbackUrl: "https://swift.example/api/internal/judge-results",
+  });
+  assert.equal(request.version, "judge.execution.v1");
+  assert.equal(request.cases.length, 2);
+  assert.equal(Object.hasOwn(request, "contentRevision"), false);
+  assert.equal(Object.hasOwn(request.cases[0], "expectedOutput"), false);
+  assert.match(request.source, /JSONDecoder/);
+  const result = normalizeTrustedCustomCaseResults(
+    {
+      version: "judge.execution.result.v1",
+      executionId: request.executionId,
+      cases: [
+        { id: "case-1", status: "executed", actualOutput: "[0,1]\n" },
+        { id: "case-2", status: "runtime-error", diagnostic: "bounded" },
+      ],
+    },
+    cases.map((entry) => entry.id),
+  );
+  assert.deepEqual(result, [
+    { id: "case-1", status: "passed", passed: true, actual: [0, 1] },
+    { id: "case-2", status: "runtime-error", passed: false, diagnostic: "bounded" },
+  ]);
+  assert.equal(
+    normalizeTrustedCustomCases(challenge, [{ id: "case-1", args: [{ secret: true }, 9] }]),
+    null,
   );
 });
 

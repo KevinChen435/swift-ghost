@@ -30,6 +30,10 @@ import {
   normalizeTrustedPublicCaseResults,
   privateJudgeSpec,
   publicExampleJudgeSpec,
+  customJudgeSpec,
+  normalizeTrustedCustomCases,
+  normalizeTrustedCustomCaseResults,
+  trustedGatewayExecution,
   publicTrustedChallenge,
   trustedChallengeForKey,
   trustedChallengeForSequence,
@@ -148,6 +152,24 @@ type TrustedExampleRunRow = {
   enqueued_at: number | null;
   settled_at: number | null;
 };
+type TrustedCustomRunRow = {
+  id: string;
+  assignment_id: string;
+  user_id: string;
+  client_run_id: string;
+  request_hash: string;
+  source_hash: string;
+  contract_digest: string;
+  case_ids_json: string;
+  case_names_json: string;
+  status: "pending" | "settled";
+  verdict: TrustedSubmissionVerdict | null;
+  result_json: string | null;
+  settlement_hash: string | null;
+  requested_at: number;
+  enqueued_at: number | null;
+  settled_at: number | null;
+};
 
 const API_PREFIX = "/api/v1";
 const TRUSTED_JUDGE_CALLBACK_PATH = "/api/internal/judge-results";
@@ -157,6 +179,15 @@ const MAX_STUDY_WORKSPACE_BYTES = 256 * 1024;
 const TRUSTED_ENQUEUED_TIMEOUT_MS = 30 * 60 * 1000;
 const TRUSTED_DELIVERY_TIMEOUT_MS = 60 * 60 * 1000;
 const TRUSTED_EXAMPLE_MAX_PENDING_PER_USER = 3;
+const TRUSTED_CUSTOM_MAX_PENDING_PER_USER = 3;
+const TRUSTED_CUSTOM_MAX_CASES = 12;
+const TRUSTED_CUSTOM_CASE_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$/;
+
+function cleanTrustedCustomCaseId(value: unknown) {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return TRUSTED_CUSTOM_CASE_ID.test(normalized) ? normalized : null;
+}
 const ITEM_CATALOG = new Map(BUILTIN_ITEMS.map((item) => [item.itemId, item]));
 const CHALLENGE_ITEMS = BUILTIN_ITEMS.filter(
   (item) => item.track === "interview" && item.difficulty !== "Hard",
@@ -839,7 +870,9 @@ function trustedExampleRunProjection(
     const publicCaseResults = normalizeTrustedPublicCaseResults(parsed, publicCaseIds);
     if (publicCaseResults === null)
       throw new Error("INVALID_TRUSTED_EXAMPLE_RUN_ROW");
-    const passed = Number.isInteger(parsed.passed) ? parsed.passed : null;
+    const passed = typeof parsed.passed === "number" && Number.isInteger(parsed.passed)
+      ? parsed.passed
+      : null;
     const total = Number.isInteger(parsed.total) &&
         parsed.total === contract.judgeSpec.cases.length
       ? parsed.total
@@ -904,6 +937,120 @@ function trustedExampleRunProjection(
         ? { failedCaseId: contract.judgeSpec.cases[failedCaseIndex].id }
         : {}),
       ...(publicCaseResults === undefined ? {} : { publicCaseResults }),
+    };
+  }
+  return {
+    id: row.id,
+    assignmentId: row.assignment_id,
+    clientRunId: row.client_run_id,
+    status: row.status,
+    verdict: row.status === "settled" ? row.verdict : null,
+    requestedAt: new Date(row.requested_at).toISOString(),
+    settledAt: row.settled_at ? new Date(row.settled_at).toISOString() : null,
+    result,
+  };
+}
+
+function trustedCustomCaseIds(row: TrustedCustomRunRow) {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.case_ids_json);
+  } catch {
+    return null;
+  }
+  if (
+    !Array.isArray(decoded) ||
+    decoded.length < 1 ||
+    decoded.length > TRUSTED_CUSTOM_MAX_CASES ||
+    decoded.some((id) => !cleanTrustedCustomCaseId(id)) ||
+    new Set(decoded).size !== decoded.length
+  )
+    return null;
+  return decoded as string[];
+}
+
+function trustedCustomCaseNames(row: TrustedCustomRunRow, count: number) {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(row.case_names_json);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(decoded) || decoded.length !== count ||
+      decoded.some((name) => typeof name !== "string" || name.length < 1 || name.length > 120))
+    return null;
+  return decoded as string[];
+}
+
+function trustedCustomRunProjection(
+  row: TrustedCustomRunRow,
+  challenge?: ReturnType<typeof trustedChallengeForKey>,
+) {
+  let result: Record<string, unknown> | null = null;
+  const caseIds = trustedCustomCaseIds(row);
+  const caseNames = caseIds ? trustedCustomCaseNames(row, caseIds.length) : null;
+  if (!caseIds || !caseNames || !challenge || challenge.language !== "swift")
+    throw new Error("INVALID_TRUSTED_CUSTOM_RUN_ROW");
+  if (row.status === "settled") {
+    if (!row.verdict || !row.result_json || !row.settled_at)
+      throw new Error("INVALID_TRUSTED_CUSTOM_RUN_ROW");
+    const parsed = JSON.parse(row.result_json) as unknown;
+    if (!isRecord(parsed)) throw new Error("INVALID_TRUSTED_CUSTOM_RUN_ROW");
+    const publicCaseResults = normalizeTrustedCustomCaseResults(parsed, caseIds);
+    if (!publicCaseResults) throw new Error("INVALID_TRUSTED_CUSTOM_RUN_ROW");
+    const passed = typeof parsed.passed === "number" && Number.isInteger(parsed.passed)
+      ? parsed.passed
+      : null;
+    const total = Number.isInteger(parsed.total) && parsed.total === caseIds.length
+      ? parsed.total
+      : null;
+    const authority = parsed.authority === "server-isolated-swift"
+      ? "server-isolated-swift"
+      : null;
+    const language = parsed.language === "swift" ? "swift" : null;
+    const runtime = parsed.runtime === challenge.runtime ? challenge.runtime : null;
+    const contentRevision = parsed.contentRevision === challenge.contentRevision
+      ? challenge.contentRevision
+      : null;
+    const judgeRevision = parsed.judgeRevision === challenge.judgeRevision
+      ? challenge.judgeRevision
+      : null;
+    const contractDigest = parsed.contractDigest === row.contract_digest
+      ? row.contract_digest
+      : null;
+    const rawFailedCaseIndex = parsed.failedCaseIndex;
+    const failedCaseIndex = rawFailedCaseIndex === undefined
+      ? null
+      : typeof rawFailedCaseIndex === "number" &&
+          Number.isInteger(rawFailedCaseIndex) &&
+          rawFailedCaseIndex >= 0 &&
+          rawFailedCaseIndex < caseIds.length
+        ? rawFailedCaseIndex
+        : null;
+    const diagnostic = typeof parsed.diagnostic === "string"
+      ? parsed.diagnostic.slice(0, 2_000)
+      : null;
+    if (
+      passed === null || passed < 0 || passed > caseIds.length || total === null ||
+      authority === null || language === null || runtime === null ||
+      contentRevision === null || judgeRevision === null || contractDigest === null
+    )
+      throw new Error("INVALID_TRUSTED_CUSTOM_RUN_ROW");
+    result = {
+      passed,
+      total,
+      authority,
+      language,
+      runtime,
+      contentRevision,
+      judgeRevision,
+      contractDigest,
+      ...(diagnostic ? { diagnostic } : {}),
+      ...(failedCaseIndex !== null ? { failedCaseIndex, failedCaseId: caseIds[failedCaseIndex] } : {}),
+      cases: publicCaseResults.map((entry, index) => ({
+        ...entry,
+        name: caseNames[index],
+      })),
     };
   }
   return {
@@ -1009,6 +1156,21 @@ async function trustedExampleRunByClientId(
   `).bind(userId, clientRunId).first<TrustedExampleRunRow>();
 }
 
+async function trustedCustomRunByClientId(
+  db: D1Database,
+  userId: string,
+  clientRunId: string,
+) {
+  return db.prepare(`
+    SELECT id, assignment_id, user_id, client_run_id, request_hash, source_hash,
+           contract_digest, case_ids_json, status, verdict, result_json,
+           case_names_json,
+           settlement_hash, requested_at, enqueued_at, settled_at
+    FROM trusted_custom_runs
+    WHERE user_id = ? AND client_run_id = ?
+  `).bind(userId, clientRunId).first<TrustedCustomRunRow>();
+}
+
 async function retryPendingTrustedExampleRun(
   env: Env,
   run: TrustedExampleRunRow,
@@ -1032,6 +1194,7 @@ async function retryPendingTrustedExampleRun(
   }>();
   if (!payload) return true;
   const challenge = trustedChallengeForKey(payload.challenge_key);
+  if (!challenge) return false;
   const contract = trustedExampleContract(challenge);
   if (
     !contract ||
@@ -1056,6 +1219,77 @@ async function retryPendingTrustedExampleRun(
     `).bind(enqueuedAt, run.id, userId),
     env.DB.prepare(
       "DELETE FROM trusted_example_run_payloads WHERE run_id = ? AND user_id = ?",
+    ).bind(run.id, userId),
+  ]);
+  return true;
+}
+
+async function retryPendingTrustedCustomRun(
+  env: Env,
+  run: TrustedCustomRunRow,
+  userId: string,
+) {
+  if (!env.DB) return false;
+  if (run.enqueued_at !== null) return true;
+  const payload = await env.DB.prepare(`
+    SELECT p.source_text, p.args_json, a.challenge_key,
+           a.content_revision, a.judge_revision
+    FROM trusted_custom_run_payloads p
+    JOIN trusted_custom_runs r
+      ON r.id = p.run_id AND r.user_id = p.user_id
+    JOIN trusted_assignments a
+      ON a.id = r.assignment_id AND a.user_id = r.user_id
+    WHERE p.run_id = ? AND p.user_id = ? AND r.status = 'pending'
+  `).bind(run.id, userId).first<{
+    source_text: string;
+    args_json: string;
+    challenge_key: string;
+    content_revision: number;
+    judge_revision: number;
+  }>();
+  if (!payload) return true;
+  const challenge = trustedChallengeForKey(payload.challenge_key);
+  if (!challenge) return false;
+  let customCases: ReturnType<typeof normalizeTrustedCustomCases>;
+  try {
+    customCases = normalizeTrustedCustomCases(challenge, JSON.parse(payload.args_json));
+  } catch {
+    return false;
+  }
+  if (
+    !customCases ||
+    challenge?.contentRevision !== payload.content_revision ||
+    challenge?.judgeRevision !== payload.judge_revision ||
+    JSON.stringify(customCases.map((entry) => entry.id)) !== run.case_ids_json
+  )
+    return false;
+  const judgeSpec = customJudgeSpec(challenge, customCases);
+  if (!judgeSpec) return false;
+  const contractDigest = await trustedJudgeContractDigest(judgeSpec);
+  if (contractDigest !== run.contract_digest) return false;
+  let execution;
+  try {
+    execution = await trustedGatewayExecution({
+      executionId: run.id,
+      source: payload.source_text,
+      judgeSpec,
+      callbackUrl: env.TRUSTED_JUDGE_CALLBACK_URL!,
+    });
+  } catch {
+    return false;
+  }
+  const queued = await enqueueTrustedExecution(env, execution);
+  if (!queued) return false;
+  const enqueuedAt = Date.now();
+  await env.DB.batch([
+    env.DB.prepare(`
+      UPDATE trusted_custom_runs
+      SET enqueued_at = ?
+      WHERE id = ? AND user_id = ? AND status = 'pending'
+        AND enqueued_at IS NULL
+    `).bind(enqueuedAt, run.id, userId),
+    env.DB.prepare(
+      "DELETE FROM trusted_custom_run_payloads WHERE run_id = ? AND user_id = ?",
     ).bind(run.id, userId),
   ]);
   return true;
@@ -1560,6 +1794,100 @@ async function maintainTrustedSubmissions(
         ).bind(row.id).run();
       }
     }
+    const staleCustomRuns = await db.prepare(`
+      SELECT r.id, r.requested_at, r.enqueued_at, r.contract_digest,
+             r.case_ids_json, a.challenge_key, a.content_revision,
+             a.judge_revision
+      FROM trusted_custom_runs r
+      JOIN trusted_assignments a
+        ON a.id = r.assignment_id AND a.user_id = r.user_id
+      WHERE r.status = 'pending'
+        AND (
+          (r.enqueued_at IS NOT NULL AND r.enqueued_at <= ?)
+          OR
+          (r.enqueued_at IS NULL AND r.requested_at <= ?)
+        )
+      ORDER BY r.requested_at ASC, r.id ASC
+      LIMIT 25
+    `).bind(
+      now - TRUSTED_ENQUEUED_TIMEOUT_MS,
+      now - TRUSTED_DELIVERY_TIMEOUT_MS,
+    ).all<{
+      id: string;
+      requested_at: number;
+      enqueued_at: number | null;
+      contract_digest: string;
+      case_ids_json: string;
+      challenge_key: string;
+      content_revision: number;
+      judge_revision: number;
+    }>();
+    for (const row of staleCustomRuns.results) {
+      const challenge = trustedChallengeForKey(row.challenge_key);
+      const caseIds = (() => {
+        try {
+          const decoded = JSON.parse(row.case_ids_json) as unknown;
+          return Array.isArray(decoded) && decoded.length >= 1 &&
+              decoded.length <= TRUSTED_CUSTOM_MAX_CASES &&
+              decoded.every((id) => cleanTrustedCustomCaseId(id))
+            ? decoded as string[]
+            : null;
+        } catch {
+          return null;
+        }
+      })();
+      if (
+        !challenge || challenge.language !== "swift" || !caseIds ||
+        challenge.contentRevision !== row.content_revision ||
+        challenge.judgeRevision !== row.judge_revision
+      ) {
+        await db.batch([
+          db.prepare("DELETE FROM trusted_custom_run_payloads WHERE run_id = ?").bind(row.id),
+          db.prepare("DELETE FROM trusted_custom_runs WHERE id = ? AND status = 'pending'").bind(row.id),
+        ]);
+        continue;
+      }
+      const settlementHash = await sha256(JSON.stringify({
+        version: 1,
+        kind: "trusted-custom-timeout",
+        runId: row.id,
+        requestedAt: row.requested_at,
+        enqueuedAt: row.enqueued_at,
+      }));
+      const resultJson = JSON.stringify({
+        passed: 0,
+        total: caseIds.length,
+        authority: "server-isolated-swift",
+        language: "swift",
+        runtime: challenge.runtime,
+        contractDigest: row.contract_digest,
+        contentRevision: row.content_revision,
+        judgeRevision: row.judge_revision,
+        infrastructureFailure: true,
+        cases: caseIds.map((id) => ({
+          id,
+          status: "judge-error",
+          diagnostic: "The isolated execution did not settle before its timeout.",
+        })),
+      });
+      const stalePredicate = row.enqueued_at === null
+        ? "enqueued_at IS NULL AND requested_at <= ?"
+        : "enqueued_at = ? AND enqueued_at <= ?";
+      const staleArgs = row.enqueued_at === null
+        ? [now - TRUSTED_DELIVERY_TIMEOUT_MS]
+        : [row.enqueued_at, now - TRUSTED_ENQUEUED_TIMEOUT_MS];
+      const settlement = await db.prepare(`
+        UPDATE trusted_custom_runs
+        SET status = 'settled', verdict = 'judge-error', result_json = ?,
+            settlement_hash = ?, settled_at = ?
+        WHERE id = ? AND status = 'pending' AND ${stalePredicate}
+      `).bind(resultJson, settlementHash, now, row.id, ...staleArgs).run();
+      if ((settlement.meta?.changes ?? 0) > 0) {
+        await db.prepare(
+          "DELETE FROM trusted_custom_run_payloads WHERE run_id = ?",
+        ).bind(row.id).run();
+      }
+    }
     await db.prepare(
       "DELETE FROM trusted_submission_payloads WHERE purge_after <= ?",
     ).bind(now).run();
@@ -1567,7 +1895,13 @@ async function maintainTrustedSubmissions(
       "DELETE FROM trusted_example_run_payloads WHERE purge_after <= ?",
     ).bind(now).run();
     await db.prepare(
+      "DELETE FROM trusted_custom_run_payloads WHERE purge_after <= ?",
+    ).bind(now).run();
+    await db.prepare(
       "DELETE FROM trusted_example_runs WHERE purge_after <= ? AND status = 'settled'",
+    ).bind(now).run();
+    await db.prepare(
+      "DELETE FROM trusted_custom_runs WHERE purge_after <= ? AND status = 'settled'",
     ).bind(now).run();
   } catch (error) {
     console.error(
@@ -1831,6 +2165,50 @@ async function submitTrustedAssignment(
     { submission: trustedSubmissionProjection(pending) },
     202,
   );
+}
+
+async function enqueueTrustedExecution(
+  env: Env,
+  execution: Awaited<ReturnType<typeof trustedGatewayExecution>>,
+) {
+  if (!hasTrustedJudge(env)) return null;
+  let executionUrl: string;
+  try {
+    const parsed = new URL(env.TRUSTED_JUDGE_URL!);
+    parsed.pathname = parsed.pathname.endsWith("/v1/submissions")
+      ? parsed.pathname.slice(0, -"/v1/submissions".length) + "/v1/executions"
+      : parsed.pathname.replace(/\/$/, "") + "/v1/executions";
+    parsed.search = "";
+    executionUrl = parsed.toString();
+  } catch {
+    return null;
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 12_000);
+  try {
+    const response = await fetch(executionUrl, {
+      method: "POST",
+      redirect: "error",
+      signal: controller.signal,
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+        authorization: `Bearer ${env.TRUSTED_JUDGE_TOKEN}`,
+      },
+      body: JSON.stringify(execution),
+    });
+    if (response.status !== 202) return null;
+    const text = await response.text();
+    if (!text || new TextEncoder().encode(text).byteLength > 1_024) return null;
+    const decoded = JSON.parse(text) as unknown;
+    return isRecord(decoded) &&
+      decoded.executionId === execution.executionId &&
+      decoded.status === "queued";
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function runTrustedAssignmentExamples(
@@ -2114,6 +2492,316 @@ async function runTrustedAssignmentExamples(
   );
 }
 
+/**
+ * Execute one or more learner-supplied Swift input cases without expected
+ * values. The gateway's run-only contract returns bounded observed output;
+ * this receipt is intentionally separate from both samples and verified
+ * submissions and can never accept/close the assignment.
+ */
+async function runTrustedAssignmentCustomCases(
+  request: Request,
+  env: Env,
+  rawAssignmentId: string,
+) {
+  const user = await authenticatedUser(request);
+  if (!user)
+    return errorResponse(
+      request,
+      401,
+      "AUTH_REQUIRED",
+      "Sign in to run private custom cases.",
+    );
+  if (!hasTrustedJudge(env) || !env.DB)
+    return errorResponse(
+      request,
+      503,
+      "TRUSTED_ASSESSMENTS_UNAVAILABLE",
+      "The isolated judge is not connected.",
+    );
+  const assignmentId = cleanTrustedId(rawAssignmentId, 96);
+  if (!assignmentId)
+    return errorResponse(
+      request,
+      404,
+      "ASSIGNMENT_NOT_FOUND",
+      "That verified assignment is unavailable.",
+    );
+  let body: unknown;
+  try {
+    body = await readJson(request);
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "INVALID_JSON";
+    return errorResponse(
+      request,
+      code === "CONTENT_TYPE" ? 415 : 400,
+      code,
+      "Send bounded source, arguments, and a stable custom run ID.",
+    );
+  }
+  const clientRunId = isRecord(body) ? cleanTrustedId(body.clientRunId) : null;
+  const source = isRecord(body) ? cleanTrustedSource(body.source) : null;
+  if (!clientRunId || !source)
+    return errorResponse(
+      request,
+      400,
+      "INVALID_CUSTOM_RUN",
+      "Send bounded source, arguments, and a stable custom run ID.",
+    );
+
+  const assignment = await env.DB.prepare(`
+    SELECT *
+    FROM trusted_assignments
+    WHERE id = ? AND user_id = ?
+  `).bind(assignmentId, user.userId).first<TrustedAssignmentRow>();
+  if (!assignment)
+    return errorResponse(
+      request,
+      404,
+      "ASSIGNMENT_NOT_FOUND",
+      "That verified assignment is unavailable.",
+    );
+  const now = Date.now();
+  if (now >= assignment.expires_at)
+    return errorResponse(
+      request,
+      409,
+      "ASSIGNMENT_EXPIRED",
+      "That verified assignment has expired.",
+    );
+  if (assignment.status !== "active")
+    return errorResponse(
+      request,
+      409,
+      "ASSIGNMENT_CLOSED",
+      "That verified assignment is already closed.",
+    );
+  const challenge = trustedChallengeForKey(assignment.challenge_key);
+  if (
+    !challenge ||
+    challenge.language !== "swift" ||
+    challenge.programId !== assignment.program_id ||
+    challenge.contentRevision !== assignment.content_revision ||
+    challenge.judgeRevision !== assignment.judge_revision
+  )
+    return errorResponse(
+      request,
+      409,
+      "ASSIGNMENT_STALE",
+      "This assignment no longer matches the current Swift judge contract.",
+    );
+
+  const rawCases = isRecord(body)
+    ? Array.isArray(body.cases)
+      ? body.cases
+      : body.args !== undefined
+        ? [{ id: "custom-1", name: "Custom case 1", args: body.args }]
+        : null
+    : null;
+  let customCases: ReturnType<typeof normalizeTrustedCustomCases>;
+  try {
+    customCases = normalizeTrustedCustomCases(challenge, rawCases);
+  } catch {
+    customCases = null;
+  }
+  if (!customCases)
+    return errorResponse(
+      request,
+      400,
+      "INVALID_CUSTOM_INPUT",
+      "Custom cases must contain 1–12 argument arrays matching the Swift function signature.",
+    );
+  const caseIds = customCases.map((testCase) => testCase.id);
+  const caseIdsJson = JSON.stringify(caseIds);
+  const sourceHash = await sha256(source);
+  const requestHash = await sha256(JSON.stringify({
+    kind: "trusted-custom-run-v1",
+    assignmentId,
+    sourceHash,
+    cases: customCases,
+  }));
+  const replay = await trustedCustomRunByClientId(
+    env.DB,
+    user.userId,
+    clientRunId,
+  );
+  if (replay) {
+    if (
+      replay.assignment_id !== assignmentId ||
+      replay.request_hash !== requestHash
+    )
+      return errorResponse(
+        request,
+        409,
+        "IDEMPOTENCY_CONFLICT",
+        "That custom run ID belongs to different source or input.",
+      );
+    if (replay.status === "pending") {
+      const queued = await retryPendingTrustedCustomRun(
+        env,
+        replay,
+        user.userId,
+      );
+      if (!queued)
+        return errorResponse(
+          request,
+          503,
+          "JUDGE_ENQUEUE_UNAVAILABLE",
+          "The custom run is saved, but the isolated judge could not be reached. Retry with the same source and input.",
+        );
+    }
+    return json(
+      request,
+      { customRun: trustedCustomRunProjection(replay, challenge) },
+      replay.status === "pending" ? 202 : 200,
+    );
+  }
+
+  const recentCustom = await env.DB.prepare(`
+    SELECT id
+    FROM trusted_custom_runs
+    WHERE user_id = ? AND requested_at > ?
+    ORDER BY requested_at DESC
+    LIMIT 1
+  `).bind(user.userId, now - 2_000).first<{ id: string }>();
+  if (recentCustom)
+    return errorResponse(
+      request,
+      429,
+      "CUSTOM_RUN_RATE_LIMITED",
+      "Wait a moment before starting another custom run.",
+    );
+  const pendingCustomCount = await env.DB.prepare(`
+    SELECT COUNT(*) AS count
+    FROM trusted_custom_runs
+    WHERE user_id = ? AND status = 'pending'
+  `).bind(user.userId).first<{ count: number }>();
+  if ((pendingCustomCount?.count ?? 0) >= TRUSTED_CUSTOM_MAX_PENDING_PER_USER)
+    return errorResponse(
+      request,
+      429,
+      "CUSTOM_RUN_LIMIT_REACHED",
+      "Finish or wait for an earlier custom run before starting another.",
+    );
+
+  const judgeSpec = customJudgeSpec(challenge, customCases);
+  if (!judgeSpec)
+    return errorResponse(
+      request,
+      409,
+      "CUSTOM_RUN_UNSUPPORTED",
+      "This assignment does not support isolated Swift custom cases.",
+    );
+  let preparedGatewayPayload: Awaited<ReturnType<typeof trustedGatewayExecution>>;
+  try {
+    preparedGatewayPayload = await trustedGatewayExecution({
+      executionId: `custom-${crypto.randomUUID().replace(/-/g, "")}`,
+      source,
+      judgeSpec,
+      callbackUrl: env.TRUSTED_JUDGE_CALLBACK_URL!,
+    });
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "INVALID_TRUSTED_SUBMISSION";
+    const sizeFailure = new Set([
+      "TRUSTED_GATEWAY_SOURCE_TOO_LARGE",
+      "TRUSTED_GATEWAY_CASE_TOO_LARGE",
+      "TRUSTED_GATEWAY_REQUEST_TOO_LARGE",
+    ]).has(code);
+    return errorResponse(
+      request,
+      sizeFailure ? 413 : 422,
+      sizeFailure ? "CUSTOM_INPUT_TOO_LARGE" : "INVALID_CUSTOM_INPUT",
+      sizeFailure
+        ? "This source or custom input is too large for the isolated judge envelope. Shorten it and run again."
+        : "This source or custom input does not fit the Swift function contract.",
+    );
+  }
+  const runId = preparedGatewayPayload.executionId;
+  const contractDigest = await trustedJudgeContractDigest(judgeSpec);
+  const purgeAfter = now + TRUSTED_RETENTION_MS;
+  try {
+    await env.DB.batch([
+      env.DB.prepare(`
+        INSERT INTO trusted_custom_runs
+          (id, assignment_id, user_id, client_run_id, request_hash,
+           source_hash, contract_digest, case_ids_json, status, verdict,
+           case_names_json, result_json, requested_at, settled_at, purge_after)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, ?, NULL, ?, NULL, ?)
+      `).bind(
+        runId,
+        assignmentId,
+        user.userId,
+        clientRunId,
+        requestHash,
+        sourceHash,
+        contractDigest,
+        caseIdsJson,
+        JSON.stringify(customCases.map((testCase) => testCase.name)),
+        now,
+        purgeAfter,
+      ),
+      env.DB.prepare(`
+        INSERT INTO trusted_custom_run_payloads
+          (run_id, user_id, source_text, args_json, purge_after)
+        VALUES (?, ?, ?, ?, ?)
+      `).bind(
+        runId,
+        user.userId,
+        source,
+        JSON.stringify(customCases),
+        now + 60 * 60 * 1000,
+      ),
+    ]);
+  } catch (error) {
+    const raced = await trustedCustomRunByClientId(
+      env.DB,
+      user.userId,
+      clientRunId,
+    );
+    if (
+      raced &&
+      raced.assignment_id === assignmentId &&
+      raced.request_hash === requestHash
+    )
+      return json(
+        request,
+        { customRun: trustedCustomRunProjection(raced, challenge) },
+        raced.status === "pending" ? 202 : 200,
+      );
+    throw error;
+  }
+  const queued = await enqueueTrustedExecution(env, preparedGatewayPayload);
+  if (!queued)
+    return errorResponse(
+      request,
+      503,
+      "JUDGE_ENQUEUE_UNAVAILABLE",
+      "The custom run is saved, but the isolated judge could not be reached. Retry with the same source and input.",
+    );
+  const enqueuedAt = Date.now();
+  await env.DB.batch([
+    env.DB.prepare(`
+      UPDATE trusted_custom_runs
+      SET enqueued_at = ?
+      WHERE id = ? AND user_id = ? AND status = 'pending'
+        AND enqueued_at IS NULL
+    `).bind(enqueuedAt, runId, user.userId),
+    env.DB.prepare(
+      "DELETE FROM trusted_custom_run_payloads WHERE run_id = ? AND user_id = ?",
+    ).bind(runId, user.userId),
+  ]);
+  const pending = await trustedCustomRunByClientId(
+    env.DB,
+    user.userId,
+    clientRunId,
+  );
+  if (!pending) throw new Error("TRUSTED_CUSTOM_RUN_CREATE_FAILED");
+  return json(
+    request,
+    { customRun: trustedCustomRunProjection(pending, challenge) },
+    202,
+  );
+}
+
 async function settleTrustedExampleRunResult(
   request: Request,
   env: Env,
@@ -2249,6 +2937,148 @@ async function settleTrustedExampleRunResult(
   );
 }
 
+async function settleTrustedCustomRunResult(
+  request: Request,
+  env: Env,
+  decoded: unknown,
+  runId: string,
+  body: string,
+) {
+  if (!env.DB) throw new Error("TRUSTED_DB_REQUIRED");
+  const row = await env.DB.prepare(`
+    SELECT r.id, r.assignment_id, r.user_id, r.status, r.settlement_hash,
+           r.contract_digest, r.case_ids_json,
+           a.challenge_key, a.content_revision, a.judge_revision
+    FROM trusted_custom_runs r
+    JOIN trusted_assignments a
+      ON a.id = r.assignment_id AND a.user_id = r.user_id
+    WHERE r.id = ?
+  `).bind(runId).first<{
+    id: string;
+    assignment_id: string;
+    user_id: string;
+    status: "pending" | "settled";
+    settlement_hash: string | null;
+    contract_digest: string;
+    case_ids_json: string;
+    challenge_key: string;
+    content_revision: number;
+    judge_revision: number;
+  }>();
+  if (!row) return null;
+  const challenge = trustedChallengeForKey(row.challenge_key);
+  const caseIds = (() => {
+    try {
+      const value = JSON.parse(row.case_ids_json) as unknown;
+      return Array.isArray(value) && value.length >= 1 && value.length <= TRUSTED_CUSTOM_MAX_CASES &&
+          value.every((id) => cleanTrustedCustomCaseId(id))
+        ? value as string[]
+        : null;
+    } catch {
+      return null;
+    }
+  })();
+  if (
+    !challenge || challenge.language !== "swift" || !caseIds ||
+    challenge.contentRevision !== row.content_revision ||
+    challenge.judgeRevision !== row.judge_revision
+  )
+    throw new Error("INVALID_TRUSTED_CUSTOM_RUN_ROW");
+  const normalizedCases = normalizeTrustedCustomCaseResults(decoded, caseIds);
+  if (!normalizedCases)
+    return errorResponse(
+      request,
+      400,
+      "INVALID_JUDGE_RESULT",
+      "The signed execution callback does not match the custom input contract.",
+    );
+  const callback = isRecord(decoded) ? decoded : null;
+  if (
+    !callback ||
+    callback.version !== "judge.execution.result.v1" ||
+    callback.executionId !== runId ||
+    callback.language !== "swift6" ||
+    callback.runtime !== challenge.runtime ||
+    callback.total !== caseIds.length ||
+    callback.executed !== normalizedCases.filter((entry) => entry.passed).length
+  )
+    return errorResponse(
+      request,
+      400,
+      "INVALID_JUDGE_RESULT",
+      "The signed execution callback does not match the custom input contract.",
+    );
+  const passed = normalizedCases.filter((entry) => entry.passed).length;
+  const verdict = passed === caseIds.length
+    ? "accepted"
+    : normalizedCases.some((entry) => entry.status === "compile-error")
+      ? "compile-error"
+      : normalizedCases.some((entry) => entry.status === "time-limit")
+        ? "time-limit"
+        : normalizedCases.some((entry) => entry.status === "runtime-error")
+          ? "runtime-error"
+          : "judge-error";
+  const topDiagnostic = typeof callback.diagnostic === "string"
+    ? callback.diagnostic.slice(0, 2_000)
+    : null;
+  const resultJson = JSON.stringify({
+    passed,
+    total: caseIds.length,
+    authority: "server-isolated-swift",
+    language: "swift",
+    runtime: challenge.runtime,
+    contentRevision: row.content_revision,
+    judgeRevision: row.judge_revision,
+    contractDigest: row.contract_digest,
+    ...(topDiagnostic ? { diagnostic: topDiagnostic } : {}),
+    cases: normalizedCases.map((entry) => ({ ...entry })),
+  });
+  const settlementHash = await sha256(body);
+  if (row.status === "settled") {
+    if (row.settlement_hash === settlementHash)
+      return new Response(null, { status: 204, headers: responseHeaders(request) });
+    console.error("Contradictory trusted custom callback", {
+      runId,
+      storedHash: row.settlement_hash,
+      receivedHash: settlementHash,
+    });
+    return errorResponse(
+      request,
+      409,
+      "CONTRADICTORY_JUDGE_RESULT",
+      "A different result already settled this custom run.",
+    );
+  }
+  const settledAt = Date.now();
+  await env.DB.batch([
+    env.DB.prepare(`
+      UPDATE trusted_custom_runs
+      SET status = 'settled', verdict = ?, result_json = ?,
+          settlement_hash = ?, settled_at = ?
+      WHERE id = ? AND status = 'pending'
+    `).bind(verdict, resultJson, settlementHash, settledAt, runId),
+    env.DB.prepare(
+      "DELETE FROM trusted_custom_run_payloads WHERE run_id = ?",
+    ).bind(runId),
+  ]);
+  const settled = await env.DB.prepare(`
+    SELECT status, settlement_hash
+    FROM trusted_custom_runs
+    WHERE id = ?
+  `).bind(runId).first<{
+    status: "pending" | "settled";
+    settlement_hash: string | null;
+  }>();
+  if (settled?.status === "settled" && settled.settlement_hash === settlementHash)
+    return new Response(null, { status: 204, headers: responseHeaders(request) });
+  return errorResponse(
+    request,
+    409,
+    "CONTRADICTORY_JUDGE_RESULT",
+    "A different result already settled this custom run.",
+  );
+}
+
 async function settleTrustedJudgeResult(request: Request, env: Env) {
   if (!hasTrustedCallback(env) || !env.DB)
     return errorResponse(
@@ -2301,6 +3131,40 @@ async function settleTrustedJudgeResult(request: Request, env: Env) {
       400,
       "INVALID_JUDGE_RESULT",
       "The signed callback is not valid JSON.",
+    );
+  }
+  if (isRecord(decoded) && decoded.version === "judge.execution.result.v1") {
+    const executionId = cleanTrustedId(decoded.executionId, 160);
+    if (!executionId)
+      return errorResponse(
+        request,
+        400,
+        "INVALID_JUDGE_RESULT",
+        "The signed execution callback has an invalid execution ID.",
+      );
+    if (
+      request.headers.get("idempotency-key") !==
+      `judge-execution-result:${executionId}`
+    )
+      return errorResponse(
+        request,
+        400,
+        "INVALID_IDEMPOTENCY_KEY",
+        "The execution callback idempotency key is invalid.",
+      );
+    const customSettlement = await settleTrustedCustomRunResult(
+      request,
+      env,
+      decoded,
+      executionId,
+      body,
+    );
+    if (customSettlement) return customSettlement;
+    return errorResponse(
+      request,
+      404,
+      "CUSTOM_RUN_NOT_FOUND",
+      "That pending custom execution does not exist.",
     );
   }
   const submissionId = isRecord(decoded)
@@ -3086,6 +3950,15 @@ async function api(request: Request, env: Env, url: URL) {
       request,
       env,
       trustedExampleRunMatch[1],
+    );
+  const trustedCustomRunMatch = path.match(
+    /^\/trusted\/assignments\/([^/]+)\/custom-runs$/,
+  );
+  if (trustedCustomRunMatch && request.method === "POST")
+    return runTrustedAssignmentCustomCases(
+      request,
+      env,
+      trustedCustomRunMatch[1],
     );
   if (path === "/profile" && request.method === "PATCH")
     return updateProfile(request, env);

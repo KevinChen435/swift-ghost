@@ -59,6 +59,21 @@ export type TrustedJudgeSpec = Readonly<{
   }>)[];
 }>;
 
+export type TrustedExecutionSpec = Readonly<{
+  protocolVersion: 1;
+  executionMode: "custom";
+  language: "swift";
+  runtime: "swift-6.3.3-linux";
+  contentRevision: number;
+  judgeRevision: number;
+  entrypoint: TrustedEntrypoint;
+  cases: readonly Readonly<{
+    id: string;
+    name: string;
+    args: readonly unknown[];
+  }>[];
+}>;
+
 export type TrustedGatewayRequest = Readonly<{
   version: "judge.submission.v1";
   submissionId: string;
@@ -158,9 +173,11 @@ export function trustedChallengeForSequence(sequence: number, language?: Trusted
 export function publicTrustedChallenge(challenge: TrustedChallenge): Omit<TrustedChallenge, "hiddenCases">;
 export function privateJudgeSpec(challenge: TrustedChallenge): TrustedJudgeSpec;
 export function publicExampleJudgeSpec(challenge: TrustedChallenge): TrustedJudgeSpec;
+export function customJudgeSpec(challenge: TrustedChallenge, customCases: readonly Readonly<{ id: string; name: string; args: readonly unknown[] }>[] ): TrustedExecutionSpec | null;
+export function normalizeTrustedCustomCases(challenge: TrustedChallenge, value: unknown): readonly Readonly<{ id: string; name: string; args: readonly unknown[] }>[] | null;
 export function cleanTrustedId(value: unknown, limit?: number): string | null;
 export function cleanTrustedSource(value: unknown): string | null;
-export function trustedJudgeContractDigest(judgeSpec: TrustedJudgeSpec): Promise<string>;
+export function trustedJudgeContractDigest(judgeSpec: TrustedJudgeSpec | TrustedExecutionSpec): Promise<string>;
 export function trustedGatewaySubmission(input: {
   submissionId: string;
   source: string;
@@ -172,6 +189,19 @@ export function trustedGatewayExampleRun(input: {
   source: string;
   judgeSpec: TrustedJudgeSpec;
 }): Promise<Omit<TrustedGatewayRequest, "callbackUrl">>;
+export type TrustedGatewayExecutionRequest = Readonly<{
+  version: "judge.execution.v1";
+  executionId: string;
+  source: string;
+  cases: readonly { id: string; input: string }[];
+  callbackUrl: string;
+}>;
+export function trustedGatewayExecution(input: {
+  executionId: string;
+  source: string;
+  judgeSpec: TrustedExecutionSpec;
+  callbackUrl: string;
+}): Promise<TrustedGatewayExecutionRequest>;
 export function normalizeTrustedGatewayResult(
   value: unknown,
   submissionId: string,
@@ -186,6 +216,16 @@ export function normalizeTrustedPublicCaseResults(
   value: unknown,
   publicCaseIds: readonly string[],
 ): readonly NormalizedTrustedPublicCaseResult[] | null | undefined;
+export function normalizeTrustedCustomCaseResults(
+  value: unknown,
+  publicCaseIds: readonly string[],
+): readonly Readonly<{
+  id: string;
+  status: "passed" | "failed" | "compile-error" | "runtime-error" | "time-limit" | "judge-error";
+  passed: boolean;
+  actual?: unknown;
+  diagnostic?: string;
+}>[] | null;
 export function normalizeTrustedJudgeResult(
   value: unknown,
   expectedTotal: number,

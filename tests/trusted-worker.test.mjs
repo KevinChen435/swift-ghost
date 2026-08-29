@@ -70,6 +70,7 @@ async function applyMigrations(database) {
     "0004_petite_professor_monster.sql",
     "0005_lying_wilson_fisk.sql",
     "0006_swift_example_runs.sql",
+    "0007_tiny_oracle.sql",
   ]) {
     const sql = await readFile(new URL(`../drizzle/${name}`, import.meta.url), "utf8");
     for (const statement of sql.split("--> statement-breakpoint")) {
@@ -163,7 +164,9 @@ test("Worker queues callable checkpoints and settles only signed idempotent call
       return gatewayAvailable
         ? new Response(
             JSON.stringify({
-              submissionId: judgeCalls.at(-1).body.submissionId,
+              ...(judgeCalls.at(-1).body.version === "judge.execution.v1"
+                ? { executionId: judgeCalls.at(-1).body.executionId }
+                : { submissionId: judgeCalls.at(-1).body.submissionId }),
               status: "queued",
             }),
             { status: 202, headers: { "content-type": "application/json" } },
@@ -852,6 +855,126 @@ test("Worker queues callable checkpoints and settles only signed idempotent call
       assignmentStatusBeforeExamples,
       "example runs must not close or accept the assignment",
     );
+
+    // Custom Swift rehearsal uses the execution-only gateway contract. It
+    // receives inputs but never expected values, revisions, or hidden cases,
+    // and it must not create trusted submission evidence.
+    const submissionCountBeforeCustom = database.prepare(
+      "SELECT COUNT(*) AS count FROM trusted_submissions",
+    ).get().count;
+    const customBody = {
+      clientRunId: "custom:swift-abc12345",
+      source: swiftSource,
+      cases: [
+        {
+          id: "case-1",
+          name: "pair exists",
+          args: [[2, 7, 11, 15], 9],
+        },
+        {
+          id: "case-2",
+          name: "pair missing",
+          args: [[1, 2], 8],
+        },
+      ],
+    };
+    gatewayAvailable = false;
+    const customUnavailableResponse = await worker.fetch(
+      workerRequest(`/trusted/assignments/${swiftIssued.id}/custom-runs`, customBody),
+      env,
+      context,
+    );
+    assert.equal(customUnavailableResponse.status, 503);
+    assert.equal((await customUnavailableResponse.json()).error.code, "JUDGE_ENQUEUE_UNAVAILABLE");
+    assert.equal(
+      database.prepare("SELECT COUNT(*) AS count FROM trusted_custom_run_payloads").get().count,
+      1,
+      "a custom run keeps its input only while enqueue is unavailable",
+    );
+    gatewayAvailable = true;
+    const customQueuedResponse = await worker.fetch(
+      workerRequest(`/trusted/assignments/${swiftIssued.id}/custom-runs`, customBody),
+      env,
+      context,
+    );
+    assert.equal(customQueuedResponse.status, 202);
+    const customQueued = (await customQueuedResponse.json()).customRun;
+    assert.match(customQueued.id, /^custom-[a-f0-9]{32}$/);
+    assert.equal(customQueued.status, "pending");
+    const customJudgeBody = judgeCalls.at(-1).body;
+    assert.equal(judgeCalls.at(-1).url, "https://judge.example/v1/executions");
+    assert.equal(customJudgeBody.version, "judge.execution.v1");
+    assert.equal(customJudgeBody.executionId, customQueued.id);
+    assert.equal(customJudgeBody.cases.length, 2);
+    assert.equal(Object.hasOwn(customJudgeBody, "expected"), false);
+    assert.equal(Object.hasOwn(customJudgeBody, "contentRevision"), false);
+    assert.equal(Object.hasOwn(customJudgeBody, "judgeRevision"), false);
+    assert.equal(Object.hasOwn(customJudgeBody, "entrypoint"), false);
+    assert.match(customJudgeBody.source, /JSONDecoder/);
+    assert.equal(
+      database.prepare("SELECT COUNT(*) AS count FROM trusted_submissions").get().count,
+      submissionCountBeforeCustom,
+    );
+    const customResult = {
+      version: "judge.execution.result.v1",
+      executionId: customQueued.id,
+      language: "swift6",
+      runtime: "swift-6.3.3-linux",
+      executed: 1,
+      total: 2,
+      diagnostic: "second input failed at runtime",
+      cases: [
+        { id: "case-1", status: "executed", actualOutput: "[0,1]\n" },
+        { id: "case-2", status: "runtime-error", diagnostic: "boom" },
+      ],
+    };
+    const customCallback = await worker.fetch(
+      signedCallbackRequest(env, customResult, {
+        idempotencyKey: `judge-execution-result:${customQueued.id}`,
+      }),
+      env,
+      context,
+    );
+    assert.equal(customCallback.status, 204);
+    const customReplay = await worker.fetch(
+      workerRequest(`/trusted/assignments/${swiftIssued.id}/custom-runs`, customBody),
+      env,
+      context,
+    );
+    assert.equal(customReplay.status, 200);
+    const settledCustom = (await customReplay.json()).customRun;
+    assert.equal(settledCustom.verdict, "runtime-error");
+    assert.equal(settledCustom.result.authority, "server-isolated-swift");
+    assert.equal(settledCustom.result.language, "swift");
+    assert.equal(settledCustom.result.passed, 1);
+    assert.equal(settledCustom.result.total, 2);
+    assert.deepEqual(
+      settledCustom.result.cases.map(({ id, name, status, passed, actual }) => ({
+        id,
+        name,
+        status,
+        passed,
+        actual,
+      })),
+      [
+        { id: "case-1", name: "pair exists", status: "passed", passed: true, actual: [0, 1] },
+        { id: "case-2", name: "pair missing", status: "runtime-error", passed: false, actual: undefined },
+      ],
+    );
+    assert.equal(
+      database.prepare("SELECT status FROM trusted_assignments WHERE id = ?").get(swiftIssued.id).status,
+      assignmentStatusBeforeExamples,
+    );
+    const customConflict = await worker.fetch(
+      workerRequest(`/trusted/assignments/${swiftIssued.id}/custom-runs`, {
+        ...customBody,
+        cases: [{ ...customBody.cases[0], args: [[3, 4], 7] }],
+      }),
+      env,
+      context,
+    );
+    assert.equal(customConflict.status, 409);
+    assert.equal((await customConflict.json()).error.code, "IDEMPOTENCY_CONFLICT");
 
     const ownerId = database.prepare(
       "SELECT user_id FROM trusted_assignments WHERE id = ?",

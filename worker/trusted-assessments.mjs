@@ -1018,6 +1018,109 @@ export function publicExampleJudgeSpec(challenge) {
   };
 }
 
+/**
+ * Build a server-owned, run-only contract for custom input rehearsal. The
+ * caller supplies arguments only; visibility and the entrypoint are always
+ * resolved here, and no expected values are included. The judge gateway uses the explicit
+ * run-only comparison mode to return bounded observed output without turning
+ * custom practice into a mastery/evidence submission.
+ */
+export function customJudgeSpec(challenge, customCases) {
+  if (!challenge || challenge.language !== "swift" || !Array.isArray(customCases))
+    return null;
+  return {
+    protocolVersion: 1,
+    executionMode: "custom",
+    language: challenge.language,
+    runtime: challenge.runtime,
+    contentRevision: challenge.contentRevision,
+    judgeRevision: challenge.judgeRevision,
+    entrypoint: {
+      ...challenge.entrypoint,
+      ...(Array.isArray(challenge.entrypoint.parameters)
+        ? { parameters: challenge.entrypoint.parameters.map((entry) => ({ ...entry })) }
+        : {}),
+    },
+    cases: customCases.map((testCase) => ({
+      id: testCase.id,
+      visibility: "sample",
+      name: testCase.name,
+      args: structuredClone(testCase.args),
+    })),
+  };
+}
+
+const CUSTOM_ARGUMENT_LIMIT_BYTES = 12_000;
+const CUSTOM_CASE_LIMIT = 12;
+const CUSTOM_CASE_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,95}$/;
+
+function customJsonValue(value, label, depth = 0) {
+  if (depth > 32) throw new Error("INVALID_CUSTOM_INPUT");
+  if (value === null || typeof value === "string" || typeof value === "boolean")
+    return value;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || !Number.isSafeInteger(value))
+      throw new Error(`INVALID_CUSTOM_INPUT:${label}`);
+    return value;
+  }
+  if (!Array.isArray(value)) throw new Error(`INVALID_CUSTOM_INPUT:${label}`);
+  return value.map((entry, index) => customJsonValue(entry, `${label}[${index}]`, depth + 1));
+}
+
+function customTypeAccepts(value, type) {
+  if (type.endsWith("?")) return value === null || customTypeAccepts(value, type.slice(0, -1));
+  if (type === "Int") return typeof value === "number" && Number.isSafeInteger(value);
+  if (type === "Bool") return typeof value === "boolean";
+  if (type === "String") return typeof value === "string";
+  if (type === "[Int]") return Array.isArray(value) && value.every((entry) => customTypeAccepts(entry, "Int"));
+  if (type === "[String]") return Array.isArray(value) && value.every((entry) => customTypeAccepts(entry, "String"));
+  if (type === "[[Int]]") return Array.isArray(value) && value.every((entry) => customTypeAccepts(entry, "[Int]"));
+  return false;
+}
+
+/** Normalize client custom cases against the frozen Swift entrypoint types. */
+export function normalizeTrustedCustomCases(challenge, value) {
+  if (!challenge || challenge.language !== "swift" || !Array.isArray(value)) return null;
+  const parameters = challenge.entrypoint?.parameters;
+  if (!Array.isArray(parameters) || value.length < 1 || value.length > CUSTOM_CASE_LIMIT)
+    return null;
+  const used = new Set();
+  const cases = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const candidate = value[index];
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+    const rawId = candidate.id === undefined
+      ? `custom-${index + 1}`
+      : candidate.id;
+    const id = typeof rawId === "string" && CUSTOM_CASE_ID.test(rawId.trim())
+      ? rawId.trim()
+      : null;
+    if (!id || used.has(id)) return null;
+    used.add(id);
+    const name = typeof candidate.name === "string"
+      ? candidate.name.trim().slice(0, 120)
+      : `Custom case ${index + 1}`;
+    if (!name) return null;
+    if (!Array.isArray(candidate.args) || candidate.args.length !== parameters.length) return null;
+    let args;
+    try {
+      args = candidate.args.map((arg, argumentIndex) => {
+        const normalized = customJsonValue(arg, `case-${index + 1}.arg-${argumentIndex + 1}`);
+        if (!customTypeAccepts(normalized, parameters[argumentIndex].type))
+          throw new Error("INVALID_CUSTOM_INPUT");
+        return normalized;
+      });
+    } catch {
+      return null;
+    }
+    const encoded = JSON.stringify({ id, name, args });
+    if (new TextEncoder().encode(encoded).byteLength > CUSTOM_ARGUMENT_LIMIT_BYTES)
+      return null;
+    cases.push({ id, name, args });
+  }
+  return cases;
+}
+
 export function cleanTrustedId(value, limit = MAX_CLIENT_ID) {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
@@ -1297,6 +1400,83 @@ export async function trustedGatewayExampleRun({
   return sampleRequest;
 }
 
+/** Build the distinct execution-only gateway contract. It intentionally does
+ * not include expected values, revisions, entrypoints, or comparison fields;
+ * those are all resolved by this Worker before the request is built. */
+export async function trustedGatewayExecution({
+  executionId,
+  source,
+  judgeSpec,
+  callbackUrl,
+}) {
+  if (
+    !cleanTrustedId(executionId, 160) ||
+    cleanTrustedSource(source) !== source ||
+    typeof callbackUrl !== "string"
+  )
+    throw new Error("INVALID_TRUSTED_GATEWAY_INPUT");
+  let parsedCallback;
+  try {
+    parsedCallback = new URL(callbackUrl);
+  } catch {
+    throw new Error("INVALID_TRUSTED_GATEWAY_INPUT");
+  }
+  if (
+    parsedCallback.protocol !== "https:" ||
+    parsedCallback.username ||
+    parsedCallback.password ||
+    parsedCallback.hash
+  )
+    throw new Error("INVALID_TRUSTED_GATEWAY_INPUT");
+  if (
+    !judgeSpec ||
+    typeof judgeSpec !== "object" ||
+    Array.isArray(judgeSpec) ||
+    judgeSpec.protocolVersion !== 1 ||
+    judgeSpec.executionMode !== "custom" ||
+    judgeSpec.language !== "swift" ||
+    judgeSpec.runtime !== "swift-6.3.3-linux" ||
+    !Number.isInteger(judgeSpec.contentRevision) ||
+    judgeSpec.contentRevision < 1 ||
+    !Number.isInteger(judgeSpec.judgeRevision) ||
+    judgeSpec.judgeRevision < 1 ||
+    !validSwiftEntrypoint(judgeSpec.entrypoint) ||
+    !Array.isArray(judgeSpec.cases) ||
+    judgeSpec.cases.length < 1 ||
+    judgeSpec.cases.length > 16
+  )
+    throw new Error("INVALID_TRUSTED_EXECUTION_SPEC");
+  const wrappedSource = swiftCallableHarness(source, judgeSpec.entrypoint);
+  if (new TextEncoder().encode(wrappedSource).byteLength > 48_000)
+    throw new Error("TRUSTED_GATEWAY_SOURCE_TOO_LARGE");
+  const cases = judgeSpec.cases.map((testCase) => {
+    if (
+      !testCase ||
+      typeof testCase !== "object" ||
+      Array.isArray(testCase) ||
+      !(typeof testCase.id === "string" && CUSTOM_CASE_ID.test(testCase.id.trim())) ||
+      !Array.isArray(testCase.args)
+    )
+      throw new Error("INVALID_TRUSTED_EXECUTION_SPEC");
+    const input = `${canonicalJson({ args: testCase.args })}\n`;
+    if (new TextEncoder().encode(input).byteLength > 32_000)
+      throw new Error("TRUSTED_GATEWAY_CASE_TOO_LARGE");
+    return { id: testCase.id, input };
+  });
+  if (new Set(cases.map((testCase) => testCase.id)).size !== cases.length)
+    throw new Error("INVALID_TRUSTED_EXECUTION_SPEC");
+  const gatewayRequest = {
+    version: "judge.execution.v1",
+    executionId,
+    source: wrappedSource,
+    cases,
+    callbackUrl: parsedCallback.toString(),
+  };
+  if (new TextEncoder().encode(JSON.stringify(gatewayRequest)).byteLength > 120_000)
+    throw new Error("TRUSTED_GATEWAY_REQUEST_TOO_LARGE");
+  return gatewayRequest;
+}
+
 export function normalizeTrustedGatewayResult(
   value,
   submissionId,
@@ -1483,6 +1663,72 @@ export function normalizeTrustedPublicCaseResults(value, publicCaseIds) {
       ...(diagnostic ? { diagnostic } : {}),
     };
     normalized.push(entry);
+  }
+  return normalized;
+}
+
+const CUSTOM_EXECUTION_CASE_STATUSES = new Set([
+  "executed",
+  "passed",
+  "failed",
+  "compile-error",
+  "runtime-error",
+  "time-limit",
+  "judge-error",
+]);
+
+/** Normalize the execution-only callback without treating observed output as
+ * a trusted answer. `executed` is presented as a passed practice case, while
+ * its actual output is decoded and bounded for the client. */
+export function normalizeTrustedCustomCaseResults(value, publicCaseIds) {
+  if (!Array.isArray(publicCaseIds) || publicCaseIds.length < 1 || publicCaseIds.length > 16)
+    return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const rawResults = Array.isArray(value.cases)
+    ? value.cases
+    : Array.isArray(value.results)
+      ? value.results
+      : undefined;
+  if (!rawResults) return null;
+  if (rawResults.length !== publicCaseIds.length) return null;
+  const normalized = [];
+  for (let index = 0; index < rawResults.length; index += 1) {
+    const raw = rawResults[index];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const rawId = raw.id ?? raw.caseId;
+    const id = typeof rawId === "string" && CUSTOM_CASE_ID.test(rawId.trim())
+      ? rawId.trim()
+      : null;
+    if (id !== publicCaseIds[index]) return null;
+    const rawStatus = typeof raw.status === "string" ? raw.status : "";
+    if (!CUSTOM_EXECUTION_CASE_STATUSES.has(rawStatus)) return null;
+    const actualOutput = cleanPublicCaseText(raw.actualOutput ?? raw.actual ?? raw.output);
+    if (rawStatus === "executed" && actualOutput === undefined) return null;
+    let actual;
+    if (actualOutput !== undefined) {
+      try {
+        actual = JSON.parse(actualOutput);
+      } catch {
+        actual = actualOutput;
+      }
+    } else if (Object.hasOwn(raw, "actual")) {
+      try {
+        actual = customJsonValue(raw.actual, "actual");
+        if (new TextEncoder().encode(JSON.stringify(actual)).byteLength > 2_048)
+          actual = undefined;
+      } catch {
+        actual = undefined;
+      }
+    }
+    const diagnostic = cleanPublicCaseText(raw.diagnostic, 2_000);
+    const status = rawStatus === "executed" ? "passed" : rawStatus;
+    normalized.push({
+      id,
+      status,
+      passed: rawStatus === "executed" || rawStatus === "passed",
+      ...(actual !== undefined ? { actual } : {}),
+      ...(diagnostic ? { diagnostic } : {}),
+    });
   }
   return normalized;
 }
