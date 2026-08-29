@@ -510,6 +510,108 @@ test("Worker queues callable checkpoints and settles only signed idempotent call
       2,
     );
 
+    // Example rehearsal is a separate, samples-only lane for both trusted
+    // languages. It must not accept the assignment or expose hidden cases.
+    const pythonExampleAssignmentResponse = await worker.fetch(
+      workerRequest(
+        "/trusted/assignments",
+        {
+          clientRequestId: "assignment-request:bob-examples12345",
+          language: "python",
+          challengeKey: "stable-window",
+        },
+        "bob@example.com",
+      ),
+      env,
+      context,
+    );
+    assert.equal(pythonExampleAssignmentResponse.status, 201);
+    const pythonExampleAssignment =
+      (await pythonExampleAssignmentResponse.json()).assignment;
+    const pythonExampleSource =
+      "def longest_stable_window(nums, max_gap):\n    return 2";
+    const pythonExampleResponse = await worker.fetch(
+      workerRequest(
+        `/trusted/assignments/${pythonExampleAssignment.id}/example-runs`,
+        {
+          clientRunId: "example:bob-python12345",
+          source: pythonExampleSource,
+        },
+        "bob@example.com",
+      ),
+      env,
+      context,
+    );
+    assert.equal(pythonExampleResponse.status, 202);
+    const pythonExample = (await pythonExampleResponse.json()).exampleRun;
+    const pythonExampleJudgeBody = judgeCalls.at(-1).body;
+    assert.equal(pythonExampleJudgeBody.language, "python3");
+    assert.equal(pythonExampleJudgeBody.runtime, "python-3.13-linux");
+    assert.deepEqual(
+      pythonExampleJudgeBody.tests.map((entry) => entry.id),
+      pythonExampleAssignment.challenge.samples.map((entry) => entry.id),
+    );
+    assert.equal(
+      pythonExampleJudgeBody.tests.every((entry) => entry.visibility === "sample"),
+      true,
+    );
+    assert.doesNotMatch(JSON.stringify(pythonExampleJudgeBody.tests), /hidden-/);
+    const pythonExampleResult = {
+      version: "judge.result.v1",
+      submissionId: pythonExample.id,
+      ...callbackContract(pythonExampleJudgeBody),
+      verdict: "accepted",
+      passed: 2,
+      total: 2,
+      caseResults: pythonExampleJudgeBody.tests.map((entry, index) => ({
+        id: entry.id,
+        visibility: "sample",
+        status: "passed",
+        actualOutput: index === 0 ? "2" : "4",
+        expected: "must not be persisted",
+      })),
+    };
+    assert.equal(
+      (
+        await worker.fetch(
+          signedCallbackRequest(env, pythonExampleResult),
+          env,
+          context,
+        )
+      ).status,
+      204,
+    );
+    const pythonExampleReplay = await worker.fetch(
+      workerRequest(
+        `/trusted/assignments/${pythonExampleAssignment.id}/example-runs`,
+        {
+          clientRunId: "example:bob-python12345",
+          source: pythonExampleSource,
+        },
+        "bob@example.com",
+      ),
+      env,
+      context,
+    );
+    assert.equal(pythonExampleReplay.status, 200);
+    const settledPythonExample = (await pythonExampleReplay.json()).exampleRun;
+    assert.equal(settledPythonExample.result.authority, "server-isolated-python");
+    assert.equal(settledPythonExample.result.language, "python");
+    assert.equal(settledPythonExample.result.runtime, "python-3.13-linux");
+    assert.equal(settledPythonExample.result.total, 2);
+    assert.equal(settledPythonExample.result.publicCaseResults.length, 2);
+    assert.equal(
+      JSON.stringify(settledPythonExample.result).includes("must not be persisted"),
+      false,
+    );
+    assert.equal(
+      database.prepare("SELECT status FROM trusted_assignments WHERE id = ?").get(
+        pythonExampleAssignment.id,
+      ).status,
+      "active",
+      "Python example rehearsal must not close the assignment",
+    );
+
     const listedResponse = await worker.fetch(
       workerRequest("/trusted/assignments"),
       env,

@@ -793,38 +793,88 @@ function trustedSubmissionProjection(row: TrustedSubmissionRow | TrustedAssignme
   };
 }
 
-function trustedExampleRunProjection(row: TrustedExampleRunRow, challenge?: ReturnType<typeof trustedChallengeForKey>) {
+function trustedExampleAuthority(language: "python" | "swift") {
+  return language === "swift"
+    ? "server-isolated-swift"
+    : "server-isolated-python";
+}
+
+function trustedExampleContract(
+  challenge: ReturnType<typeof trustedChallengeForKey>,
+) {
+  if (
+    !challenge ||
+    (challenge.language !== "python" && challenge.language !== "swift")
+  )
+    return null;
+  const judgeSpec = publicExampleJudgeSpec(challenge);
+  if (
+    !judgeSpec ||
+    judgeSpec.language !== challenge.language ||
+    typeof judgeSpec.runtime !== "string" ||
+    !Array.isArray(judgeSpec.cases) ||
+    judgeSpec.cases.length < 1
+  )
+    return null;
+  return {
+    challenge,
+    judgeSpec,
+    authority: trustedExampleAuthority(judgeSpec.language),
+  };
+}
+
+function trustedExampleRunProjection(
+  row: TrustedExampleRunRow,
+  challenge?: ReturnType<typeof trustedChallengeForKey>,
+) {
   let result: Record<string, unknown> | null = null;
   if (row.status === "settled") {
     if (!row.verdict || !row.result_json || !row.settled_at)
       throw new Error("INVALID_TRUSTED_EXAMPLE_RUN_ROW");
+    const contract = trustedExampleContract(challenge ?? null);
+    if (!contract) throw new Error("INVALID_TRUSTED_EXAMPLE_RUN_ROW");
     const parsed = JSON.parse(row.result_json) as unknown;
     if (!isRecord(parsed)) throw new Error("INVALID_TRUSTED_EXAMPLE_RUN_ROW");
-    const failedCaseIndex = typeof parsed.failedCaseIndex === "number" && Number.isInteger(parsed.failedCaseIndex)
-      ? parsed.failedCaseIndex
-      : null;
-    const publicCaseIds = challenge?.samples.map((sample) => sample.id);
-    const publicCaseResults = publicCaseIds
-      ? normalizeTrustedPublicCaseResults(parsed, publicCaseIds)
-      : undefined;
+    const publicCaseIds = contract.judgeSpec.cases.map((testCase) => testCase.id);
+    const publicCaseResults = normalizeTrustedPublicCaseResults(parsed, publicCaseIds);
     if (publicCaseResults === null)
       throw new Error("INVALID_TRUSTED_EXAMPLE_RUN_ROW");
     const passed = Number.isInteger(parsed.passed) ? parsed.passed : null;
-    const total = Number.isInteger(parsed.total) ? parsed.total : null;
-    const authority = parsed.authority === "server-isolated-swift"
-      ? parsed.authority
+    const total = Number.isInteger(parsed.total) &&
+        parsed.total === contract.judgeSpec.cases.length
+      ? parsed.total
       : null;
-    const language = parsed.language === "swift" ? parsed.language : null;
-    const runtime = typeof parsed.runtime === "string" ? parsed.runtime : null;
-    const contentRevision = Number.isInteger(parsed.contentRevision)
-      ? parsed.contentRevision
+    // These values are checked against the frozen server contract, then the
+    // projection emits the contract values rather than trusting persisted
+    // callback metadata. This keeps Python and Swift example runs equally
+    // bound to the challenge selected by the assignment.
+    const authority = parsed.authority === contract.authority
+      ? contract.authority
       : null;
-    const judgeRevision = Number.isInteger(parsed.judgeRevision)
-      ? parsed.judgeRevision
+    const language = parsed.language === contract.judgeSpec.language
+      ? contract.judgeSpec.language
+      : null;
+    const runtime = parsed.runtime === contract.judgeSpec.runtime
+      ? contract.judgeSpec.runtime
+      : null;
+    const contentRevision = parsed.contentRevision === contract.judgeSpec.contentRevision
+      ? contract.judgeSpec.contentRevision
+      : null;
+    const judgeRevision = parsed.judgeRevision === contract.judgeSpec.judgeRevision
+      ? contract.judgeSpec.judgeRevision
       : null;
     const contractDigest = typeof parsed.contractDigest === "string"
       ? parsed.contractDigest
       : null;
+    const rawFailedCaseIndex = parsed.failedCaseIndex;
+    const failedCaseIndex = rawFailedCaseIndex === undefined
+      ? null
+      : typeof rawFailedCaseIndex === "number" &&
+          Number.isInteger(rawFailedCaseIndex) &&
+          rawFailedCaseIndex >= 0 &&
+          rawFailedCaseIndex < contract.judgeSpec.cases.length
+        ? rawFailedCaseIndex
+        : null;
     const diagnostic = typeof parsed.diagnostic === "string"
       ? parsed.diagnostic.slice(0, 2_000)
       : null;
@@ -850,8 +900,8 @@ function trustedExampleRunProjection(row: TrustedExampleRunRow, challenge?: Retu
       contractDigest,
       ...(diagnostic ? { diagnostic } : {}),
       ...(failedCaseIndex !== null ? { failedCaseIndex } : {}),
-      ...(failedCaseIndex !== null && challenge?.samples[failedCaseIndex]
-        ? { failedCaseId: challenge.samples[failedCaseIndex].id }
+      ...(failedCaseIndex !== null && contract.judgeSpec.cases[failedCaseIndex]
+        ? { failedCaseId: contract.judgeSpec.cases[failedCaseIndex].id }
         : {}),
       ...(publicCaseResults === undefined ? {} : { publicCaseResults }),
     };
@@ -982,18 +1032,18 @@ async function retryPendingTrustedExampleRun(
   }>();
   if (!payload) return true;
   const challenge = trustedChallengeForKey(payload.challenge_key);
+  const contract = trustedExampleContract(challenge);
   if (
-    !challenge ||
-    challenge.contentRevision !== payload.content_revision ||
-    challenge.judgeRevision !== payload.judge_revision
+    !contract ||
+    contract.challenge.contentRevision !== payload.content_revision ||
+    contract.challenge.judgeRevision !== payload.judge_revision
   )
     return false;
-  const judgeSpec = publicExampleJudgeSpec(challenge);
   const queued = await enqueueTrustedJudge(
     env,
     run.id,
     payload.source_text,
-    judgeSpec,
+    contract.judgeSpec,
   );
   if (!queued) return false;
   const enqueuedAt = Date.now();
@@ -1451,11 +1501,11 @@ async function maintainTrustedSubmissions(
     }>();
     for (const row of staleExamples.results) {
       const challenge = trustedChallengeForKey(row.challenge_key);
+      const contract = trustedExampleContract(challenge);
       if (
-        !challenge ||
-        challenge.language !== "swift" ||
-        challenge.contentRevision !== row.content_revision ||
-        challenge.judgeRevision !== row.judge_revision
+        !contract ||
+        contract.challenge.contentRevision !== row.content_revision ||
+        contract.challenge.judgeRevision !== row.judge_revision
       ) {
         await db.batch([
           db.prepare(
@@ -1467,7 +1517,7 @@ async function maintainTrustedSubmissions(
         ]);
         continue;
       }
-      const judgeSpec = publicExampleJudgeSpec(challenge);
+      const { judgeSpec, authority } = contract;
       const settlementHash = await sha256(JSON.stringify({
         version: 1,
         kind: "trusted-example-timeout",
@@ -1478,9 +1528,9 @@ async function maintainTrustedSubmissions(
       const resultJson = JSON.stringify({
         passed: 0,
         total: judgeSpec.cases.length,
-        authority: "server-isolated-swift",
-        language: "swift",
-        runtime: "swift-6.3.3-linux",
+        authority,
+        language: judgeSpec.language,
+        runtime: judgeSpec.runtime,
         contractDigest: await trustedJudgeContractDigest(judgeSpec),
         contentRevision: row.content_revision,
         judgeRevision: row.judge_revision,
@@ -1794,7 +1844,7 @@ async function runTrustedAssignmentExamples(
       request,
       401,
       "AUTH_REQUIRED",
-      "Sign in to run Swift examples.",
+      "Sign in to run verified examples.",
     );
   if (!hasTrustedJudge(env) || !env.DB)
     return errorResponse(
@@ -1894,7 +1944,7 @@ async function runTrustedAssignmentExamples(
       request,
       429,
       "EXAMPLE_RUN_RATE_LIMITED",
-      "Wait a moment before starting another Swift example run.",
+      "Wait a moment before starting another example run.",
     );
   const pendingExampleCount = await env.DB.prepare(`
     SELECT COUNT(*) AS count
@@ -1906,7 +1956,7 @@ async function runTrustedAssignmentExamples(
       request,
       429,
       "EXAMPLE_RUN_LIMIT_REACHED",
-      "Finish or wait for an earlier Swift example run before starting another.",
+      "Finish or wait for an earlier example run before starting another.",
     );
 
   const assignment = await env.DB.prepare(`
@@ -1936,20 +1986,20 @@ async function runTrustedAssignmentExamples(
       "That verified assignment is already closed.",
     );
   const challenge = trustedChallengeForKey(assignment.challenge_key);
+  const contract = trustedExampleContract(challenge);
   if (
-    !challenge ||
-    challenge.language !== "swift" ||
-    challenge.programId !== assignment.program_id ||
-    challenge.contentRevision !== assignment.content_revision ||
-    challenge.judgeRevision !== assignment.judge_revision
+    !contract ||
+    contract.challenge.programId !== assignment.program_id ||
+    contract.challenge.contentRevision !== assignment.content_revision ||
+    contract.challenge.judgeRevision !== assignment.judge_revision
   )
     return errorResponse(
       request,
       409,
       "ASSIGNMENT_STALE",
-      "This assignment no longer matches the current Swift example contract.",
+      "This assignment no longer matches the current example contract.",
     );
-  const judgeSpec = publicExampleJudgeSpec(challenge);
+  const { judgeSpec } = contract;
   let preparedGatewayPayload: Awaited<ReturnType<typeof trustedGatewaySubmission>>;
   try {
     preparedGatewayPayload = await trustedGatewaySubmission({
@@ -1971,7 +2021,7 @@ async function runTrustedAssignmentExamples(
       sizeFailure ? "SUBMISSION_TOO_LARGE" : "INVALID_TRUSTED_SUBMISSION",
       sizeFailure
         ? "This source is too large for the isolated judge envelope. Shorten it and run examples again."
-        : "This source does not fit the Swift example contract.",
+        : "This source does not fit the example contract.",
     );
   }
 
@@ -2091,14 +2141,14 @@ async function settleTrustedExampleRunResult(
   }>();
   if (!row) return null;
   const challenge = trustedChallengeForKey(row.challenge_key);
+  const contract = trustedExampleContract(challenge);
   if (
-    !challenge ||
-    challenge.language !== "swift" ||
-    challenge.contentRevision !== row.content_revision ||
-    challenge.judgeRevision !== row.judge_revision
+    !contract ||
+    contract.challenge.contentRevision !== row.content_revision ||
+    contract.challenge.judgeRevision !== row.judge_revision
   )
     throw new Error("INVALID_TRUSTED_EXAMPLE_RUN_ROW");
-  const judgeSpec = publicExampleJudgeSpec(challenge);
+  const { judgeSpec, authority } = contract;
   const contractDigest = await trustedJudgeContractDigest(judgeSpec);
   const result = normalizeTrustedGatewayExampleResult(
     decoded,
@@ -2118,7 +2168,7 @@ async function settleTrustedExampleRunResult(
       request,
       400,
       "INVALID_JUDGE_RESULT",
-      "The signed callback does not match the Swift example contract.",
+      "The signed callback does not match the example contract.",
     );
   const settlementHash = await sha256(body);
   if (row.status === "settled") {
@@ -2143,9 +2193,9 @@ async function settleTrustedExampleRunResult(
   const resultJson = JSON.stringify({
     passed: result.passed,
     total: result.total,
-    authority: "server-isolated-swift",
-    language: result.language,
-    runtime: result.runtime,
+    authority,
+    language: judgeSpec.language,
+    runtime: judgeSpec.runtime,
     contentRevision: result.contentRevision,
     judgeRevision: result.judgeRevision,
     contractDigest: result.contractDigest,
