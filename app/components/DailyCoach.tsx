@@ -62,6 +62,11 @@ function coachCribLaneLabel(lane: CoachCribLane) {
   return "iOS";
 }
 
+function coachPlanLane(item: PracticeItem): CoachCribLane {
+  if (item.track === "ios") return "ios";
+  return item.language === "swift" ? "swift" : "python";
+}
+
 function coachCribActionLabel(item: PracticeItem) {
   if (item.track === "ios" && item.recallChecks && item.conceptAnswers)
     return "Open recall card";
@@ -202,6 +207,9 @@ export function DailyCoach({
   const [focusedCribAnswers, setFocusedCribAnswers] = useState<
     Record<string, boolean>
   >({});
+  const [focusedPlanAnswers, setFocusedPlanAnswers] = useState<
+    Record<string, boolean>
+  >({});
   const [cribLane, setCribLane] = useState<CoachCribLane | "all">("all");
   const visibleCribCards =
     cribLane === "all"
@@ -274,6 +282,22 @@ export function DailyCoach({
           const item = items.find(
             (candidate) => candidate.itemId === entry.itemId,
           );
+          if (!item) {
+            return (
+              <li key={`${entry.itemId}:${entry.practiceKind}:${index}`}>
+                <span>{String(index + 1).padStart(2, "0")}</span>
+                <div>
+                  <small>Unavailable</small>
+                  <strong>Item removed from the current catalog</strong>
+                  <p>{entry.rationale ?? "This task can no longer be opened."}</p>
+                </div>
+                <b>{entry.estimatedMinutes ?? 5}m</b>
+              </li>
+            );
+          }
+          const planCard = buildCoachCribCard(item, coachPlanLane(item));
+          const answerKey = `${entry.itemId}:${entry.practiceKind}:${index}`;
+          const answerFocused = focusedPlanAnswers[answerKey] ?? false;
           return (
             <li key={`${entry.itemId}:${entry.practiceKind}:${index}`}>
               <span>{String(index + 1).padStart(2, "0")}</span>
@@ -281,6 +305,32 @@ export function DailyCoach({
                 <small>{taskLabel(item, entry)}</small>
                 <strong>{item?.title ?? "Unavailable item"}</strong>
                 <p>{entry.rationale ?? "Selected for balanced retrieval."}</p>
+                <div
+                  className={`coach-plan-answer${answerFocused ? " is-focused" : " is-muted"}`}
+                >
+                  <div className="coach-plan-answer-head">
+                    <small>Muted answer sketch</small>
+                    <button
+                      type="button"
+                      className="text-button"
+                      aria-pressed={answerFocused}
+                      onClick={() =>
+                        setFocusedPlanAnswers((current) => ({
+                          ...current,
+                          [answerKey]: !current[answerKey],
+                        }))
+                      }
+                    >
+                      {answerFocused ? "Soft blur" : "Focus answer"}
+                    </button>
+                  </div>
+                  <ul>
+                    {planCard.answerLines.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                  <small>{planCard.note}</small>
+                </div>
               </div>
               <b>{entry.estimatedMinutes ?? item?.estimatedMinutes ?? 5}m</b>
             </li>
