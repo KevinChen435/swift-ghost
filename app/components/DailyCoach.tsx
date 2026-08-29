@@ -105,6 +105,7 @@ export function DailyCoach({
   ready,
   state,
   items,
+  now,
   onStart,
   onResume,
   fluencyClinic,
@@ -114,6 +115,8 @@ export function DailyCoach({
   ready: boolean;
   state: AppState;
   items: PracticeItem[];
+  /** A parent-owned clock tick keeps the plan current when the app crosses local midnight. */
+  now?: number;
   onStart: (entries: SessionQueueEntry[], budgetMinutes: number) => void;
   onResume: () => void;
   fluencyClinic: FluencyClinicModel;
@@ -124,8 +127,11 @@ export function DailyCoach({
     nearestBudget(state.settings.dailyGoalMinutes),
   );
   const planningDate = useMemo(
-    () => (ready ? localPlanningDate() : new Date(2000, 0, 1, 12)),
-    [ready],
+    () =>
+      ready
+        ? localPlanningDate(now && now > 0 ? new Date(now) : new Date())
+        : new Date(2000, 0, 1, 12),
+    [ready, now],
   );
   const plan = useMemo(
     () =>

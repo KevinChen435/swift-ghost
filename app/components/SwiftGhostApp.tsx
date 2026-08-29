@@ -8360,6 +8360,7 @@ export default function SwiftGhostApp() {
       {view === "today" && (
         <TodayView
           ready={ready}
+          now={now}
           state={state}
           items={curriculumItems}
           cloudStatus={cloud.status}
@@ -8945,6 +8946,7 @@ export default function SwiftGhostApp() {
 
 function TodayView({
   ready,
+  now,
   state,
   items,
   cloudStatus,
@@ -8971,6 +8973,7 @@ function TodayView({
   onResumeSession,
 }: {
   ready: boolean;
+  now: number;
   state: AppState;
   items: PracticeItem[];
   cloudStatus: CloudRuntime["status"];
@@ -9380,6 +9383,7 @@ function TodayView({
         ready={ready}
         state={state}
         items={items}
+        now={now}
         onStart={onStartCoach}
         onResume={onResumeSession}
         fluencyClinic={fluencyClinic}
