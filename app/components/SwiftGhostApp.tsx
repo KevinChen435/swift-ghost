@@ -13002,14 +13002,28 @@ function SessionsView({
             <span>Practice mode</span>
             <select
               value={practiceMode}
-              onChange={(event) =>
-                setPracticeMode(event.target.value as SessionPracticeMode)
-              }
+              onChange={(event) => {
+                const next = event.target.value as SessionPracticeMode;
+                setPracticeMode(next);
+                if (next === "solving") {
+                  setTrack("interview");
+                  setLanguage("swift");
+                  setSource("mixed");
+                  setPattern("All");
+                }
+              }}
             >
               <option value="smart">Smart mix by item</option>
               <option value="typing">Known-answer typing</option>
               <option value="solving">Swift judge solves</option>
             </select>
+            <small>
+              {practiceMode === "solving"
+                ? "Only current server-judged Swift contracts appear; every item opens in the blank editor."
+                : practiceMode === "typing"
+                  ? "Keep every item in the ghost-code typing ladder; concept cards remain recall-only."
+                  : "Use each item’s recommended next step, including iOS concept recall cards."}
+            </small>
           </label>
           <label>
             <span>Recall policy</span>
