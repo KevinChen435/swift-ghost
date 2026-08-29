@@ -109,3 +109,151 @@ test("authored iOS items enter sessions as concept recall", () => {
   );
   assert.equal(entry.practiceKind, "concept");
 });
+
+test("solving sessions select only trusted server-runnable Swift items", () => {
+  const solveItem = {
+    itemId: "swift:two-sum",
+    contentRevision: 3,
+    pattern: "Arrays & Hashing",
+    difficulty: "Easy",
+    source: "builtin",
+    track: "interview",
+    language: "swift",
+    solveCapability: "server",
+    trustedChallengeKey: "swift-two-sum",
+  };
+  const localPython = {
+    itemId: "python:two-sum",
+    contentRevision: 2,
+    pattern: "Arrays & Hashing",
+    difficulty: "Easy",
+    source: "builtin",
+    track: "interview",
+    language: "python",
+    solveCapability: "local",
+    verification: { cases: [] },
+  };
+  const concept = {
+    itemId: "ios:ownership",
+    contentRevision: 2,
+    pattern: "Memory Management",
+    difficulty: "Easy",
+    source: "builtin",
+    track: "ios",
+    language: "swift",
+    recallChecks: ["one", "two", "three"],
+    conceptAnswers: ["a", "b", "c"],
+  };
+  const queue = buildSessionQueue(
+    [solveItem, localPython, concept],
+    {
+      [solveItem.itemId]: { recommendedStage: 2 },
+      [localPython.itemId]: { recommendedStage: 4 },
+      [concept.itemId]: { recommendedStage: 5 },
+    },
+    {
+      count: 20,
+      source: "mixed",
+      track: "all",
+      language: "all",
+      pattern: "All",
+      difficulty: "All",
+      stageMode: "recommended",
+      practiceMode: "solving",
+    },
+    () => 0,
+  );
+  assert.deepEqual(queue, [
+    {
+      itemId: solveItem.itemId,
+      itemRevision: 3,
+      stage: 5,
+      status: "pending",
+      practiceKind: "solving",
+    },
+  ]);
+});
+
+test("smart remains the default and typing preserves concept recall", () => {
+  const concept = {
+    itemId: "ios:ownership",
+    contentRevision: 2,
+    pattern: "Memory Management",
+    difficulty: "Easy",
+    source: "builtin",
+    track: "ios",
+    language: "swift",
+    recallChecks: ["one", "two", "three"],
+    conceptAnswers: ["a", "b", "c"],
+  };
+  const typingOptions = {
+    count: 1,
+    source: "mixed",
+    track: "ios",
+    language: "swift",
+    pattern: "All",
+    difficulty: "All",
+    stageMode: "recommended",
+    practiceMode: "typing",
+  };
+  const base = buildSessionQueue(
+    [concept],
+    { [concept.itemId]: { recommendedStage: 3 } },
+    { ...typingOptions, practiceMode: undefined },
+    () => 0,
+  );
+  const smart = buildSessionQueue(
+    [concept],
+    { [concept.itemId]: { recommendedStage: 3 } },
+    { ...typingOptions, practiceMode: "smart" },
+    () => 0,
+  );
+  const typing = buildSessionQueue(
+    [concept],
+    { [concept.itemId]: { recommendedStage: 3 } },
+    typingOptions,
+    () => 0,
+  );
+  assert.deepEqual(smart, base);
+  assert.equal(smart[0].practiceKind, "concept");
+  assert.equal(typing[0].practiceKind, "concept");
+  assert.equal(typing[0].stage, 3);
+});
+
+test("explicit solving can promote a concept-capable item when it is server-runnable", () => {
+  const dualLaneItem = {
+    itemId: "ios:portable-ownership",
+    contentRevision: 2,
+    pattern: "Memory Management",
+    difficulty: "Easy",
+    source: "builtin",
+    track: "ios",
+    language: "swift",
+    solveCapability: "server",
+    trustedChallengeKey: "swift-independent-array-copies",
+    recallChecks: ["one", "two", "three"],
+    conceptAnswers: ["a", "b", "c"],
+  };
+  const signals = { [dualLaneItem.itemId]: { recommendedStage: 1 } };
+  const options = {
+    count: 1,
+    source: "mixed",
+    track: "ios",
+    language: "swift",
+    pattern: "All",
+    difficulty: "All",
+    stageMode: "recommended",
+  };
+  assert.equal(
+    buildSessionQueue([dualLaneItem], signals, options, () => 0)[0].practiceKind,
+    "concept",
+  );
+  const [entry] = buildSessionQueue(
+    [dualLaneItem],
+    signals,
+    { ...options, practiceMode: "solving" },
+    () => 0,
+  );
+  assert.equal(entry.practiceKind, "solving");
+  assert.equal(entry.stage, 5);
+});
