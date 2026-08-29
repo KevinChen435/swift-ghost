@@ -844,6 +844,7 @@ function normalizeTrustedCustomRun(value, challenge) {
     !authority ||
     !language ||
     runtime !== "swift-6.3.3-linux" ||
+    !contractDigest ||
     (challenge && (language !== challenge.language || runtime !== challenge.runtime)) ||
     !Number.isInteger(contentRevision) ||
     !Number.isInteger(judgeRevision) ||
@@ -864,7 +865,7 @@ function normalizeTrustedCustomRun(value, challenge) {
       authority,
       language,
       runtime,
-      ...(contractDigest ? { contractDigest } : {}),
+      contractDigest,
       contentRevision,
       judgeRevision,
       ...(failedCaseIndex !== undefined ? { failedCaseIndex } : {}),

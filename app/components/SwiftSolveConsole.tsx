@@ -690,11 +690,11 @@ export function SwiftSolveConsole({
                 <div className="swift-custom-result" role="status" aria-live="polite">
                   <div className="swift-custom-result-head">
                     <strong>{customRun.verdict === "accepted" ? "Custom case finished" : verdictLabel(customRun.verdict)}</strong>
-                    <span>{customRun.result.passed}/{customRun.result.total} case passed</span>
+                    <span>{customRun.result.passed}/{customRun.result.total} case{customRun.result.total === 1 ? "" : "s"} produced output</span>
                   </div>
                   {customRun.result.cases.map((result) => (
                     <article className={result.passed ? "passed" : "failed"} key={result.id}>
-                      <div><strong>{result.name}</strong><span>{result.passed ? "Passed" : result.status.replaceAll("-", " ")}</span></div>
+                      <div><strong>{result.name}</strong><span>{result.passed ? "Executed" : result.status.replaceAll("-", " ")}</span></div>
                       {Object.hasOwn(result, "actual") ? <code>actual: {valueLabel(result.actual)}</code> : null}
                       {result.error ? <pre>{result.error}</pre> : null}
                       {result.diagnostic ? <small>{result.diagnostic}</small> : null}

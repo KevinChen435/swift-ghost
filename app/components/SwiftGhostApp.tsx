@@ -10200,16 +10200,33 @@ function PracticeView(props: PracticeProps) {
         return;
       setSwiftCustomAction("idle");
       if (!result.available) {
-        activeSwiftCustomRequest.current = null;
-        setSwiftMessage(
-          result.reason === "unauthorized"
-            ? "Sign in again before running a Swift custom case."
-            : result.reason === "rate-limited"
-              ? "Wait for the earlier custom case to finish before trying again."
-              : result.reason === "unsupported"
-                ? "Custom Swift rehearsal is not available on this judge yet."
-                : "The Swift custom case could not reach the isolated judge.",
-        );
+        if (result.reason === "judge-enqueue-unavailable") {
+          // The Worker persists the request before attempting delivery. Keep a
+          // local pending envelope and the same clientRunId so the polling
+          // effect can ask the server to retry that exact saved run.
+          setSwiftCustomRun({
+            id: `pending-${request.clientRunId}`,
+            assignmentId: request.assignmentId,
+            clientRunId: request.clientRunId,
+            status: "pending",
+            verdict: null,
+            requestedAt: new Date().toISOString(),
+            settledAt: null,
+            result: null,
+          });
+          setSwiftMessage("The custom case is saved and waiting for the isolated judge.");
+        } else {
+          activeSwiftCustomRequest.current = null;
+          setSwiftMessage(
+            result.reason === "unauthorized"
+              ? "Sign in again before running a Swift custom case."
+              : result.reason === "rate-limited"
+                ? "Wait for the earlier custom case to finish before trying again."
+                : result.reason === "unsupported"
+                  ? "Custom Swift rehearsal is not available on this judge yet."
+                  : "The Swift custom case could not reach the isolated judge.",
+          );
+        }
         return;
       }
       if (

@@ -25,6 +25,8 @@ test("Swift custom rehearsal stays bounded, persisted locally, and separate from
   assert.match(consoleUi, /result\.error/);
   assert.match(page, /runTrustedCustomCases/);
   assert.match(page, /practice-only/);
+  assert.match(page, /saved and waiting for the isolated judge/);
+  assert.match(page, /pending-\$\{request\.clientRunId\}/);
   assert.match(cloud, /MAX_TRUSTED_CUSTOM_CASES/);
   assert.match(cloud, /trustedCustomCases/);
   assert.match(cloud, /runTrustedCustomCases/);

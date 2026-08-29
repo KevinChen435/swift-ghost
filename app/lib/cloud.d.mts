@@ -302,7 +302,7 @@ export type CloudTrustedCustomRun = {
     authority: "server-isolated-swift";
     language: "swift";
     runtime: string;
-    contractDigest?: string;
+    contractDigest: string;
     contentRevision: number;
     judgeRevision: number;
     failedCaseIndex?: number;

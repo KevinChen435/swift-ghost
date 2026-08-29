@@ -738,7 +738,7 @@ export function TrustedAssessmentPanel({
                   {selected.challenge.language === "swift"
                     ? "Swift 6.3.3 · Linux"
                     : "Python 3.13 · Linux"}
-                  {" · source is sent only when you run or submit"}
+                  {" · source is sent only when you run or submit (including isolated checks)"}
                 </span>
                 <small>Ctrl/⌘+Enter samples · Shift+Ctrl/⌘+Enter submit</small>
               </div>
