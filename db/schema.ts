@@ -107,6 +107,26 @@ export const studyWorkspaces = sqliteTable(
   ],
 );
 
+/** Private, source-free learning evidence kept separately from plan structure. */
+export const progressSnapshots = sqliteTable(
+  "progress_snapshots",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => communityProfiles.userId, { onDelete: "cascade" }),
+    revision: integer("revision").notNull(),
+    payloadJson: text("payload_json").notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    check("progress_snapshots_revision_check", sql`${table.revision} >= 1`),
+    check(
+      "progress_snapshots_payload_size_check",
+      sql`length(${table.payloadJson}) BETWEEN 2 AND 262144`,
+    ),
+  ],
+);
+
 /** One authoritative challenge definition per UTC day. */
 export const dailyChallenges = sqliteTable(
   "daily_challenges",

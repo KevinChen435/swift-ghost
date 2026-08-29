@@ -1,10 +1,14 @@
 import { normalizeStudyWorkspace } from "./study-plans.mjs";
+import {
+  normalizeProgressSnapshot as normalizeProgressSyncSnapshot,
+} from "./progress-sync.mjs";
 
 const API_ROOT = "/api/v1";
 const MAX_RESPONSE_CHARACTERS = 512_000;
 const MAX_ATTEMPT_BATCH = 100;
 const MAX_LIST_ENTRIES = 100;
 const MAX_STUDY_WORKSPACE_BYTES = 256 * 1024;
+const MAX_PROGRESS_SYNC_BYTES = 256 * 1024;
 const MAX_TRUSTED_SOURCE_BYTES = 40_000;
 const MAX_TRUSTED_CUSTOM_CASES = 12;
 const MAX_TRUSTED_CUSTOM_CASE_BYTES = 24_000;
@@ -252,6 +256,7 @@ function normalizeCapabilities(value) {
     apiVersion,
     cloudSync: value.cloudSync === true,
     studySync: value.studySync === true,
+    progressSync: value.progressSync === true,
     community: value.community === true,
     leaderboards: value.leaderboards === true,
     trustedAssessments: value.trustedAssessments === true,
@@ -341,6 +346,43 @@ function normalizeStudyConflict(value) {
     return undefined;
   if (workspace && workspace.revision !== revision) return undefined;
   return { revision, workspace };
+}
+
+function normalizeProgressSnapshot(value) {
+  const raw = isRecord(value) && Object.hasOwn(value, "snapshot")
+    ? value.snapshot
+    : value;
+  if (raw === null) return null;
+  return normalizeProgressSyncSnapshot(raw);
+}
+
+function sanitizeProgressSnapshot(value) {
+  const normalized = normalizeProgressSyncSnapshot(value);
+  if (
+    !normalized ||
+    jsonByteLength(normalized) > MAX_PROGRESS_SYNC_BYTES
+  )
+    return undefined;
+  return normalized;
+}
+
+function normalizeProgressConflict(value) {
+  const raw = unwrapData(value);
+  if (!isRecord(raw) || !isRecord(raw.error)) return undefined;
+  if (raw.error.code !== "PROGRESS_REVISION_CONFLICT" || !isRecord(raw.current))
+    return undefined;
+  const revision = raw.current.revision;
+  if (
+    !Number.isInteger(revision) ||
+    revision < 0 ||
+    revision > 2_147_483_647
+  )
+    return undefined;
+  const snapshot = normalizeProgressSnapshot(raw.current.snapshot);
+  if (snapshot === undefined || (snapshot === null && revision !== 0))
+    return undefined;
+  if (snapshot && snapshot.revision !== revision) return undefined;
+  return { revision, snapshot };
 }
 
 function normalizeTrustedCase(value) {
@@ -1375,6 +1417,37 @@ export function createCloudClient(options = {}) {
           return snapshot === undefined || snapshot === null
             ? undefined
             : snapshot;
+        },
+      );
+    },
+    getProgressSnapshot({ signal } = {}) {
+      return request("/progress/snapshot", { signal }, (value) => {
+        const snapshot = normalizeProgressSnapshot(value);
+        return snapshot === undefined ? undefined : snapshot;
+      });
+    },
+    putProgressSnapshot(snapshotInput, { baseRevision, signal } = {}) {
+      const snapshot = sanitizeProgressSnapshot(snapshotInput);
+      if (
+        !snapshot ||
+        !Number.isInteger(baseRevision) ||
+        baseRevision < 0 ||
+        baseRevision > 2_147_483_646
+      )
+        return Promise.resolve(unavailable("invalid-request"));
+      return request(
+        "/progress/snapshot",
+        {
+          method: "PUT",
+          body: { baseRevision, snapshot },
+          signal,
+          normalizeConflict: normalizeProgressConflict,
+        },
+        (value) => {
+          const normalized = normalizeProgressSnapshot(value);
+          return normalized === undefined || normalized === null
+            ? undefined
+            : normalized;
         },
       );
     },

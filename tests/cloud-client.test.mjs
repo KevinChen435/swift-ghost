@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { CLOUD_LIMITS, createCloudClient } from "../app/lib/cloud.mjs";
+import { createProgressSnapshot } from "../app/lib/progress-sync.mjs";
 
 function json(data, status = 200, headers = {}) {
   return new Response(JSON.stringify(data), {
@@ -62,12 +63,24 @@ function studyWorkspace(overrides = {}) {
   };
 }
 
+function progressSnapshot(overrides = {}) {
+  return createProgressSnapshot(
+    {
+      attempts: [{ ...attempt("progress-attempt"), practiceKind: "typing" }],
+      ...overrides,
+    },
+    { now: "2026-07-28T12:00:00.000Z" },
+  );
+}
+
 function inMemoryStudyDatabase() {
   const profiles = new Map();
   const workspaces = new Map();
+  const progressSnapshots = new Map();
   return {
     profiles,
     workspaces,
+    progressSnapshots,
     prepare(sql) {
       const statement = sql.replace(/\s+/g, " ").trim();
       return {
@@ -76,6 +89,8 @@ function inMemoryStudyDatabase() {
             async first() {
               if (statement.includes("FROM study_workspaces"))
                 return workspaces.get(values[0]) ?? null;
+              if (statement.includes("FROM progress_snapshots"))
+                return progressSnapshots.get(values[0]) ?? null;
               if (
                 statement.includes("FROM community_profiles") &&
                 statement.includes("WHERE user_id = ?")
@@ -123,6 +138,28 @@ function inMemoryStudyDatabase() {
                 });
                 return { meta: { changes: 1 } };
               }
+              if (statement.startsWith("INSERT INTO progress_snapshots")) {
+                const userId = values[0];
+                if (progressSnapshots.has(userId)) return { meta: { changes: 0 } };
+                progressSnapshots.set(userId, {
+                  revision: 1,
+                  payload_json: values[1],
+                  updated_at: values[2],
+                });
+                return { meta: { changes: 1 } };
+              }
+              if (statement.startsWith("UPDATE progress_snapshots")) {
+                const [payloadJson, updatedAt, userId, expectedRevision] = values;
+                const current = progressSnapshots.get(userId);
+                if (!current || current.revision !== expectedRevision)
+                  return { meta: { changes: 0 } };
+                progressSnapshots.set(userId, {
+                  revision: expectedRevision + 1,
+                  payload_json: payloadJson,
+                  updated_at: updatedAt,
+                });
+                return { meta: { changes: 1 } };
+              }
               throw new Error(`Unhandled fake D1 run: ${statement}`);
             },
           };
@@ -141,6 +178,21 @@ async function builtWorker() {
 async function callStudyApi(worker, db, method, email, body) {
   return worker.fetch(
     new Request("http://localhost/api/v1/study/workspace", {
+      method,
+      headers: {
+        ...(email ? { "oai-authenticated-user-email": email } : {}),
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }),
+    { DB: db },
+    { waitUntil() {}, passThroughOnException() {} },
+  );
+}
+
+async function callProgressApi(worker, db, method, email, body) {
+  return worker.fetch(
+    new Request("http://localhost/api/v1/progress/snapshot", {
       method,
       headers: {
         ...(email ? { "oai-authenticated-user-email": email } : {}),
@@ -177,6 +229,7 @@ test("capabilities uses a same-origin, abortable request and bounds its response
         apiVersion: "v1-with-an-unreasonably-long-suffix",
         cloudSync: true,
         studySync: true,
+        progressSync: true,
         community: true,
         leaderboards: true,
         trustedAssessments: true,
@@ -194,6 +247,7 @@ test("capabilities uses a same-origin, abortable request and bounds its response
     apiVersion: "v1-with-an-unrea",
     cloudSync: true,
     studySync: true,
+    progressSync: true,
     community: true,
     leaderboards: true,
     trustedAssessments: true,
@@ -769,6 +823,107 @@ test("study workspace sync is network-quiet on static builds", async () => {
   assert.equal(calls, 0);
 });
 
+test("private progress sync client sends only normalized source-free evidence", async () => {
+  const snapshot = progressSnapshot();
+  const serverTime = "2026-07-28T12:30:00.000Z";
+  const mock = recorder((url, init) => {
+    if (url === "/api/v1/capabilities") {
+      return json({
+        data: {
+          apiVersion: "v1",
+          cloudSync: true,
+          studySync: true,
+          progressSync: true,
+          community: true,
+          leaderboards: true,
+          trustedAssessments: true,
+          auth: "session",
+          maxAttemptBatch: 100,
+        },
+      });
+    }
+    if (init?.method === "GET") return json({ snapshot: null });
+    assert.equal(url, "/api/v1/progress/snapshot");
+    const body = JSON.parse(init.body);
+    assert.equal(body.baseRevision, 0);
+    assert.equal(body.snapshot.version, 1);
+    assert.equal("source" in body.snapshot.attempts[0], false);
+    assert.equal("timeline" in body.snapshot.attempts[0], false);
+    return json({
+      snapshot: {
+        ...body.snapshot,
+        revision: 1,
+        updatedAt: serverTime,
+        privateServerExtra: "drop-me",
+      },
+    });
+  });
+  const client = createCloudClient({
+    fetchImpl: mock.fetchImpl,
+    location: { hostname: "swift.test" },
+  });
+  assert.deepEqual(await client.capabilities(), {
+    available: true,
+    status: 200,
+    data: {
+      apiVersion: "v1",
+      cloudSync: true,
+      studySync: true,
+      progressSync: true,
+      community: true,
+      leaderboards: true,
+      trustedAssessments: true,
+      auth: "session",
+      maxAttemptBatch: CLOUD_LIMITS.maxAttemptBatch,
+      privacy: {
+        profileDefault: "private",
+        activityDefault: "off",
+        leaderboardsDefault: "off",
+      },
+    },
+  });
+  assert.deepEqual(await client.getProgressSnapshot(), {
+    available: true,
+    status: 200,
+    data: null,
+  });
+  const result = await client.putProgressSnapshot(snapshot, { baseRevision: 0 });
+  assert.equal(result.available, true);
+  assert.equal(result.data.revision, 1);
+  assert.equal(result.data.updatedAt, serverTime);
+  assert.equal("privateServerExtra" in result.data, false);
+});
+
+test("private progress sync client preserves bounded revision conflicts", async () => {
+  const current = progressSnapshot();
+  current.revision = 3;
+  current.updatedAt = "2026-07-28T12:45:00.000Z";
+  const client = createCloudClient({
+    location: { hostname: "swift.test" },
+    fetchImpl: async () =>
+      json(
+        {
+          error: {
+            code: "PROGRESS_REVISION_CONFLICT",
+            message: "private diagnostic",
+          },
+          current: { revision: 3, snapshot: current },
+        },
+        409,
+      ),
+  });
+  const conflict = await client.putProgressSnapshot(progressSnapshot(), {
+    baseRevision: 2,
+  });
+  assert.deepEqual(conflict, {
+    available: false,
+    reason: "revision-conflict",
+    status: 409,
+    conflict: { revision: 3, snapshot: current },
+  });
+  assert.equal(JSON.stringify(conflict).includes("private diagnostic"), false);
+});
+
 test("study workspace methods normalize private snapshots and send optimistic revisions", async () => {
   const serverTime = "2026-07-28T12:30:00.000Z";
   const mock = recorder((url, init, call) => {
@@ -939,6 +1094,47 @@ test("study workspace API requires auth, keeps GET read-only and private, and re
   );
   assert.equal(updated.status, 200);
   assert.equal((await updated.json()).workspace.revision, 2);
+});
+
+test("private progress API is authenticated, source-free, and revision guarded", async () => {
+  const worker = await builtWorker();
+  const db = inMemoryStudyDatabase();
+  const unauthenticated = await callProgressApi(worker, db, "GET");
+  assert.equal(unauthenticated.status, 401);
+  assert.equal((await unauthenticated.json()).error.code, "AUTH_REQUIRED");
+
+  const initial = await callProgressApi(worker, db, "GET", "alice@example.com");
+  assert.equal(initial.status, 200);
+  assert.deepEqual(await initial.json(), { snapshot: null });
+  assert.equal(db.profiles.size, 0, "GET must not create a profile");
+
+  const sourceful = progressSnapshot();
+  sourceful.attempts[0].source = "private source must not survive";
+  const created = await callProgressApi(
+    worker,
+    db,
+    "PUT",
+    "alice@example.com",
+    { baseRevision: 0, snapshot: sourceful },
+  );
+  assert.equal(created.status, 200);
+  const createdSnapshot = (await created.json()).snapshot;
+  assert.equal(createdSnapshot.revision, 1);
+  assert.equal("source" in createdSnapshot.attempts[0], false);
+  assert.equal(db.profiles.size, 1);
+
+  const stale = await callProgressApi(
+    worker,
+    db,
+    "PUT",
+    "alice@example.com",
+    { baseRevision: 0, snapshot: sourceful },
+  );
+  assert.equal(stale.status, 409);
+  const conflict = await stale.json();
+  assert.equal(conflict.error.code, "PROGRESS_REVISION_CONFLICT");
+  assert.equal(conflict.current.revision, 1);
+  assert.equal("source" in conflict.current.snapshot.attempts[0], false);
 });
 
 test("missing local endpoints and transport errors resolve without throwing", async () => {

@@ -18,6 +18,7 @@ import {
   validateHandle,
 } from "../app/lib/community-core.mjs";
 import { normalizeStudyWorkspace } from "../app/lib/study-plans.mjs";
+import { normalizeProgressSnapshot } from "../app/lib/progress-sync.mjs";
 import {
   TRUSTED_CODE_LAB_PROGRAM,
   TRUSTED_ASSIGNMENT_TTL_MS,
@@ -89,6 +90,11 @@ type ProfileRow = {
   updated_at: number;
 };
 type StudyWorkspaceRow = {
+  revision: number;
+  payload_json: string;
+  updated_at: number;
+};
+type ProgressSnapshotRow = {
   revision: number;
   payload_json: string;
   updated_at: number;
@@ -176,6 +182,7 @@ const TRUSTED_JUDGE_CALLBACK_PATH = "/api/internal/judge-results";
 const MAX_BATCH = 100;
 const MAX_BODY_BYTES = 512_000;
 const MAX_STUDY_WORKSPACE_BYTES = 256 * 1024;
+const MAX_PROGRESS_SYNC_BYTES = 256 * 1024;
 const TRUSTED_ENQUEUED_TIMEOUT_MS = 30 * 60 * 1000;
 const TRUSTED_DELIVERY_TIMEOUT_MS = 60 * 60 * 1000;
 const TRUSTED_EXAMPLE_MAX_PENDING_PER_USER = 3;
@@ -664,6 +671,200 @@ async function putStudyWorkspace(request: Request, env: Env) {
     return revisionConflict(request, current);
   }
   return json(request, { workspace: encoded.workspace });
+}
+
+function normalizeIncomingProgressSnapshot(
+  value: unknown,
+  revision: number,
+  now: number,
+) {
+  if (!isRecord(value) || jsonBytes(value) > MAX_PROGRESS_SYNC_BYTES)
+    throw new Error("INVALID_PROGRESS_SNAPSHOT");
+  const updatedAt = new Date(now).toISOString();
+  const snapshot = normalizeProgressSnapshot(
+    { ...value, version: 1, revision, updatedAt },
+    { now: updatedAt },
+  );
+  if (
+    !snapshot ||
+    snapshot.version !== 1 ||
+    snapshot.revision !== revision ||
+    snapshot.updatedAt !== updatedAt
+  )
+    throw new Error("INVALID_PROGRESS_SNAPSHOT");
+  const payloadJson = JSON.stringify(snapshot);
+  if (new TextEncoder().encode(payloadJson).byteLength > MAX_PROGRESS_SYNC_BYTES)
+    throw new Error("INVALID_PROGRESS_SNAPSHOT");
+  return { snapshot, payloadJson };
+}
+
+async function getProgressSnapshotRow(db: D1Database, userId: string) {
+  return db
+    .prepare(
+      `
+    SELECT revision, payload_json, updated_at
+    FROM progress_snapshots
+    WHERE user_id = ?
+  `,
+    )
+    .bind(userId)
+    .first<ProgressSnapshotRow>();
+}
+
+function progressSnapshotFromRow(row: ProgressSnapshotRow) {
+  if (
+    !Number.isInteger(row.revision) ||
+    row.revision < 1 ||
+    typeof row.payload_json !== "string" ||
+    new TextEncoder().encode(row.payload_json).byteLength > MAX_PROGRESS_SYNC_BYTES
+  )
+    throw new Error("INVALID_PROGRESS_SNAPSHOT_ROW");
+  const parsed = JSON.parse(row.payload_json) as unknown;
+  const expectedUpdatedAt = new Date(row.updated_at).toISOString();
+  const snapshot = normalizeProgressSnapshot(parsed, { now: expectedUpdatedAt });
+  if (
+    !snapshot ||
+    snapshot.version !== 1 ||
+    snapshot.revision !== row.revision ||
+    snapshot.updatedAt !== expectedUpdatedAt
+  )
+    throw new Error("INVALID_PROGRESS_SNAPSHOT_ROW");
+  return snapshot;
+}
+
+function progressRevisionConflict(
+  request: Request,
+  row: ProgressSnapshotRow | null,
+) {
+  const snapshot = row ? progressSnapshotFromRow(row) : null;
+  return json(
+    request,
+    {
+      error: {
+        code: "PROGRESS_REVISION_CONFLICT",
+        message: "Your private progress changed on another device.",
+      },
+      current: { revision: row?.revision ?? 0, snapshot },
+    },
+    409,
+  );
+}
+
+async function getProgressSnapshot(request: Request, env: Env) {
+  const user = await authenticatedUser(request);
+  if (!user)
+    return errorResponse(
+      request,
+      401,
+      "AUTH_REQUIRED",
+      "Sign in to sync private learning progress.",
+    );
+  if (!env.DB)
+    return errorResponse(
+      request,
+      503,
+      "PROGRESS_SYNC_UNAVAILABLE",
+      "Private progress sync is temporarily unavailable.",
+    );
+  const row = await getProgressSnapshotRow(env.DB, user.userId);
+  return json(request, { snapshot: row ? progressSnapshotFromRow(row) : null });
+}
+
+async function putProgressSnapshot(request: Request, env: Env) {
+  const user = await authenticatedUser(request);
+  if (!user)
+    return errorResponse(
+      request,
+      401,
+      "AUTH_REQUIRED",
+      "Sign in to sync private learning progress.",
+    );
+  if (!env.DB)
+    return errorResponse(
+      request,
+      503,
+      "PROGRESS_SYNC_UNAVAILABLE",
+      "Private progress sync is temporarily unavailable.",
+    );
+  let body: unknown;
+  try {
+    body = await readJson(request);
+  } catch (error) {
+    const code = error instanceof Error ? error.message : "INVALID_JSON";
+    return errorResponse(
+      request,
+      code === "CONTENT_TYPE" ? 415 : 400,
+      code,
+      "Send a bounded private progress snapshot.",
+    );
+  }
+  if (!isRecord(body))
+    return errorResponse(
+      request,
+      400,
+      "INVALID_PROGRESS_SNAPSHOT",
+      "Send a bounded private progress snapshot.",
+    );
+  const baseRevision = body.baseRevision;
+  if (
+    !Number.isInteger(baseRevision) ||
+    (baseRevision as number) < 0 ||
+    (baseRevision as number) > 2_147_483_646
+  )
+    return errorResponse(
+      request,
+      400,
+      "INVALID_BASE_REVISION",
+      "baseRevision must be a non-negative integer.",
+    );
+  const expectedRevision = baseRevision as number;
+  let encoded;
+  const now = Date.now();
+  try {
+    encoded = normalizeIncomingProgressSnapshot(
+      body.snapshot,
+      expectedRevision + 1,
+      now,
+    );
+  } catch {
+    return errorResponse(
+      request,
+      400,
+      "INVALID_PROGRESS_SNAPSHOT",
+      `The normalized progress snapshot must be at most ${MAX_PROGRESS_SYNC_BYTES} bytes.`,
+    );
+  }
+  await ensurePrivateProfile(env.DB, user, now);
+  if (expectedRevision === 0) {
+    const inserted = await env.DB.prepare(
+      `
+      INSERT INTO progress_snapshots (user_id, revision, payload_json, updated_at)
+      SELECT ?, 1, ?, ?
+      WHERE NOT EXISTS (SELECT 1 FROM progress_snapshots WHERE user_id = ?)
+    `,
+    )
+      .bind(user.userId, encoded.payloadJson, now, user.userId)
+      .run();
+    if (Number(inserted.meta.changes) === 0) {
+      const current = await getProgressSnapshotRow(env.DB, user.userId);
+      return progressRevisionConflict(request, current);
+    }
+    return json(request, { snapshot: encoded.snapshot });
+  }
+  const updated = await env.DB.prepare(
+    `
+    UPDATE progress_snapshots
+    SET revision = revision + 1, payload_json = ?, updated_at = ?
+    WHERE user_id = ? AND revision = ?
+  `,
+  )
+    .bind(encoded.payloadJson, now, user.userId, expectedRevision)
+    .run();
+  if (Number(updated.meta.changes) === 0) {
+    const current = await getProgressSnapshotRow(env.DB, user.userId);
+    return progressRevisionConflict(request, current);
+  }
+  return json(request, { snapshot: encoded.snapshot });
 }
 
 function limitFrom(url: URL, fallback = 25, maximum = 50) {
@@ -3368,6 +3569,7 @@ async function capabilities(request: Request, env: Env) {
       apiVersion: "v1",
       cloudSync: hasCommunityDatabase(env),
       studySync: hasCommunityDatabase(env),
+      progressSync: hasCommunityDatabase(env),
       community: hasCommunityDatabase(env),
       leaderboards: hasCommunityDatabase(env),
       trustedAssessments: hasTrustedJudge(env),
@@ -3929,6 +4131,10 @@ async function api(request: Request, env: Env, url: URL) {
     return getStudyWorkspace(request, env);
   if (path === "/study/workspace" && request.method === "PUT")
     return putStudyWorkspace(request, env);
+  if (path === "/progress/snapshot" && request.method === "GET")
+    return getProgressSnapshot(request, env);
+  if (path === "/progress/snapshot" && request.method === "PUT")
+    return putProgressSnapshot(request, env);
   if (path === "/trusted/assignments" && request.method === "GET")
     return listTrustedAssignments(request, env, url);
   if (path === "/trusted/assignments" && request.method === "POST")

@@ -13,20 +13,21 @@ export type CloudUnavailableReason =
   | "offline"
   | "judge-enqueue-unavailable";
 
-export type CloudResult<T> =
+export type CloudResult<T, C = CloudStudyWorkspaceConflict> =
   | { available: true; data: T; status: number }
   | {
       available: false;
       reason: CloudUnavailableReason;
       status?: number;
       retryAfterSeconds?: number;
-      conflict?: CloudStudyWorkspaceConflict;
+      conflict?: C;
     };
 
 export type CloudCapabilities = {
   apiVersion: string;
   cloudSync: boolean;
   studySync: boolean;
+  progressSync: boolean;
   community: boolean;
   leaderboards: boolean;
   trustedAssessments: boolean;
@@ -250,6 +251,11 @@ export type CloudTrustedAssignment = {
   expiresAt: string;
   latestSubmission: CloudTrustedSubmission | null;
 };
+export type CloudProgressSnapshot = import("./progress-sync.mjs").ProgressSyncSnapshot;
+export type CloudProgressSnapshotConflict = {
+  revision: number;
+  snapshot: CloudProgressSnapshot | null;
+};
 
 export type CloudTrustedExampleRun = {
   id: string;
@@ -388,6 +394,13 @@ export type CloudClient = {
     workspace: CloudStudyWorkspace,
     options: CloudRequestOptions & { baseRevision: number },
   ): Promise<CloudResult<CloudStudyWorkspace>>;
+  getProgressSnapshot(
+    options?: CloudRequestOptions,
+  ): Promise<CloudResult<CloudProgressSnapshot | null>>;
+  putProgressSnapshot(
+    snapshot: CloudProgressSnapshot,
+    options: CloudRequestOptions & { baseRevision: number },
+  ): Promise<CloudResult<CloudProgressSnapshot, CloudProgressSnapshotConflict>>;
   trustedAssignments(
     options?: CloudTrustedAssignmentListOptions,
   ): Promise<CloudResult<CloudTrustedAssignmentList>>;

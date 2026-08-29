@@ -55,6 +55,7 @@ test("local production capability checks degrade quietly without Worker bindings
     apiVersion: "v1",
     cloudSync: false,
     studySync: false,
+    progressSync: false,
     community: false,
     leaderboards: false,
     trustedAssessments: false,
