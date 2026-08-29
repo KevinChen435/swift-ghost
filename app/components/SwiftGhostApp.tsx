@@ -123,6 +123,10 @@ import {
   type PracticeItem,
 } from "../lib/items";
 import {
+  searchLauncherItems,
+  type LauncherSearchMatch,
+} from "../lib/launcher-search.mjs";
+import {
   buildSessionQueue,
   type SessionLanguage,
   type SessionQueueEntry,
@@ -2557,6 +2561,16 @@ export default function SwiftGhostApp() {
       .toLowerCase()
       .includes(normalizedLauncherQuery);
   });
+  const launcherProblemMatches = useMemo(
+    () =>
+      searchLauncherItems(allItems, launcherQuery).map((match) => ({
+        ...match,
+        favorite: state.favorites.includes(match.item.itemId),
+        due: isReviewDue(state, match.item.itemId, now),
+        stage: recommendedStage(state, match.item),
+      })),
+    [allItems, launcherQuery, now, state],
+  );
 
   function mutateState(updater: (current: AppState) => AppState) {
     setState((current) => {
@@ -3623,6 +3637,26 @@ export default function SwiftGhostApp() {
       recordsSection: "closures",
       closureId,
     });
+  }
+
+  function openAttemptClosureForSubmission(submissionId: string) {
+    const current = stateRef.current;
+    const model = deriveAttemptClosureModel(current.attemptClosures, {
+      items: [...BUILTIN_ITEMS, ...current.customItems],
+      attempts: current.attempts,
+      submissionLog: current.submissionLog,
+      now: new Date().toISOString(),
+    });
+    const closure = model.records.find(
+      (record) =>
+        record.anchor.kind === "submission" &&
+        record.anchor.submissionId === submissionId,
+    );
+    if (!closure) {
+      setToast("That failed submission is no longer available for a repair plan");
+      return;
+    }
+    openAttemptClosure(closure.id);
   }
 
   function openFluencyClinic(caseId?: string) {
@@ -8768,8 +8802,19 @@ export default function SwiftGhostApp() {
       {launcherOpen && (
         <QuickLauncherDialog
           actions={visibleLauncherActions}
+          problemResults={launcherProblemMatches}
           query={launcherQuery}
           onQueryChange={setLauncherQuery}
+          onSelectProblem={(candidate) => {
+            closeLauncher();
+            openItem(
+              candidate,
+              canSolveItem(candidate) ? 5 : recommendedStage(state, candidate),
+              undefined,
+              undefined,
+              canSolveItem(candidate) ? "solving" : undefined,
+            );
+          }}
           onClose={closeLauncher}
         />
       )}
@@ -8968,6 +9013,7 @@ export default function SwiftGhostApp() {
           }
           onSubmissionRequested={requestLocalSubmission}
           onSubmissionSettled={recordSubmission}
+          onOpenAttemptClosure={openAttemptClosureForSubmission}
           onVirtualRoundSubmissionRequested={requestActiveVirtualRoundSubmission}
           onVirtualRoundSubmissionSettled={settleActiveVirtualRoundSubmission}
           onVirtualRoundOpenProblem={openVirtualRoundItem}
@@ -9955,17 +10001,44 @@ type QuickLauncherAction = {
 
 function QuickLauncherDialog({
   actions,
+  problemResults,
   query,
   onQueryChange,
+  onSelectProblem,
   onClose,
 }: {
   actions: QuickLauncherAction[];
+  problemResults: Array<
+    LauncherSearchMatch & {
+      favorite: boolean;
+      due: boolean;
+      stage: number;
+    }
+  >;
   query: string;
   onQueryChange: (value: string) => void;
+  onSelectProblem: (item: PracticeItem) => void;
   onClose: () => void;
 }) {
   const dialogRef = useRef<HTMLElement | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
   useModalKeyboard(onClose, dialogRef, true);
+  const targets = [
+    ...problemResults.map((match) => ({ kind: "problem" as const, match })),
+    ...actions.map((action) => ({ kind: "action" as const, action })),
+  ];
+  const boundedActiveIndex = Math.min(
+    Math.max(0, activeIndex),
+    Math.max(0, targets.length - 1),
+  );
+
+  function selectTarget(index: number) {
+    const target = targets[index];
+    if (!target) return;
+    if (target.kind === "problem") onSelectProblem(target.match.item);
+    else target.action.onSelect();
+  }
+
   return (
     <div
       className="dialog-backdrop launcher-backdrop"
@@ -10001,26 +10074,80 @@ function QuickLauncherDialog({
           <input
             data-modal-autofocus
             value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter") return;
-              const first = actions[0];
-              if (!first) return;
-              event.preventDefault();
-              first.onSelect();
+            onChange={(event) => {
+              setActiveIndex(0);
+              onQueryChange(event.target.value);
             }}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                if (!targets.length) return;
+                event.preventDefault();
+                setActiveIndex((current) =>
+                  event.key === "ArrowDown"
+                    ? (current + 1) % targets.length
+                    : (current - 1 + targets.length) % targets.length,
+                );
+                return;
+              }
+              if (event.key === "Enter") {
+                if (!targets.length) return;
+                event.preventDefault();
+                selectTarget(boundedActiveIndex);
+              }
+            }}
+            aria-activedescendant={
+              targets.length ? `launcher-target-${boundedActiveIndex}` : undefined
+            }
             placeholder="Filter actions or type a command"
           />
         </label>
         <div className="launcher-hints">
-          Cmd/Ctrl+K to open · / from anywhere except editors · Esc to close
+          Cmd/Ctrl+K to open · / from anywhere except editors · ↑↓ navigate · Enter open · Esc close
         </div>
+        {problemResults.length ? (
+          <div className="launcher-problems" aria-label="Matching problems">
+            <div className="launcher-section-label">Problems</div>
+            {problemResults.map((match, index) => {
+              const item = match.item;
+              const active = index === boundedActiveIndex;
+              return (
+                <button
+                  key={item.itemId}
+                  id={`launcher-target-${index}`}
+                  type="button"
+                  className={`launcher-problem${active ? " is-active" : ""}`}
+                  aria-current={active ? "true" : undefined}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onClick={() => onSelectProblem(item)}
+                >
+                  <span>
+                    <strong>{item.title}</strong>
+                    <small>
+                      {itemDisplayId(item)} · {laneLabel(item)} · {item.difficulty} · {canSolveItem(item) ? "Solve" : `Stage ${match.stage}`}
+                    </small>
+                  </span>
+                  <em>
+                    {match.due ? "Due" : match.favorite ? "★ Saved" : item.pattern}
+                  </em>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
         <div className="launcher-grid" aria-label="Quick actions">
           {actions.map((action) => (
             <button
               key={action.id}
+              id={`launcher-target-${problemResults.length + actions.indexOf(action)}`}
               type="button"
-              className="launcher-action"
+              className={`launcher-action${
+                problemResults.length + actions.indexOf(action) === boundedActiveIndex
+                  ? " is-active"
+                  : ""
+              }`}
+              onMouseEnter={() =>
+                setActiveIndex(problemResults.length + actions.indexOf(action))
+              }
               onClick={action.onSelect}
             >
               <strong>{action.label}</strong>
@@ -10029,9 +10156,9 @@ function QuickLauncherDialog({
             </button>
           ))}
         </div>
-        {!actions.length && (
+        {!actions.length && !problemResults.length && (
           <p className="launcher-empty">
-            No actions match “{query.trim()}”.
+            No problems or actions match “{query.trim()}”.
           </p>
         )}
       </section>
@@ -10079,6 +10206,7 @@ type PracticeProps = {
   onSubmissionRun: () => void;
   onSubmissionRequested: (request: SubmissionRequest) => boolean;
   onSubmissionSettled: (submission: SubmissionRecord) => void;
+  onOpenAttemptClosure: (submissionId: string) => void;
   onVirtualRoundSubmissionRequested: (request: SubmissionRequest) => boolean;
   onVirtualRoundSubmissionSettled: (submission: SubmissionRecord) => void;
   onVirtualRoundOpenProblem: (roundId: string, itemId: string) => void;
@@ -10157,6 +10285,8 @@ function PracticeView(props: PracticeProps) {
     message?: string;
     source?: string;
     runs?: number;
+    submissionId?: string;
+    submissionStatus?: SubmissionRecord["status"];
   }>({ itemId: props.item.itemId, status: "idle" });
   const [customExecutionState, setCustomExecutionState] = useState<{
     itemId: ItemId;

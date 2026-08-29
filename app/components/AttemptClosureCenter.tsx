@@ -133,6 +133,79 @@ function humanize(value: string) {
   return value.replaceAll("-", " ");
 }
 
+function buildAttemptClosureRepairPlan(
+  record: DerivedAttemptClosure,
+  item?: PracticeItem,
+) {
+  const lane =
+    record.anchor.lane === "swift"
+      ? "Swift"
+      : record.anchor.lane === "ios"
+        ? "iOS"
+        : "Python";
+  const outcome = record.anchor.outcome;
+  const title = item?.title ?? record.titleSnapshot;
+  const cue = item?.cue ?? "State the decision rule you expected to hold.";
+  const invariant =
+    item?.invariant ?? "Name the invariant, then test the smallest counterexample.";
+  const languageNote =
+    item?.languageNote ?? `${lane} syntax or API recall may be part of the repair.`;
+  const base = {
+    summary: `Repair ${title} by isolating the first decision that changed the outcome, then prove the corrected rule on one small trace.`,
+    tags: ["verification", "implementation"],
+    firstWrongDecision: `I need to identify the first ${lane} decision where my code stopped matching the problem contract. The likely break point is: `,
+    verificationNotes: `Trace one visible sample and one boundary case before retrying. Check: ${invariant}`,
+    teachBack: `The corrected rule is: ${cue} In ${lane}, I will explain the data representation, the update step, and why it preserves the invariant.`,
+  };
+
+  if (outcome === "wrong-answer") {
+    return {
+      ...base,
+      summary: `Wrong answer repair: find the first input state where the expected invariant and the code diverge.`,
+      tags: ["wrong-invariant", "boundary", "verification"],
+      firstWrongDecision: `I chose a rule that passed the easy path but did not preserve the invariant. The first wrong decision was: `,
+      verificationNotes: `Run a hand trace with duplicates, empties, extremes, or the shortest valid input. Expected invariant: ${invariant}`,
+    };
+  }
+  if (outcome === "runtime-error") {
+    return {
+      ...base,
+      summary: `Runtime repair: remove the unsafe operation first, then re-check correctness.`,
+      tags: ["implementation", "boundary", "api"],
+      firstWrongDecision: `I let an unsafe index, unwrap, parse, mutation, or API assumption reach runtime. The first unsafe decision was: `,
+      verificationNotes: `Trace the smallest input that touches an empty collection, missing value, nil-like case, or invalid boundary. ${languageNote}`,
+    };
+  }
+  if (outcome === "time-limit") {
+    return {
+      ...base,
+      summary: `Time limit repair: replace repeated work with the right maintained state.`,
+      tags: ["complexity", "data-structure", "verification"],
+      firstWrongDecision: `I used an operation pattern whose cost grows too quickly. The first complexity decision to replace was: `,
+      verificationNotes: `Count loop nesting, collection copies, and per-iteration work. Target bound: ${item?.complexity ?? "match the stated complexity target."}`,
+    };
+  }
+  if (outcome === "invalid-entrypoint") {
+    return {
+      ...base,
+      summary: `Entrypoint repair: match the required function contract before reasoning about the algorithm.`,
+      tags: ["api", "syntax-fluency", "implementation"],
+      firstWrongDecision: `I submitted code that did not expose the required callable shape. The first contract mismatch was: `,
+      verificationNotes: `Check the function name, parameter order, return type, imports, and top-level code before the next run.`,
+    };
+  }
+  if (outcome === "abandoned") {
+    return {
+      ...base,
+      summary: `Abandoned attempt repair: write the missing decision explicitly before starting over.`,
+      tags: ["missed-cue", "syntax-fluency", "communication"],
+      firstWrongDecision: `I stopped before committing to the next concrete decision. The missing decision was: `,
+      verificationNotes: `Before retrying, say the approach in three steps, then trace the smallest sample without looking at the old code.`,
+    };
+  }
+  return base;
+}
+
 export function AttemptClosureCenter({
   workspace,
   model,
@@ -176,6 +249,7 @@ export function AttemptClosureCenter({
         };
   const selectedRecordId = selected?.id;
   const immutable = selected?.state === "completed";
+  const repairPlan = selected ? buildAttemptClosureRepairPlan(selected, item) : null;
   const retryAvailable = Boolean(
     selected &&
       item &&
@@ -244,6 +318,14 @@ export function AttemptClosureCenter({
       ...current,
       [field]: Array.from(value).slice(0, ATTEMPT_CLOSURE_LIMITS.maxTextChars).join(""),
     }));
+  }
+
+  function applyRepairPrompt(
+    field: "firstWrongDecision" | "verificationNotes" | "teachBack",
+    value: string,
+  ) {
+    if (immutable) return;
+    updateText(field, value);
   }
 
   function complete(event: FormEvent<HTMLFormElement>) {
@@ -384,6 +466,76 @@ export function AttemptClosureCenter({
                 assistance, revision, or timestamp.
               </p>
             </section>
+
+            {repairPlan && (
+              <section className="attempt-closure-repair" aria-labelledby="attempt-closure-repair-title">
+                <div className="attempt-closure-panel-heading">
+                  <div>
+                    <small>Repair plan</small>
+                    <h4 id="attempt-closure-repair-title">Next attempt script</h4>
+                  </div>
+                  <span>{humanize(selected.anchor.outcome)}</span>
+                </div>
+                <p>{repairPlan.summary}</p>
+                <ol>
+                  <li>State the invariant before editing code.</li>
+                  <li>Trace the smallest failing shape by hand.</li>
+                  <li>Retry only after the closure is complete and due.</li>
+                </ol>
+                <div className="attempt-closure-repair-prompts">
+                  <button
+                    type="button"
+                    disabled={immutable}
+                    onClick={() =>
+                      applyRepairPrompt(
+                        "firstWrongDecision",
+                        repairPlan.firstWrongDecision,
+                      )
+                    }
+                  >
+                    Use first-decision prompt
+                  </button>
+                  <button
+                    type="button"
+                    disabled={immutable}
+                    onClick={() =>
+                      applyRepairPrompt(
+                        "verificationNotes",
+                        repairPlan.verificationNotes,
+                      )
+                    }
+                  >
+                    Use verification prompt
+                  </button>
+                  <button
+                    type="button"
+                    disabled={immutable}
+                    onClick={() =>
+                      applyRepairPrompt("teachBack", repairPlan.teachBack)
+                    }
+                  >
+                    Use teach-back prompt
+                  </button>
+                </div>
+                <div className="attempt-closure-repair-tags" aria-label="Suggested mistake tags">
+                  {repairPlan.tags.map((tag) => {
+                    const checked = form.mistakeTags.includes(tag as (typeof form.mistakeTags)[number]);
+                    const capped = !checked && form.mistakeTags.length >= ATTEMPT_CLOSURE_LIMITS.maxTags;
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        className={checked ? "is-selected" : undefined}
+                        disabled={immutable || capped}
+                        onClick={() => toggleMistakeTag(tag)}
+                      >
+                        {checked ? "Selected" : "Add"} {TAG_LABELS[tag] ?? humanize(tag)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
 
             <form className="attempt-closure-form" onSubmit={complete}>
               <fieldset className="attempt-closure-tags" disabled={immutable}>

@@ -138,6 +138,17 @@ test("reconciliation creates one immutable draft for each eligible evidence anch
   );
 });
 
+test("compile-error receipts create the same bounded repair anchor as other failed submissions", () => {
+  const workspace = reconcileAttemptClosureWorkspace(createAttemptClosureWorkspace(T0), {
+    items: [item],
+    submissionReceipts: [failedReceipt({ status: "compile-error", passed: 0, total: 1 })],
+    now: T0,
+  });
+  assert.equal(workspace.closures.length, 1);
+  assert.equal(workspace.closures[0].anchor.kind, "submission");
+  assert.equal(workspace.closures[0].anchor.outcome, "compile-error");
+});
+
 test("normalization rejects unsupported tags, invalid drafts, and duplicate anchors", () => {
   const base = normalizeAttemptClosureWorkspace({}, {
     items: [item],

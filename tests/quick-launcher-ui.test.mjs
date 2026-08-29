@@ -46,7 +46,20 @@ test("quick launcher actions cover the primary workspaces", () => {
 test("quick launcher has a responsive command-grid presentation", () => {
   assert.match(styles, /\.launcher-dialog\s*\{/);
   assert.match(styles, /\.launcher-search\s*\{/);
+  assert.match(styles, /\.launcher-problems\s*\{/);
+  assert.match(styles, /\.launcher-problem\.is-active/);
   assert.match(styles, /\.launcher-grid\s*\{/);
   assert.match(styles, /grid-template-columns: repeat\(auto-fit, minmax\(210px, 1fr\)\)/);
   assert.match(styles, /\.launcher-action:focus-visible/);
+});
+
+test("quick launcher can search and keyboard-navigate catalog problems", () => {
+  assert.match(app, /searchLauncherItems\(allItems, launcherQuery\)/);
+  assert.match(app, /problemResults=\{launcherProblemMatches\}/);
+  assert.match(app, /onSelectProblem=\{/);
+  assert.match(app, /ArrowDown/);
+  assert.match(app, /ArrowUp/);
+  assert.match(app, /aria-activedescendant/);
+  assert.match(app, /Matching problems/);
+  assert.match(app, /No problems or actions match/);
 });

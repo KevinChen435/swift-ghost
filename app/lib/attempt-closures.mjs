@@ -36,6 +36,7 @@ export const ATTEMPT_CLOSURE_STATUSES = Object.freeze([
 
 const FAILED_SUBMISSION_OUTCOMES = Object.freeze([
   "wrong-answer",
+  "compile-error",
   "runtime-error",
   "time-limit",
   "invalid-entrypoint",

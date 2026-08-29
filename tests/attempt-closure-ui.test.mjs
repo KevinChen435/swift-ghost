@@ -55,6 +55,26 @@ test("failure anchors remain visible and immutable while reflection fields are c
   assert.match(component, /maxLength=\{ATTEMPT_CLOSURE_LIMITS\.maxTextChars\}/);
 });
 
+test("selected failures expose a repair script with bounded prompt-fill actions", () => {
+  assert.match(component, /function buildAttemptClosureRepairPlan/);
+  assert.match(component, /Wrong answer repair: find the first input state/);
+  assert.match(component, /Runtime repair: remove the unsafe operation first/);
+  assert.match(component, /Time limit repair: replace repeated work/);
+  assert.match(component, /Entrypoint repair: match the required function contract/);
+  assert.match(component, /Abandoned attempt repair: write the missing decision/);
+  assert.match(component, /attempt-closure-repair-title/);
+  assert.match(component, /Next attempt script/);
+  assert.match(component, /State the invariant before editing code/);
+  assert.match(component, /Trace the smallest failing shape by hand/);
+  assert.match(component, /Retry only after the closure is complete and due/);
+  assert.match(component, /Use first-decision prompt/);
+  assert.match(component, /Use verification prompt/);
+  assert.match(component, /Use teach-back prompt/);
+  assert.match(component, /applyRepairPrompt\("teachBack", repairPlan\.teachBack\)/);
+  assert.match(component, /aria-label="Suggested mistake tags"/);
+  assert.match(component, /toggleMistakeTag\(tag\)/);
+});
+
 test("draft and completion actions delegate without mutating the domain locally", () => {
   assert.match(component, /onSave\(selected\.id, form, selected\.updatedAt\)/);
   assert.match(component, /onComplete\(selected\.id, selected\.updatedAt\)/);
@@ -122,6 +142,11 @@ test("attempt closure styling supports desktop, mobile, safe areas, focus, and f
   assert.match(styles, /env\(safe-area-inset-bottom\)/);
   assert.match(styles, /\.attempt-closure-toolbar > div \{[\s\S]*?min-width: 0;[\s\S]*?max-width: 100%;/);
   assert.match(styles, /\.attempt-closure-field textarea:focus-visible/);
+  assert.match(styles, /\.attempt-closure-anchor,[\s\S]*?\.attempt-closure-repair,[\s\S]*?\.attempt-closure-retry\s*\{/);
+  assert.match(styles, /\.attempt-closure-repair ol\s*\{/);
+  assert.match(styles, /\.attempt-closure-repair-prompts,[\s\S]*?\.attempt-closure-repair-tags/);
+  assert.match(styles, /\.attempt-closure-repair-tags button\.is-selected/);
   assert.match(styles, /@media \(forced-colors: active\)/);
   assert.match(styles, /\.attempt-closure-list button\.is-active[\s\S]*?outline: 3px solid Highlight/);
+  assert.match(styles, /\.attempt-closure-repair-tags button\.is-selected[\s\S]*?outline: 3px solid Highlight/);
 });

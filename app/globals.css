@@ -3209,6 +3209,62 @@ kbd {
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
+.launcher-section-label {
+  margin: 18px 0 8px;
+  color: var(--faint);
+  font: 700 9px var(--font-code);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.launcher-problems {
+  display: grid;
+  gap: 7px;
+}
+.launcher-problem {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 64px;
+  padding: 11px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--bg-raised) 88%, transparent);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.launcher-problem:hover,
+.launcher-problem:focus-visible,
+.launcher-problem.is-active,
+.launcher-action.is-active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 50%, var(--panel));
+  outline: none;
+}
+.launcher-problem > span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.launcher-problem strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.launcher-problem small,
+.launcher-problem em {
+  color: var(--muted);
+  font: 700 8px/1.4 var(--font-code);
+  font-style: normal;
+}
+.launcher-problem em {
+  flex: 0 0 auto;
+  color: var(--accent);
+  text-align: right;
+}
 .launcher-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
@@ -18074,6 +18130,7 @@ details.virtual-round-disclosure p {
 .attempt-closure-detail-heading p { margin: 0; color: var(--muted); }
 
 .attempt-closure-anchor,
+.attempt-closure-repair,
 .attempt-closure-retry {
   padding: 20px;
   border: 1px solid var(--border-soft);
@@ -18081,7 +18138,44 @@ details.virtual-round-disclosure p {
   background: var(--bg);
 }
 .attempt-closure-anchor > p,
+.attempt-closure-repair > p,
 .attempt-closure-retry p { margin: 14px 0 0; color: var(--muted); line-height: 1.55; }
+.attempt-closure-repair ol {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding-left: 20px;
+  color: var(--text);
+  line-height: 1.5;
+}
+.attempt-closure-repair-prompts,
+.attempt-closure-repair-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.attempt-closure-repair-prompts button,
+.attempt-closure-repair-tags button {
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 0.73rem;
+  font-weight: 800;
+}
+.attempt-closure-repair-prompts button:hover:not(:disabled),
+.attempt-closure-repair-tags button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.attempt-closure-repair-tags button.is-selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  color: var(--accent);
+}
 .attempt-closure-anchor dl,
 .attempt-closure-retry dl {
   display: grid;
@@ -18152,6 +18246,8 @@ details.virtual-round-disclosure p {
 .attempt-closure-toolbar button:focus-visible,
 .attempt-closure-list button:focus-visible,
 .attempt-closure-back:focus-visible,
+.attempt-closure-repair-prompts button:focus-visible,
+.attempt-closure-repair-tags button:focus-visible,
 .attempt-closure-tags input:focus-visible,
 .attempt-closure-grades input:focus-visible + strong { outline: 3px solid var(--accent); outline-offset: 3px; }
 
@@ -18237,6 +18333,8 @@ details.virtual-round-disclosure p {
   .attempt-closure-back { display: inline-flex; }
   .attempt-closure-detail { padding: 20px 16px 28px; }
   .attempt-closure-detail-heading { align-items: flex-start; flex-direction: column-reverse; }
+  .attempt-closure-repair-prompts,
+  .attempt-closure-repair-tags { display: grid; grid-template-columns: 1fr; }
   .attempt-closure-anchor dl,
   .attempt-closure-retry dl { grid-template-columns: 1fr; }
   .attempt-closure-tags > div,
@@ -18256,6 +18354,7 @@ details.virtual-round-disclosure p {
   .attempt-closure-toolbar,
   .attempt-closure-layout,
   .attempt-closure-anchor,
+  .attempt-closure-repair,
   .attempt-closure-retry,
   .attempt-closure-tags label,
   .attempt-closure-grades label,
@@ -18266,6 +18365,7 @@ details.virtual-round-disclosure p {
   }
   .attempt-closure-list button.is-active,
   .attempt-closure-toolbar button.is-active,
+  .attempt-closure-repair-tags button.is-selected,
   .attempt-closure-tags label:has(input:checked),
   .attempt-closure-grades label.is-selected { outline: 3px solid Highlight; }
 }
