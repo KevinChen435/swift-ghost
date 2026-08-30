@@ -59,7 +59,7 @@ export type ProgressSyncSnapshot = {
 export function isProgressSyncableItemId(value: unknown): boolean;
 export function normalizeProgressSnapshot(
   value: unknown,
-  options?: { now?: string | Date | number },
+  options?: { now?: string | Date | number; validItemIds?: readonly string[] },
 ): ProgressSyncSnapshot | undefined;
 export function createProgressSnapshot(
   state?: {
@@ -67,11 +67,11 @@ export function createProgressSnapshot(
     typingProgress?: unknown;
     learningEvents?: unknown;
   },
-  options?: { now?: string | Date | number },
+  options?: { now?: string | Date | number; validItemIds?: readonly string[] },
 ): ProgressSyncSnapshot | undefined;
 export function mergeProgressSnapshots(
   local: unknown,
   remote: unknown,
-  options?: { now?: string | Date | number },
+  options?: { now?: string | Date | number; validItemIds?: readonly string[] },
 ): ProgressSyncSnapshot;
 export function progressSnapshotFingerprint(snapshot: unknown): string;

@@ -683,7 +683,7 @@ function normalizeIncomingProgressSnapshot(
   const updatedAt = new Date(now).toISOString();
   const snapshot = normalizeProgressSnapshot(
     { ...value, version: 1, revision, updatedAt },
-    { now: updatedAt },
+    { now: updatedAt, validItemIds: [...ITEM_CATALOG.keys()] },
   );
   if (
     !snapshot ||
@@ -721,7 +721,10 @@ function progressSnapshotFromRow(row: ProgressSnapshotRow) {
     throw new Error("INVALID_PROGRESS_SNAPSHOT_ROW");
   const parsed = JSON.parse(row.payload_json) as unknown;
   const expectedUpdatedAt = new Date(row.updated_at).toISOString();
-  const snapshot = normalizeProgressSnapshot(parsed, { now: expectedUpdatedAt });
+  const snapshot = normalizeProgressSnapshot(parsed, {
+    now: expectedUpdatedAt,
+    validItemIds: [...ITEM_CATALOG.keys()],
+  });
   if (
     !snapshot ||
     snapshot.version !== 1 ||

@@ -100,7 +100,13 @@ function normalizeVerification(value) {
  * fields such as timelines, key errors, line errors, title snapshots, and
  * session/custom-content references.
  */
-function normalizeProgressAttempt(value) {
+function allowedProgressItemId(value, options = {}) {
+  if (!isProgressSyncableItemId(value)) return false;
+  if (!Array.isArray(options.validItemIds)) return true;
+  return options.validItemIds.includes(value);
+}
+
+function normalizeProgressAttempt(value, options = {}) {
   if (!isRecord(value)) return undefined;
   const id = cleanId(value.id);
   const itemId = cleanId(value.itemId, 96);
@@ -118,7 +124,7 @@ function normalizeProgressAttempt(value) {
     : null;
   if (
     !id ||
-    !isProgressSyncableItemId(itemId) ||
+    !allowedProgressItemId(itemId, options) ||
     !itemRevision ||
     !stage ||
     !practiceKind ||
@@ -175,10 +181,10 @@ function compareAttempts(left, right) {
   return left.completedAt.localeCompare(right.completedAt) || left.id.localeCompare(right.id);
 }
 
-function normalizeAttempts(value) {
+function normalizeAttempts(value, options = {}) {
   const byId = new Map();
   for (const raw of Array.isArray(value) ? value : []) {
-    const attempt = normalizeProgressAttempt(raw);
+    const attempt = normalizeProgressAttempt(raw, options);
     if (!attempt) continue;
     const existing = byId.get(attempt.id);
     if (
@@ -194,7 +200,7 @@ function normalizeAttempts(value) {
     .slice(-PROGRESS_SYNC_LIMITS.maxAttempts);
 }
 
-function normalizeTypingSnapshot(value, updatedAt) {
+function normalizeTypingSnapshot(value, updatedAt, options = {}) {
   const normalized = normalizeTypingProgression(value, {
     now: updatedAt,
   });
@@ -203,19 +209,19 @@ function normalizeTypingSnapshot(value, updatedAt) {
     revision: integer(normalized.revision, 0, 0, 1_000_000),
     updatedAt: cleanIso(normalized.updatedAt, updatedAt),
     records: normalized.records
-      .filter((record) => isProgressSyncableItemId(record.itemId))
+      .filter((record) => allowedProgressItemId(record.itemId, options))
       .map((record) => ({
         ...record,
         references: record.references.filter((reference) => cleanId(reference.id)),
         bypassAttemptIds: record.bypassAttemptIds.filter((id) => cleanId(id)),
       })),
     attempts: normalized.attempts.filter((attempt) =>
-      isProgressSyncableItemId(attempt.itemId),
+      allowedProgressItemId(attempt.itemId, options),
     ),
   };
 }
 
-function normalizeProgressEvents(value, attempts) {
+function normalizeProgressEvents(value, attempts, options = {}) {
   const attemptsById = new Map(
     attempts.map((attempt) => [
       attempt.id,
@@ -227,7 +233,7 @@ function normalizeProgressEvents(value, attempts) {
     ]),
   );
   const source = (Array.isArray(value) ? value : []).flatMap((raw) => {
-    if (!isRecord(raw) || !isProgressSyncableItemId(raw.itemId)) return [];
+    if (!isRecord(raw) || !allowedProgressItemId(raw.itemId, options)) return [];
     // Deliberately omit promptSnapshot and response: sync carries outcomes,
     // not learner-authored text.
     return [{
@@ -244,7 +250,7 @@ function normalizeProgressEvents(value, attempts) {
     }];
   });
   return normalizeLearningEvents(source, { attemptsById })
-    .filter((event) => isProgressSyncableItemId(event.itemId))
+    .filter((event) => allowedProgressItemId(event.itemId, options))
     .sort(compareEvents)
     .slice(-PROGRESS_SYNC_LIMITS.maxLearningEvents);
 }
@@ -255,9 +261,9 @@ export function normalizeProgressSnapshot(value, options = {}) {
   const updatedAt = cleanIso(raw.updatedAt, cleanIso(options.now, new Date().toISOString()));
   const revision = integer(raw.revision, 0, 0, 2_147_483_647);
   if (!updatedAt || jsonBytes(raw) > PROGRESS_SYNC_LIMITS.maxBytes) return undefined;
-  const attempts = normalizeAttempts(raw.attempts);
-  const typingProgress = normalizeTypingSnapshot(raw.typingProgress, updatedAt);
-  const learningEvents = normalizeProgressEvents(raw.learningEvents, attempts);
+  const attempts = normalizeAttempts(raw.attempts, options);
+  const typingProgress = normalizeTypingSnapshot(raw.typingProgress, updatedAt, options);
+  const learningEvents = normalizeProgressEvents(raw.learningEvents, attempts, options);
   const snapshot = {
     version: PROGRESS_SYNC_VERSION,
     revision,
@@ -278,7 +284,7 @@ export function createProgressSnapshot(state = {}, options = {}) {
     attempts: state.attempts,
     typingProgress: state.typingProgress,
     learningEvents: state.learningEvents,
-  }, { now });
+  }, { now, validItemIds: options.validItemIds });
 }
 
 function stableJson(value) {
@@ -310,8 +316,14 @@ function compareEvents(left, right) {
 /** Merge device snapshots deterministically; the server still owns revision. */
 export function mergeProgressSnapshots(local, remote, options = {}) {
   const now = cleanIso(options.now, new Date().toISOString());
-  const left = normalizeProgressSnapshot(local, { now });
-  const right = normalizeProgressSnapshot(remote, { now });
+  const left = normalizeProgressSnapshot(local, {
+    now,
+    validItemIds: options.validItemIds,
+  });
+  const right = normalizeProgressSnapshot(remote, {
+    now,
+    validItemIds: options.validItemIds,
+  });
   if (!left && !right) return createProgressSnapshot({}, { now });
   if (!left) return right;
   if (!right) return left;
@@ -321,13 +333,17 @@ export function mergeProgressSnapshots(local, remote, options = {}) {
   const learningEvents = normalizeProgressEvents(
     mergeById(left.learningEvents, right.learningEvents, compareEvents),
     attempts,
+    options,
   );
   const typingAttempts = mergeById(
     left.typingProgress.attempts,
     right.typingProgress.attempts,
     compareAttempts,
   );
-  const typingProgress = rebuildTypingProgression(typingAttempts, { now });
+  const typingProgress = rebuildTypingProgression(typingAttempts, {
+    now,
+    validItemIds: options.validItemIds,
+  });
   return normalizeProgressSnapshot({
     version: PROGRESS_SYNC_VERSION,
     revision: Math.max(left.revision, right.revision) + 1,
@@ -335,10 +351,14 @@ export function mergeProgressSnapshots(local, remote, options = {}) {
     attempts,
     typingProgress,
     learningEvents,
-  }, { now });
+  }, { now, validItemIds: options.validItemIds });
 }
 
 export function progressSnapshotFingerprint(snapshot) {
   const normalized = normalizeProgressSnapshot(snapshot);
-  return normalized ? stableJson(normalized) : "";
+  if (!normalized) return "";
+  // Server revisions and timestamps are transport metadata. Excluding them
+  // keeps the client debounce stable while still comparing every evidence
+  // record and every privacy-filtered field.
+  return stableJson({ ...normalized, revision: 0, updatedAt: "" });
 }

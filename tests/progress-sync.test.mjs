@@ -5,6 +5,7 @@ import {
   isProgressSyncableItemId,
   mergeProgressSnapshots,
   normalizeProgressSnapshot,
+  progressSnapshotFingerprint,
   PROGRESS_SYNC_LIMITS,
 } from "../app/lib/progress-sync.mjs";
 
@@ -131,4 +132,17 @@ test("merging progress snapshots unions evidence and remains source-free", () =>
   assert.equal(merged.revision, 1);
   assert.equal(merged.updatedAt, "2026-08-22T12:04:00.000Z");
   assert.equal("source" in merged, false);
+});
+
+test("progress fingerprints ignore transport revision and timestamps", () => {
+  const first = createProgressSnapshot(
+    { attempts: [attempt("attempt-fingerprint")] },
+    { now: "2026-08-20T12:04:00.000Z" },
+  );
+  const second = {
+    ...first,
+    revision: 42,
+    updatedAt: "2026-08-21T12:04:00.000Z",
+  };
+  assert.equal(progressSnapshotFingerprint(first), progressSnapshotFingerprint(second));
 });

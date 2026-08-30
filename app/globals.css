@@ -7120,6 +7120,59 @@ kbd {
   gap: 7px;
   flex-wrap: wrap;
 }
+.progress-sync-card {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border-soft));
+  border-radius: 13px;
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--accent-soft) 64%, var(--panel)),
+      color-mix(in srgb, var(--bg-raised) 88%, transparent)
+    );
+  box-shadow: var(--shadow);
+}
+.progress-sync-card h3 {
+  margin: 6px 0 7px;
+  font-size: 17px;
+}
+.progress-sync-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.55;
+}
+.progress-sync-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+.progress-sync-metrics div {
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+}
+.progress-sync-metrics dt {
+  color: var(--faint);
+  font: 700 8px var(--font-code);
+  text-transform: uppercase;
+}
+.progress-sync-metrics dd {
+  margin: 3px 0 0;
+  color: var(--text);
+  font: 800 12px var(--font-code);
+}
+.progress-sync-metrics small {
+  display: block;
+  margin-top: 5px;
+  color: var(--faint);
+  font: 8px var(--font-code);
+  line-height: 1.4;
+}
 .ios-reactivation {
   border-color: color-mix(in srgb, var(--violet) 40%, var(--border));
   background: linear-gradient(
@@ -9020,6 +9073,9 @@ kbd {
   .today-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+  .progress-sync-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .daily-coach {
     grid-template-columns: 1fr;
   }
@@ -9485,6 +9541,12 @@ kbd {
   }
   .today-card {
     min-height: 165px;
+  }
+  .progress-sync-card {
+    padding: 16px;
+  }
+  .progress-sync-metrics {
+    grid-template-columns: 1fr;
   }
   .milestone-grid,
   .records-grid {

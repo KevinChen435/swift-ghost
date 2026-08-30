@@ -14,7 +14,7 @@
     "prebuild:pages": "npm run sync:python-runtime",
     "build:pages": "node scripts/build-pages.mjs",
     "start": "node scripts/start.mjs",
-    "test": "npm run build && node --experimental-strip-types --test tests/*.test.mjs",
+    "test": "npm run build && node --experimental-strip-types --test --test-concurrency=1 tests/*.test.mjs",
     "typecheck": "tsc --noEmit && npm run typecheck:worker",
     "typecheck:worker": "tsc --noEmit -p worker/tsconfig.json",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",

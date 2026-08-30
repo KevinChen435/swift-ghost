@@ -40,3 +40,24 @@ test("Today command deck has responsive console-style layout", async () => {
   assert.match(css, /@media \(max-width: 1000px\)[\s\S]*\.today-command-grid[\s\S]*repeat\(3, minmax\(0, 1fr\)\)/);
   assert.match(css, /@media \(max-width: 720px\)[\s\S]*\.today-command-grid[\s\S]*grid-template-columns: 1fr/);
 });
+
+test("Today and Settings share a concise progress sync relay", async () => {
+  const app = await read("../app/components/SwiftGhostApp.tsx");
+  assert.match(app, /ProgressSyncCard/);
+  assert.match(app, /cloudStatusCopy/);
+  assert.match(app, /studySyncStatusCopy/);
+  assert.match(app, /cloudStatus=\{cloud\.status\}/);
+  assert.match(app, /studySyncStatus=\{studySyncStatus\}/);
+  assert.match(app, /Practice progress relay/);
+  assert.match(app, /Practice profile relay/);
+  assert.match(app, /Private progress sync/);
+  assert.match(app, /progressSyncEnabled/);
+  assert.match(app, /getProgressSnapshot/);
+  assert.match(app, /putProgressSnapshot/);
+  assert.match(app, /applyProgressSnapshotToState/);
+
+  const css = await read("../app/globals.css");
+  assert.match(css, /\.progress-sync-card\s*\{/);
+  assert.match(css, /\.progress-sync-metrics\s*\{/);
+  assert.match(css, /\.progress-sync-card p\s*\{/);
+});

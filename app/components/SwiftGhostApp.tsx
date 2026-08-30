@@ -271,6 +271,13 @@ import {
   type View,
 } from "../lib/product";
 import {
+  createProgressSnapshot,
+  isProgressSyncableItemId,
+  mergeProgressSnapshots,
+  progressSnapshotFingerprint,
+  type ProgressSyncSnapshot,
+} from "../lib/progress-sync.mjs";
+import {
   applyTypingAttempt,
   deriveTypingProgression,
 } from "../lib/typing-progression.mjs";
@@ -531,6 +538,43 @@ type CloudRuntime = {
   refresh: number;
 };
 
+type ProgressSyncStatus =
+  | "checking"
+  | "synced"
+  | "syncing"
+  | "offline"
+  | "error"
+  | "local";
+
+function progressSnapshotForState(state: AppState, now = new Date().toISOString()) {
+  return createProgressSnapshot(state, {
+    now,
+    validItemIds: BUILTIN_ITEMS.map((item) => item.itemId),
+  });
+}
+
+function applyProgressSnapshotToState(
+  current: AppState,
+  snapshot: ProgressSyncSnapshot,
+): AppState {
+  const localOnlyAttempts = current.attempts.filter(
+    (attempt) => !isProgressSyncableItemId(attempt.itemId),
+  );
+  const localOnlyEvents = current.learningEvents.filter(
+    (event) => !isProgressSyncableItemId(event.itemId),
+  );
+  // Re-normalizing with no serialized typing workspace makes the canonical
+  // progression rebuild from the merged attempt ledger. This avoids trusting
+  // a stale device-local derived record while retaining custom/transfer data.
+  return normalizeState({
+    ...current,
+    attempts: [...localOnlyAttempts, ...snapshot.attempts],
+    learningEvents: [...localOnlyEvents, ...snapshot.learningEvents],
+    favorites: current.favorites,
+    typingProgress: undefined,
+  });
+}
+
 const cloudClient = createCloudClient();
 const STATE_SAVE_DEBOUNCE_MS = 300;
 
@@ -585,6 +629,189 @@ const LANGUAGE_META: Record<
 function laneLabel(item: Pick<PracticeItem, "track" | "language">) {
   if (item.track === "ios") return "iOS & Swift";
   return `${LANGUAGE_META[item.language].label} interview`;
+}
+
+function cloudStatusCopy(status: CloudRuntime["status"]) {
+  switch (status) {
+    case "connected":
+      return {
+        label: "Cloud connected",
+        detail: "Signed-in features are available on this device.",
+      };
+    case "syncing":
+      return {
+        label: "Syncing",
+        detail: "Profile data is updating in the background.",
+      };
+    case "checking":
+      return {
+        label: "Checking",
+        detail: "Verifying whether cloud features can load.",
+      };
+    case "signed-out":
+      return {
+        label: "Signed out",
+        detail: "This profile is local until you connect an account.",
+      };
+    case "error":
+      return {
+        label: "Sync error",
+        detail: "A connection or authorization issue needs attention.",
+      };
+    case "local":
+    default:
+      return {
+        label: "Local only",
+        detail: "Everything stays in this browser profile.",
+      };
+  }
+}
+
+function studySyncStatusCopy(status: StudyPlanSyncStatus) {
+  switch (status) {
+    case "synced":
+      return {
+        label: "Study plan synced",
+        detail: "Plan structure is mirrored to signed-in devices.",
+      };
+    case "syncing":
+      return {
+        label: "Study plan syncing",
+        detail: "The hosted plan is catching up with local changes.",
+      };
+    case "checking":
+      return {
+        label: "Checking plan sync",
+        detail: "Verifying whether the hosted study plan is ready.",
+      };
+    case "offline":
+      return {
+        label: "Plan offline",
+        detail: "Structure is saved here and will sync later.",
+      };
+    case "error":
+      return {
+        label: "Plan sync error",
+        detail: "Private plan sync needs another connection attempt.",
+      };
+    case "local":
+    default:
+      return {
+        label: "Plan local",
+        detail: "Study plan structure is stored on this device.",
+      };
+  }
+}
+
+function progressSyncStatusCopy(status: ProgressSyncStatus) {
+  switch (status) {
+    case "synced":
+      return {
+        label: "Progress synced",
+        detail: "Completed practice summaries follow this account.",
+      };
+    case "syncing":
+      return {
+        label: "Progress syncing",
+        detail: "Private practice evidence is catching up.",
+      };
+    case "checking":
+      return {
+        label: "Checking progress sync",
+        detail: "Verifying the private evidence relay.",
+      };
+    case "offline":
+      return {
+        label: "Progress offline",
+        detail: "Practice stays local and will sync when connected.",
+      };
+    case "error":
+      return {
+        label: "Progress sync error",
+        detail: "Private progress needs another connection attempt.",
+      };
+    case "local":
+    default:
+      return {
+        label: "Progress local",
+        detail: "Practice evidence stays in this browser profile.",
+      };
+  }
+}
+
+function ProgressSyncCard({
+  variant,
+  cloudStatus,
+  studySyncStatus,
+  progressSyncStatus,
+  progressSyncEnabled,
+  minutes,
+  goal,
+}: {
+  variant: "today" | "settings";
+  cloudStatus: CloudRuntime["status"];
+  studySyncStatus: StudyPlanSyncStatus;
+  progressSyncStatus: ProgressSyncStatus;
+  progressSyncEnabled: boolean;
+  minutes: number;
+  goal: number;
+}) {
+  const cloud = cloudStatusCopy(cloudStatus);
+  const study = studySyncStatusCopy(studySyncStatus);
+  const progress = progressSyncEnabled
+    ? progressSyncStatusCopy(progressSyncStatus)
+    : {
+        label: "Progress off",
+        detail: "Enable private sync in Settings when you want it.",
+      };
+  return (
+    <article
+      className={`progress-sync-card is-${variant}${variant === "today" ? " today-card" : ""}`}
+      role="status"
+      aria-label="Practice sync status"
+    >
+      <div className="progress-sync-copy">
+        <span className="eyebrow">
+          {variant === "today" ? "Progress relay" : "Profile relay"}
+        </span>
+        <h3>
+          {variant === "today"
+            ? "Practice progress relay"
+            : "Practice profile relay"}
+        </h3>
+        <p>
+          {variant === "today"
+            ? "Completed practice summaries can follow your signed-in account. Code, drafts, notes, and custom content stay in this browser."
+            : "Private sync carries bounded practice summaries only. Code, drafts, notes, and custom content never leave this browser."
+          }
+        </p>
+      </div>
+      <dl className="progress-sync-metrics">
+        <div>
+          <dt>Today</dt>
+          <dd>
+            {minutes}/{goal} min
+          </dd>
+          <small>Goal on this profile</small>
+        </div>
+        <div>
+          <dt>Cloud</dt>
+          <dd>{cloud.label}</dd>
+          <small>{cloud.detail}</small>
+        </div>
+        <div>
+          <dt>Progress</dt>
+          <dd>{progress.label}</dd>
+          <small>{progress.detail}</small>
+        </div>
+        <div>
+          <dt>Study plan</dt>
+          <dd>{study.label}</dd>
+          <small>{study.detail}</small>
+        </div>
+      </dl>
+    </article>
+  );
 }
 
 function coercePracticeKind(
@@ -1008,12 +1235,20 @@ export default function SwiftGhostApp() {
   });
   const [studySyncStatus, setStudySyncStatus] =
     useState<StudyPlanSyncStatus>("checking");
+  const [progressSyncStatus, setProgressSyncStatus] =
+    useState<ProgressSyncStatus>("checking");
   const studyServerRevisionRef = useRef(0);
   const studySyncReadyRef = useRef(false);
   const studySyncedFingerprintRef = useRef("");
   const studySyncEpochRef = useRef(0);
   const [studySyncEpoch, setStudySyncEpoch] = useState(0);
   const [studySyncReadyVersion, setStudySyncReadyVersion] = useState(0);
+  const progressServerRevisionRef = useRef(0);
+  const progressSyncReadyRef = useRef(false);
+  const progressSyncedFingerprintRef = useRef("");
+  const progressSyncEpochRef = useRef(0);
+  const [progressSyncEpoch, setProgressSyncEpoch] = useState(0);
+  const [progressSyncReadyVersion, setProgressSyncReadyVersion] = useState(0);
   const importRef = useRef<HTMLInputElement>(null);
   const expireMockInterviewRef = useRef<(sessionId: string) => void>(() => {});
   expireMockInterviewRef.current = expireMockInterview;
@@ -1930,6 +2165,189 @@ export default function SwiftGhostApp() {
   ]);
 
   useEffect(() => {
+    if (!ready) return;
+    if (
+      cloud.status === "local" ||
+      cloud.status === "signed-out" ||
+      !state.settings.progressSyncEnabled ||
+      !cloud.capabilities?.progressSync ||
+      !cloud.session?.authenticated
+    ) {
+      progressSyncReadyRef.current = false;
+      progressServerRevisionRef.current = 0;
+      progressSyncedFingerprintRef.current = "";
+      const fallbackStatus = cloud.status === "local" ? "local" : "offline";
+      void Promise.resolve().then(() => setProgressSyncStatus(fallbackStatus));
+      return;
+    }
+    if (cloud.status !== "connected" && cloud.status !== "syncing") return;
+    const expectedUserId = cloud.session?.user?.id;
+    if (
+      !persistenceScope ||
+      !scopeMatchesAuthenticatedUser(persistenceScope, expectedUserId)
+    ) {
+      void Promise.resolve().then(() => setProgressSyncStatus("offline"));
+      return;
+    }
+    const expectedEpoch = progressSyncEpochRef.current;
+    progressSyncReadyRef.current = false;
+    const controller = new AbortController();
+    void Promise.resolve().then(() => setProgressSyncStatus("checking"));
+    void cloudClient
+      .getProgressSnapshot({ signal: controller.signal })
+      .then((result) => {
+        if (
+          expectedEpoch !== progressSyncEpochRef.current ||
+          !scopeMatchesAuthenticatedUser(
+            persistenceScopeRef.current,
+            expectedUserId,
+          )
+        )
+          return;
+        if (!result.available) {
+          if (result.reason !== "aborted") setProgressSyncStatus("offline");
+          return;
+        }
+        const local = progressSnapshotForState(stateRef.current);
+        if (!result.data) {
+          progressServerRevisionRef.current = 0;
+          progressSyncReadyRef.current = true;
+          setProgressSyncReadyVersion((current) => current + 1);
+          progressSyncedFingerprintRef.current =
+            local && local.attempts.length + local.learningEvents.length === 0
+              ? progressSnapshotFingerprint(local)
+              : "";
+          setProgressSyncStatus(
+            progressSyncedFingerprintRef.current ? "synced" : "syncing",
+          );
+          return;
+        }
+        progressServerRevisionRef.current = result.data.revision;
+        const merged = mergeProgressSnapshots(local, result.data, {
+          now: new Date().toISOString(),
+          validItemIds: BUILTIN_ITEMS.map((item) => item.itemId),
+        });
+        const localFingerprint = progressSnapshotFingerprint(local);
+        const remoteFingerprint = progressSnapshotFingerprint(result.data);
+        const mergedFingerprint = progressSnapshotFingerprint(merged);
+        if (mergedFingerprint !== localFingerprint) {
+          mutateState((current) => applyProgressSnapshotToState(current, merged));
+        }
+        progressSyncReadyRef.current = true;
+        setProgressSyncReadyVersion((current) => current + 1);
+        progressSyncedFingerprintRef.current = remoteFingerprint;
+        setProgressSyncStatus(
+          mergedFingerprint === remoteFingerprint ? "synced" : "syncing",
+        );
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted && error instanceof Error)
+          setProgressSyncStatus("error");
+      });
+    return () => {
+      controller.abort();
+    };
+  }, [
+    ready,
+    cloud.status,
+    cloud.capabilities?.progressSync,
+    cloud.session?.authenticated,
+    cloud.session?.user?.id,
+    state.settings.progressSyncEnabled,
+    persistenceScope,
+    progressSyncEpoch,
+  ]);
+
+  useEffect(() => {
+    if (
+      !ready ||
+      !progressSyncReadyRef.current ||
+      !state.settings.progressSyncEnabled ||
+      !cloud.capabilities?.progressSync ||
+      !cloud.session?.authenticated ||
+      !persistenceScope ||
+      !scopeMatchesAuthenticatedUser(
+        persistenceScope,
+        cloud.session?.user?.id,
+      ) ||
+      (cloud.status !== "connected" && cloud.status !== "syncing")
+    )
+      return;
+    const expectedUserId = cloud.session.user?.id;
+    const expectedEpoch = progressSyncEpochRef.current;
+    const snapshot = progressSnapshotForState(stateRef.current);
+    if (!snapshot) return;
+    const fingerprint = progressSnapshotFingerprint(snapshot);
+    if (fingerprint === progressSyncedFingerprintRef.current) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setProgressSyncStatus("syncing");
+      const submittedFingerprint = fingerprint;
+      void cloudClient
+        .putProgressSnapshot(snapshot, {
+          baseRevision: progressServerRevisionRef.current,
+          signal: controller.signal,
+        })
+        .then((result) => {
+          if (
+            expectedEpoch !== progressSyncEpochRef.current ||
+            !scopeMatchesAuthenticatedUser(
+              persistenceScopeRef.current,
+              expectedUserId,
+            )
+          )
+            return;
+          if (result.available) {
+            progressServerRevisionRef.current = result.data.revision;
+            progressSyncedFingerprintRef.current = submittedFingerprint;
+            setProgressSyncStatus("synced");
+            return;
+          }
+          if (result.reason === "revision-conflict" && result.conflict) {
+            progressServerRevisionRef.current = result.conflict.revision;
+            if (result.conflict.snapshot) {
+              const merged = mergeProgressSnapshots(
+                progressSnapshotForState(stateRef.current),
+                result.conflict.snapshot,
+                {
+                  now: new Date().toISOString(),
+                  validItemIds: BUILTIN_ITEMS.map((item) => item.itemId),
+                },
+              );
+              progressSyncedFingerprintRef.current = progressSnapshotFingerprint(
+                result.conflict.snapshot,
+              );
+              mutateState((current) => applyProgressSnapshotToState(current, merged));
+              setProgressSyncStatus("syncing");
+            }
+            return;
+          }
+          if (result.reason !== "aborted") setProgressSyncStatus("error");
+        })
+        .catch((error) => {
+          if (!controller.signal.aborted && error instanceof Error)
+            setProgressSyncStatus("error");
+        });
+    }, 800);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [
+    ready,
+    state.attempts,
+    state.learningEvents,
+    state.settings.progressSyncEnabled,
+    cloud.status,
+    cloud.capabilities?.progressSync,
+    cloud.session?.authenticated,
+    cloud.session?.user?.id,
+    persistenceScope,
+    progressSyncEpoch,
+    progressSyncReadyVersion,
+  ]);
+
+  useEffect(() => {
     if (
       !ready ||
       !state.cloud.communityEnabled ||
@@ -2661,6 +3079,13 @@ export default function SwiftGhostApp() {
     studySyncedFingerprintRef.current = "";
     setStudySyncEpoch(nextEpoch);
     setStudySyncStatus("checking");
+    const nextProgressEpoch = progressSyncEpochRef.current + 1;
+    progressSyncEpochRef.current = nextProgressEpoch;
+    progressSyncReadyRef.current = false;
+    progressServerRevisionRef.current = 0;
+    progressSyncedFingerprintRef.current = "";
+    setProgressSyncEpoch(nextProgressEpoch);
+    setProgressSyncStatus("checking");
   }
 
   function writeRoute(route: AppRoute, replace = false) {
@@ -8899,6 +9324,9 @@ export default function SwiftGhostApp() {
           state={state}
           items={curriculumItems}
           cloudStatus={cloud.status}
+          studySyncStatus={studySyncStatus}
+          progressSyncStatus={progressSyncStatus}
+          progressSyncEnabled={state.settings.progressSyncEnabled}
           cloudDaily={cloud.dailyChallenge}
           attemptClosureModel={attemptClosureModel}
           fluencyClinic={fluencyClinicModel}
@@ -9425,6 +9853,9 @@ export default function SwiftGhostApp() {
       {view === "settings" && (
         <SettingsView
           state={state}
+          cloudStatus={cloud.status}
+          progressSyncStatus={progressSyncStatus}
+          progressSyncEnabled={state.settings.progressSyncEnabled}
           profileLabel={
             persistenceScope === GUEST_PERSISTENCE_SCOPE
               ? "Guest profile on this browser"
@@ -9513,6 +9944,9 @@ function TodayView({
   state,
   items,
   cloudStatus,
+  studySyncStatus,
+  progressSyncStatus,
+  progressSyncEnabled,
   cloudDaily,
   attemptClosureModel,
   fluencyClinic,
@@ -9545,6 +9979,9 @@ function TodayView({
   state: AppState;
   items: PracticeItem[];
   cloudStatus: CloudRuntime["status"];
+  studySyncStatus: StudyPlanSyncStatus;
+  progressSyncStatus: ProgressSyncStatus;
+  progressSyncEnabled: boolean;
   cloudDaily: CloudDailyChallenge | null;
   attemptClosureModel: ReturnType<typeof deriveAttemptClosureModel>;
   fluencyClinic: ReturnType<typeof deriveFluencyClinicModel>;
@@ -9971,6 +10408,15 @@ function TodayView({
           {activeAssessment ? "Resume assessment" : "Open assessment center"} →
         </button>
       </section>
+      <ProgressSyncCard
+        variant="today"
+        cloudStatus={cloudStatus}
+        studySyncStatus={studySyncStatus}
+        progressSyncStatus={progressSyncStatus}
+        progressSyncEnabled={progressSyncEnabled}
+        minutes={minutes}
+        goal={goal}
+      />
       <section className="today-pattern-review" aria-label="Pattern decision review">
         <div>
           <span className="eyebrow">Core Pattern Skill Check · 12-18 minutes</span>
@@ -15188,6 +15634,9 @@ function RecordsView({
 
 function SettingsView({
   state,
+  cloudStatus,
+  progressSyncStatus,
+  progressSyncEnabled,
   profileLabel,
   accountScoped,
   guestDataAvailable,
@@ -15199,6 +15648,9 @@ function SettingsView({
   onCopyGuestData,
 }: {
   state: AppState;
+  cloudStatus: CloudRuntime["status"];
+  progressSyncStatus: ProgressSyncStatus;
+  progressSyncEnabled: boolean;
   profileLabel: string;
   accountScoped: boolean;
   guestDataAvailable: boolean;
@@ -15390,22 +15842,40 @@ function SettingsView({
             account and the guest profile have separate browser data.
           </p>
           <p>
-            Browser only: code, drafts, attempts, submissions, transcripts,
-            notes, settings, and custom content. Private sync: Study Plan
-            structure only ({studySyncStatus}). Community: only qualifying
-            attempt summaries when you explicitly turn sharing on.
+            Browser only: code, drafts, submissions, transcripts, notes,
+            settings, and custom content. Private sync: bounded built-in
+            attempt summaries and learning events, plus Study Plan structure
+            ({progressSyncStatus} · {studySyncStatus}). Community: only
+            qualifying attempt summaries when you explicitly turn sharing on.
           </p>
           <p>
-            Exports use a portable v35 backup envelope and imports accept
-            supported v2-v35 backups, including Fluency Clinic cases, Challenge Sets, typing progress, Cold
-            Reconstruction work, and attempt-closure drafts. Account-bound
-            sharing consent and upload receipts are never carried into another
-            profile.
-          </p>
-        </div>
-        <div className="data-actions">
-          <button className="outline-button" onClick={onExport}>
-            Export progress
+          Exports use a portable v35 backup envelope and imports accept
+          supported v2-v35 backups, including Fluency Clinic cases, Challenge Sets, typing progress, Cold
+          Reconstruction work, and attempt-closure drafts. Account-bound
+          sharing consent and upload receipts are never carried into another
+          profile.
+        </p>
+      </div>
+      <ProgressSyncCard
+        variant="settings"
+        cloudStatus={cloudStatus}
+        studySyncStatus={studySyncStatus}
+        progressSyncStatus={progressSyncStatus}
+        progressSyncEnabled={progressSyncEnabled}
+        minutes={practicedMinutesToday(state)}
+        goal={state.settings.dailyGoalMinutes}
+      />
+      <div className="setting-list progress-sync-setting">
+        <ToggleRow
+          label="Private progress sync"
+          note="Opt in to sync built-in attempt summaries and learning events. Code, drafts, notes, and custom content stay here. Turning it off stops future uploads; existing private snapshots remain until deletion controls are added."
+          checked={state.settings.progressSyncEnabled}
+          onChange={(checked) => onUpdate({ progressSyncEnabled: checked })}
+        />
+      </div>
+      <div className="data-actions">
+        <button className="outline-button" onClick={onExport}>
+          Export progress
           </button>
           <button className="outline-button" onClick={onImport}>
             Import backup

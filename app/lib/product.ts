@@ -254,6 +254,7 @@ export type Settings = {
   showKeyboard: boolean;
   dailyGoalMinutes: number;
   preferredLanguage: CodeLanguage;
+  progressSyncEnabled: boolean;
   onboarding: OnboardingState;
 };
 
@@ -487,6 +488,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showKeyboard: false,
   dailyGoalMinutes: 20,
   preferredLanguage: "python",
+  progressSyncEnabled: false,
   onboarding: normalizeOnboardingState(),
 };
 
@@ -623,6 +625,10 @@ function normalizeSettings(value: unknown): Settings {
       ),
     ),
     preferredLanguage: raw.preferredLanguage === "swift" ? "swift" : "python",
+    progressSyncEnabled:
+      typeof raw.progressSyncEnabled === "boolean"
+        ? raw.progressSyncEnabled
+        : DEFAULT_SETTINGS.progressSyncEnabled,
     onboarding: normalizeOnboardingState(raw.onboarding),
   };
 }
