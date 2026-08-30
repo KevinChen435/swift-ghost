@@ -252,9 +252,21 @@ export type CloudTrustedAssignment = {
   latestSubmission: CloudTrustedSubmission | null;
 };
 export type CloudProgressSnapshot = import("./progress-sync.mjs").ProgressSyncSnapshot;
+export type CloudProgressConflictEntity = import("./progress-sync.mjs").ProgressConflictEntitySummary;
+export type CloudProgressConflict = {
+  id: string;
+  baseRevision: number;
+  serverRevision: number;
+  occurredAt: string;
+  resolution: "merged";
+  entities: CloudProgressConflictEntity[];
+  truncated: boolean;
+};
+export type CloudProgressConflictList = CloudList<CloudProgressConflict>;
 export type CloudProgressSnapshotConflict = {
   revision: number;
   snapshot: CloudProgressSnapshot | null;
+  history?: CloudProgressConflict;
 };
 
 export type CloudTrustedExampleRun = {
@@ -401,6 +413,9 @@ export type CloudClient = {
     snapshot: CloudProgressSnapshot,
     options: CloudRequestOptions & { baseRevision: number },
   ): Promise<CloudResult<CloudProgressSnapshot, CloudProgressSnapshotConflict>>;
+  getProgressConflicts(
+    options?: CloudListOptions,
+  ): Promise<CloudResult<CloudProgressConflictList>>;
   trustedAssignments(
     options?: CloudTrustedAssignmentListOptions,
   ): Promise<CloudResult<CloudTrustedAssignmentList>>;

@@ -15,7 +15,7 @@ export const PROGRESS_SYNC_VERSION = 1;
 export const PROGRESS_SYNC_LIMITS = Object.freeze({
   maxAttempts: 1_000,
   maxLearningEvents: 1_000,
-  maxBytes: 1024 * 1024,
+  maxBytes: 256 * 1024,
 });
 
 /**

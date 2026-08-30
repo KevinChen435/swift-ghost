@@ -7194,6 +7194,74 @@ kbd {
   font: 8px var(--font-code);
   line-height: 1.4;
 }
+.progress-conflict-history {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid var(--border-soft);
+  border-radius: 13px;
+  background: var(--panel);
+}
+.progress-conflict-history-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+.progress-conflict-history h3 {
+  margin: 6px 0 7px;
+  font-size: 17px;
+}
+.progress-conflict-history p {
+  max-width: 600px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.55;
+}
+.progress-conflict-history-status {
+  align-self: flex-start;
+  color: var(--faint);
+  font: 8px var(--font-code);
+  text-align: right;
+}
+.progress-conflict-history-list {
+  display: grid;
+  gap: 7px;
+}
+.progress-conflict-history-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bg-raised) 76%, transparent);
+}
+.progress-conflict-history-row > div {
+  min-width: 0;
+}
+.progress-conflict-history-row strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.progress-conflict-history-row small,
+.progress-conflict-history-row > span {
+  color: var(--faint);
+  font: 8px var(--font-code);
+}
+.progress-conflict-history-row small {
+  display: block;
+  margin-top: 4px;
+}
+.progress-conflict-history-row > span {
+  flex: 0 0 auto;
+  text-align: right;
+}
 .ios-reactivation {
   border-color: color-mix(in srgb, var(--violet) 40%, var(--border));
   background: linear-gradient(

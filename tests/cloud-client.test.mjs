@@ -77,10 +77,12 @@ function inMemoryStudyDatabase() {
   const profiles = new Map();
   const workspaces = new Map();
   const progressSnapshots = new Map();
+  const progressConflicts = new Map();
   return {
     profiles,
     workspaces,
     progressSnapshots,
+    progressConflicts,
     prepare(sql) {
       const statement = sql.replace(/\s+/g, " ").trim();
       return {
@@ -91,6 +93,15 @@ function inMemoryStudyDatabase() {
                 return workspaces.get(values[0]) ?? null;
               if (statement.includes("FROM progress_snapshots"))
                 return progressSnapshots.get(values[0]) ?? null;
+              if (statement.includes("FROM progress_sync_conflicts")) {
+                const [userId, mutationHash, serverRevision] = values;
+                return [...progressConflicts.values()].find(
+                  (row) =>
+                    row.user_id === userId &&
+                    row.mutation_hash === mutationHash &&
+                    row.server_revision === serverRevision,
+                ) ?? null;
+              }
               if (
                 statement.includes("FROM community_profiles") &&
                 statement.includes("WHERE user_id = ?")
@@ -160,7 +171,95 @@ function inMemoryStudyDatabase() {
                 });
                 return { meta: { changes: 1 } };
               }
+              if (
+                statement.startsWith("INSERT OR IGNORE INTO progress_sync_conflicts")
+              ) {
+                const [
+                  id,
+                  userId,
+                  mutationHash,
+                  baseRevision,
+                  serverRevision,
+                  summaryJson,
+                  occurredAt,
+                  purgeAfter,
+                ] = values;
+                const exists = [...progressConflicts.values()].some(
+                  (row) =>
+                    row.user_id === userId &&
+                    row.mutation_hash === mutationHash &&
+                    row.server_revision === serverRevision,
+                );
+                if (exists) return { meta: { changes: 0 } };
+                progressConflicts.set(id, {
+                  id,
+                  user_id: userId,
+                  mutation_hash: mutationHash,
+                  base_revision: baseRevision,
+                  server_revision: serverRevision,
+                  summary_json: summaryJson,
+                  occurred_at: occurredAt,
+                  purge_after: purgeAfter,
+                });
+                return { meta: { changes: 1 } };
+              }
+              if (
+                statement.startsWith("DELETE FROM progress_sync_conflicts") &&
+                statement.includes("purge_after <= ?")
+              ) {
+                const [userId, now] = values;
+                let changes = 0;
+                for (const [id, row] of progressConflicts) {
+                  if (row.user_id === userId && row.purge_after <= now) {
+                    progressConflicts.delete(id);
+                    changes += 1;
+                  }
+                }
+                return { meta: { changes } };
+              }
+              if (
+                statement.startsWith("DELETE FROM progress_sync_conflicts") &&
+                statement.includes("id NOT IN")
+              ) {
+                const [userId, , limit] = values;
+                const retained = [...progressConflicts.values()]
+                  .filter((row) => row.user_id === userId)
+                  .sort(
+                    (left, right) =>
+                      right.occurred_at - left.occurred_at ||
+                      String(right.id).localeCompare(String(left.id)),
+                  )
+                  .slice(0, limit)
+                  .map((row) => row.id);
+                const retainedIds = new Set(retained);
+                let changes = 0;
+                for (const [id, row] of progressConflicts) {
+                  if (row.user_id === userId && !retainedIds.has(id)) {
+                    progressConflicts.delete(id);
+                    changes += 1;
+                  }
+                }
+                return { meta: { changes } };
+              }
               throw new Error(`Unhandled fake D1 run: ${statement}`);
+            },
+            async all() {
+              if (statement.includes("FROM progress_sync_conflicts")) {
+                const [userId, now, limit] = values;
+                return {
+                  results: [...progressConflicts.values()]
+                    .filter(
+                      (row) => row.user_id === userId && row.purge_after > now,
+                    )
+                    .sort(
+                      (left, right) =>
+                        right.occurred_at - left.occurred_at ||
+                        String(right.id).localeCompare(String(left.id)),
+                    )
+                    .slice(0, limit),
+                };
+              }
+              throw new Error(`Unhandled fake D1 all: ${statement}`);
             },
           };
         },
@@ -199,6 +298,18 @@ async function callProgressApi(worker, db, method, email, body) {
         ...(body === undefined ? {} : { "content-type": "application/json" }),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }),
+    { DB: db },
+    { waitUntil() {}, passThroughOnException() {} },
+  );
+}
+
+async function callProgressConflictApi(worker, db, email, limit = 20) {
+  return worker.fetch(
+    new Request(`http://localhost/api/v1/progress/conflicts?limit=${limit}`, {
+      headers: {
+        ...(email ? { "oai-authenticated-user-email": email } : {}),
+      },
     }),
     { DB: db },
     { waitUntil() {}, passThroughOnException() {} },
@@ -898,6 +1009,30 @@ test("private progress sync client preserves bounded revision conflicts", async 
   const current = progressSnapshot();
   current.revision = 3;
   current.updatedAt = "2026-07-28T12:45:00.000Z";
+  const history = {
+    id: "progress-conflict-abc12345",
+    baseRevision: 2,
+    serverRevision: 3,
+    occurredAt: "2026-07-28T12:46:00.000Z",
+    resolution: "merged",
+    truncated: false,
+    entities: [
+      {
+        itemId: "builtin:1",
+        itemRevision: 1,
+        practiceKind: "typing",
+        submittedAttempts: 1,
+        serverAttempts: 0,
+        sharedAttempts: 0,
+        divergentAttempts: 0,
+        submittedEvents: 0,
+        serverEvents: 0,
+        sharedEvents: 0,
+        divergentEvents: 0,
+        source: "must drop",
+      },
+    ],
+  };
   const client = createCloudClient({
     location: { hostname: "swift.test" },
     fetchImpl: async () =>
@@ -908,6 +1043,7 @@ test("private progress sync client preserves bounded revision conflicts", async 
             message: "private diagnostic",
           },
           current: { revision: 3, snapshot: current },
+          conflict: history,
         },
         409,
       ),
@@ -919,9 +1055,63 @@ test("private progress sync client preserves bounded revision conflicts", async 
     available: false,
     reason: "revision-conflict",
     status: 409,
-    conflict: { revision: 3, snapshot: current },
+    conflict: {
+      revision: 3,
+      snapshot: current,
+      history: {
+        ...history,
+        entities: [Object.fromEntries(
+          Object.entries(history.entities[0]).filter(([key]) => key !== "source"),
+        )],
+      },
+    },
   });
   assert.equal(JSON.stringify(conflict).includes("private diagnostic"), false);
+  assert.equal(JSON.stringify(conflict).includes("must drop"), false);
+});
+
+test("private progress conflict history is bounded and source-free", async () => {
+  const mock = recorder((url) => {
+    assert.equal(url, "/api/v1/progress/conflicts?limit=50");
+    return json({
+      entries: [
+        {
+          id: "progress-conflict-abc12345",
+          baseRevision: 2,
+          serverRevision: 3,
+          occurredAt: "2026-07-28T12:46:00.000Z",
+          resolution: "merged",
+          truncated: false,
+          entities: [
+            {
+              itemId: "builtin:1",
+              itemRevision: 1,
+              practiceKind: "typing",
+              submittedAttempts: 1,
+              serverAttempts: 0,
+              sharedAttempts: 0,
+              divergentAttempts: 0,
+              submittedEvents: 0,
+              serverEvents: 0,
+              sharedEvents: 0,
+              divergentEvents: 0,
+              privateSource: "drop me",
+            },
+          ],
+        },
+        { id: "bad", resolution: "not-merged", entities: [] },
+      ],
+    });
+  });
+  const client = createCloudClient({
+    location: { hostname: "swift.test" },
+    fetchImpl: mock.fetchImpl,
+  });
+  const result = await client.getProgressConflicts({ limit: 999 });
+  assert.equal(result.available, true);
+  assert.equal(result.data.entries.length, 1);
+  assert.equal(result.data.entries[0].id, "progress-conflict-abc12345");
+  assert.equal("privateSource" in result.data.entries[0].entities[0], false);
 });
 
 test("study workspace methods normalize private snapshots and send optimistic revisions", async () => {
@@ -1099,6 +1289,16 @@ test("study workspace API requires auth, keeps GET read-only and private, and re
 test("private progress API is authenticated, source-free, and revision guarded", async () => {
   const worker = await builtWorker();
   const db = inMemoryStudyDatabase();
+  const unauthenticatedHistory = await callProgressConflictApi(
+    worker,
+    db,
+    undefined,
+  );
+  assert.equal(unauthenticatedHistory.status, 401);
+  assert.equal(
+    (await unauthenticatedHistory.json()).error.code,
+    "AUTH_REQUIRED",
+  );
   const unauthenticated = await callProgressApi(worker, db, "GET");
   assert.equal(unauthenticated.status, 401);
   assert.equal((await unauthenticated.json()).error.code, "AUTH_REQUIRED");
@@ -1123,18 +1323,122 @@ test("private progress API is authenticated, source-free, and revision guarded",
   assert.equal("source" in createdSnapshot.attempts[0], false);
   assert.equal(db.profiles.size, 1);
 
+  const staleSource = progressSnapshot({
+    attempts: [
+      {
+        ...attempt("progress-stale"),
+        practiceKind: "typing",
+        source: "private source must not survive",
+      },
+    ],
+  });
   const stale = await callProgressApi(
     worker,
     db,
     "PUT",
     "alice@example.com",
-    { baseRevision: 0, snapshot: sourceful },
+    { baseRevision: 0, snapshot: staleSource },
   );
   assert.equal(stale.status, 409);
   const conflict = await stale.json();
   assert.equal(conflict.error.code, "PROGRESS_REVISION_CONFLICT");
   assert.equal(conflict.current.revision, 1);
   assert.equal("source" in conflict.current.snapshot.attempts[0], false);
+  assert.ok(conflict.conflict);
+  assert.equal(conflict.conflict.baseRevision, 0);
+  assert.equal(conflict.conflict.serverRevision, 1);
+  assert.equal(conflict.conflict.resolution, "merged");
+  assert.equal(conflict.conflict.entities.length, 1);
+  assert.equal(conflict.conflict.entities[0].itemId, "builtin:1");
+  assert.equal(JSON.stringify(conflict.conflict).includes("source"), false);
+
+  const history = await callProgressConflictApi(worker, db, "alice@example.com");
+  assert.equal(history.status, 200);
+  const historyBody = await history.json();
+  assert.deepEqual(
+    historyBody.entries.map((entry) => entry.id),
+    [conflict.conflict.id],
+  );
+  assert.equal(JSON.stringify(historyBody).includes("private source"), false);
+
+  const duplicate = await callProgressApi(
+    worker,
+    db,
+    "PUT",
+    "alice@example.com",
+    { baseRevision: 0, snapshot: staleSource },
+  );
+  assert.equal(duplicate.status, 409);
+  const duplicateBody = await duplicate.json();
+  assert.equal(duplicateBody.conflict.id, conflict.conflict.id);
+  assert.equal(db.progressConflicts.size, 1, "same stale mutation is deduplicated");
+
+  const summaryJson = JSON.stringify({
+    version: 1,
+    baseRevision: 0,
+    serverRevision: 1,
+    resolution: "merged",
+    truncated: false,
+    entities: [{
+      itemId: "builtin:1",
+      itemRevision: 1,
+      practiceKind: "typing",
+      submittedAttempts: 1,
+      serverAttempts: 0,
+      sharedAttempts: 0,
+      divergentAttempts: 0,
+      submittedEvents: 0,
+      serverEvents: 0,
+      sharedEvents: 0,
+      divergentEvents: 0,
+    }],
+  });
+  const seedNow = Date.now();
+  const aliceUserId = [...db.profiles.keys()][0];
+  db.progressConflicts.set("progress-conflict-expired", {
+    id: "progress-conflict-expired",
+    user_id: aliceUserId,
+    mutation_hash: "e".repeat(64),
+    base_revision: 0,
+    server_revision: 1,
+    summary_json: summaryJson,
+    occurred_at: seedNow - 10_000,
+    purge_after: seedNow - 1,
+  });
+  for (let index = 0; index < 51; index += 1) {
+    db.progressConflicts.set(`progress-conflict-seed-${index}`, {
+      id: `progress-conflict-seed-${index}`,
+      user_id: aliceUserId,
+      mutation_hash: `${index.toString(16).padStart(2, "0")}${"f".repeat(62)}`,
+      base_revision: 0,
+      server_revision: 1,
+      summary_json: summaryJson,
+      occurred_at: seedNow - index - 1,
+      purge_after: seedNow + 100_000,
+    });
+  }
+  const prunedHistory = await callProgressConflictApi(
+    worker,
+    db,
+    "alice@example.com",
+    50,
+  );
+  assert.equal(prunedHistory.status, 200);
+  const prunedBody = await prunedHistory.json();
+  assert.equal(prunedBody.entries.length, 50);
+  assert.equal(
+    prunedBody.entries.some((entry) => entry.id === "progress-conflict-expired"),
+    false,
+  );
+  assert.equal(db.progressConflicts.size, 50, "history is capped per user");
+
+  const otherUserHistory = await callProgressConflictApi(
+    worker,
+    db,
+    "bob@example.com",
+  );
+  assert.equal(otherUserHistory.status, 200);
+  assert.deepEqual(await otherUserHistory.json(), { entries: [] });
 });
 
 test("missing local endpoints and transport errors resolve without throwing", async () => {

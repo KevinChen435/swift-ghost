@@ -1,6 +1,7 @@
 import { normalizeStudyWorkspace } from "./study-plans.mjs";
 import {
   normalizeProgressSnapshot as normalizeProgressSyncSnapshot,
+  PROGRESS_SYNC_LIMITS,
 } from "./progress-sync.mjs";
 
 const API_ROOT = "/api/v1";
@@ -8,7 +9,8 @@ const MAX_RESPONSE_CHARACTERS = 512_000;
 const MAX_ATTEMPT_BATCH = 100;
 const MAX_LIST_ENTRIES = 100;
 const MAX_STUDY_WORKSPACE_BYTES = 256 * 1024;
-const MAX_PROGRESS_SYNC_BYTES = 256 * 1024;
+const MAX_PROGRESS_SYNC_BYTES = PROGRESS_SYNC_LIMITS.maxBytes;
+const MAX_PROGRESS_CONFLICT_ENTITIES = 50;
 const MAX_TRUSTED_SOURCE_BYTES = 40_000;
 const MAX_TRUSTED_CUSTOM_CASES = 12;
 const MAX_TRUSTED_CUSTOM_CASE_BYTES = 24_000;
@@ -382,7 +384,69 @@ function normalizeProgressConflict(value) {
   if (snapshot === undefined || (snapshot === null && revision !== 0))
     return undefined;
   if (snapshot && snapshot.revision !== revision) return undefined;
-  return { revision, snapshot };
+  const history = normalizeProgressConflictEntry(raw.conflict);
+  return { revision, snapshot, ...(history ? { history } : {}) };
+}
+
+function normalizeProgressConflictEntry(value) {
+  if (!isRecord(value)) return undefined;
+  const conflictId = id(value.id, 96);
+  const occurredAt = isoDateTime(value.occurredAt);
+  const baseRevision = finiteNumber(value.baseRevision, -1, 0, 2_147_483_647, true);
+  const serverRevision = finiteNumber(value.serverRevision, -1, 0, 2_147_483_647, true);
+  if (
+    !conflictId ||
+    !occurredAt ||
+    baseRevision < 0 ||
+    serverRevision < 0 ||
+    value.resolution !== "merged" ||
+    !Array.isArray(value.entities) ||
+    value.entities.length > MAX_PROGRESS_CONFLICT_ENTITIES
+  )
+    return undefined;
+  const entities = value.entities.flatMap((raw) => {
+    if (!isRecord(raw)) return [];
+    const normalizedItemId = itemId(raw.itemId);
+    const itemRevision = finiteNumber(raw.itemRevision, -1, 1, 1_000_000, true);
+    const practiceKind = ["typing", "solving", "concept"].includes(raw.practiceKind)
+      ? raw.practiceKind
+      : undefined;
+    const countKeys = [
+      "submittedAttempts",
+      "serverAttempts",
+      "sharedAttempts",
+      "divergentAttempts",
+      "submittedEvents",
+      "serverEvents",
+      "sharedEvents",
+      "divergentEvents",
+    ];
+    if (
+      !normalizedItemId ||
+      itemRevision < 1 ||
+      !practiceKind ||
+      countKeys.some((key) => {
+        const count = raw[key];
+        return !Number.isInteger(count) || count < 0 || count > 1_000;
+      })
+    )
+      return [];
+    return [{
+      itemId: normalizedItemId,
+      itemRevision,
+      practiceKind,
+      ...Object.fromEntries(countKeys.map((key) => [key, raw[key]])),
+    }];
+  });
+  return {
+    id: conflictId,
+    baseRevision,
+    serverRevision,
+    occurredAt,
+    resolution: "merged",
+    entities,
+    truncated: value.truncated === true,
+  };
 }
 
 function normalizeTrustedCase(value) {
@@ -1449,6 +1513,13 @@ export function createCloudClient(options = {}) {
             ? undefined
             : normalized;
         },
+      );
+    },
+    getProgressConflicts({ limit = 20, signal } = {}) {
+      const boundedLimit = listLimit(limit, 20, MAX_PROGRESS_CONFLICT_ENTITIES);
+      const search = new URLSearchParams({ limit: String(boundedLimit) });
+      return request(`/progress/conflicts?${search}`, { signal }, (value) =>
+        normalizeList(value, normalizeProgressConflictEntry, boundedLimit),
       );
     },
     trustedAssignments({ limit = 20, challengeKey, signal } = {}) {
