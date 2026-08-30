@@ -135,21 +135,27 @@ function authoredSemanticMasksForItem(
 }
 
 export const INTERVIEW_ITEMS: PracticeItem[] = PROBLEMS.map(
-  ({ swiftNote, ...problem }) => ({
-    ...problem,
-    languageNote: swiftNote,
-    itemId: `builtin:${problem.id}` as ItemId,
-    track: "interview",
-    language: "swift",
-    source: "builtin",
-    tags: [problem.pattern],
-    contentRevision: 1,
-    masks: authoredSemanticMasksForItem(
-      `builtin:${problem.id}`,
-      problem.code,
-      "swift",
-    ),
-  }),
+  ({ swiftNote, ...problem }) => {
+    const authoredSemanticMaskFields = {
+      masks: authoredSemanticMasksForItem(
+        `builtin:${problem.id}`,
+        problem.code,
+        "swift",
+      ),
+    };
+    const masks = authoredSemanticMaskFields.masks;
+    return {
+      ...problem,
+      languageNote: swiftNote,
+      itemId: `builtin:${problem.id}` as ItemId,
+      track: "interview",
+      language: "swift",
+      source: "builtin",
+      tags: [problem.pattern],
+      contentRevision: masks ? 2 : 1,
+      ...authoredSemanticMaskFields,
+    };
+  },
 );
 
 const PYTHON_JUDGE_REVISION = 2;
@@ -165,32 +171,38 @@ function pythonCaseId(problemId: number, name: string, index: number) {
 export const PYTHON_ITEMS: PracticeItem[] = [
   ...PYTHON_PROBLEMS,
   ...ADVANCED_PYTHON_PROBLEMS,
-].map((problem) => ({
-  ...problem,
-  challenge: getPythonChallenge(problem.id),
-  verification: {
-    ...problem.verification,
-    revision: PYTHON_JUDGE_REVISION,
-    cases: problem.verification.cases.map((testCase, index) => ({
-      ...testCase,
-      id: pythonCaseId(problem.id, testCase.name, index),
-      visibility: index < Math.min(2, problem.verification.cases.length - 1)
-        ? "sample" as const
-        : "hidden" as const,
-    })),
-  },
-  itemId: `python:${problem.id}` as ItemId,
-  track: "interview",
-  language: "python",
-  source: "builtin",
-  contentRevision: 1,
-  solveCapability: "local",
-  masks: authoredSemanticMasksForItem(
-    `python:${problem.id}`,
-    problem.code,
-    "python",
-  ),
-}));
+].map((problem) => {
+  const authoredSemanticMaskFields = {
+    masks: authoredSemanticMasksForItem(
+      `python:${problem.id}`,
+      problem.code,
+      "python",
+    ),
+  };
+  const masks = authoredSemanticMaskFields.masks;
+  return {
+    ...problem,
+    challenge: getPythonChallenge(problem.id),
+    verification: {
+      ...problem.verification,
+      revision: PYTHON_JUDGE_REVISION,
+      cases: problem.verification.cases.map((testCase, index) => ({
+        ...testCase,
+        id: pythonCaseId(problem.id, testCase.name, index),
+        visibility: index < Math.min(2, problem.verification.cases.length - 1)
+          ? "sample" as const
+          : "hidden" as const,
+      })),
+    },
+    itemId: `python:${problem.id}` as ItemId,
+    track: "interview",
+    language: "python",
+    source: "builtin",
+    contentRevision: masks ? 2 : 1,
+    solveCapability: "local",
+    ...authoredSemanticMaskFields,
+  };
+});
 
 export const TRANSFER_ITEMS: PracticeItem[] = TRANSFER_PROBLEMS.map(
   (problem) => ({
@@ -218,36 +230,42 @@ const IOS_PORTABLE_SOLVE_COMPANIONS: Partial<Record<string, SwiftChallengeKey>> 
 };
 
 export const IOS_ITEMS: PracticeItem[] = FUNDAMENTALS.map(
-  ({ swiftNote, ...fundamental }, index) => ({
-    ...fundamental,
-    id: 10001 + index,
-    itemId: fundamental.id as ItemId,
-    pattern: fundamental.pattern as Pattern,
-    language: "swift",
-    conceptLane: [
-      "Swift Semantics",
-      "Optionals & Errors",
-      "Protocols & Generics",
-      "Memory Management",
-      "Concurrency",
-    ].includes(fundamental.pattern)
-      ? "swift"
-      : "ios",
-    languageNote: swiftNote,
-    source: "builtin",
-    contentRevision: 2,
-    masks: authoredSemanticMasksForItem(
-      fundamental.id,
-      fundamental.code,
-      "swift",
-    ),
-    ...(IOS_PORTABLE_SOLVE_COMPANIONS[fundamental.id]
-      ? {
-          portableSolveCompanionKey:
-            IOS_PORTABLE_SOLVE_COMPANIONS[fundamental.id],
-        }
-      : {}),
-  }),
+  ({ swiftNote, ...fundamental }, index) => {
+    const authoredSemanticMaskFields = {
+      masks: authoredSemanticMasksForItem(
+        fundamental.id,
+        fundamental.code,
+        "swift",
+      ),
+    };
+    const masks = authoredSemanticMaskFields.masks;
+    return {
+      ...fundamental,
+      id: 10001 + index,
+      itemId: fundamental.id as ItemId,
+      pattern: fundamental.pattern as Pattern,
+      language: "swift",
+      conceptLane: [
+        "Swift Semantics",
+        "Optionals & Errors",
+        "Protocols & Generics",
+        "Memory Management",
+        "Concurrency",
+      ].includes(fundamental.pattern)
+        ? "swift"
+        : "ios",
+      languageNote: swiftNote,
+      source: "builtin",
+      contentRevision: masks ? 3 : 2,
+      ...authoredSemanticMaskFields,
+      ...(IOS_PORTABLE_SOLVE_COMPANIONS[fundamental.id]
+        ? {
+            portableSolveCompanionKey:
+              IOS_PORTABLE_SOLVE_COMPANIONS[fundamental.id],
+          }
+        : {}),
+    };
+  },
 );
 
 const SWIFT_SOLVE_PATTERN: Record<SwiftChallengeKey, Pattern> = {

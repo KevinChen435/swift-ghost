@@ -170,3 +170,36 @@ test("built-in curriculum items ship authored semantic masks across Python, Swif
   assert.match(items, /problem\.code,\s*"swift"/);
   assert.match(items, /fundamental\.code,\s*"swift"/);
 });
+
+test("authored built-in masks are revision-bound and geometry-safe", async () => {
+  const itemsUrl = new URL("../app/lib/items.ts", import.meta.url).href;
+  const script = `
+    import assert from "node:assert/strict";
+    import { BUILTIN_ITEMS } from ${JSON.stringify(itemsUrl)};
+    const expectedRevisions = {
+      "python:1": 2,
+      "python:49": 2,
+      "python:125": 2,
+      "builtin:1": 2,
+      "builtin:49": 2,
+      "ios:value-reference-snapshots": 3,
+      "ios:copy-on-write-draft": 3,
+    };
+    for (const [itemId, revision] of Object.entries(expectedRevisions)) {
+      const item = BUILTIN_ITEMS.find((candidate) => candidate.itemId === itemId);
+      assert.ok(item, itemId);
+      assert.deepEqual(Object.keys(item.masks ?? {}).sort(), ["2", "3", "4"], itemId);
+      for (const stage of [2, 3, 4])
+        assert.equal(item.masks[stage].length, item.code.length, itemId + ":" + stage);
+      assert.equal(item.contentRevision, revision, itemId);
+    }
+    assert.equal(BUILTIN_ITEMS.find((item) => item.itemId === "python:3").contentRevision, 1);
+    assert.equal(BUILTIN_ITEMS.find((item) => item.itemId === "builtin:217").contentRevision, 1);
+    assert.equal(BUILTIN_ITEMS.find((item) => item.itemId === "ios:optional-throwing-boundary").contentRevision, 2);
+  `;
+  await execFileAsync(
+    process.execPath,
+    ["--import", "tsx", "--input-type=module", "-e", script],
+    { cwd: new URL("..", import.meta.url) },
+  );
+});
