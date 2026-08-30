@@ -36,3 +36,29 @@ test("Swift solve console exposes a muted answer sketch for typing rehearsal", a
   assert.match(styles, /@media \(max-width: 1100px\)[\s\S]*\.swift-answer-sketch-grid/);
   assert.match(styles, /@media \(max-width: 470px\)[\s\S]*\.swift-answer-sketch header/);
 });
+
+test("Swift solve console exposes public feedback and bounded local run history", async () => {
+  const component = await read("../app/components/SwiftSolveConsole.tsx");
+  const styles = await read("../app/globals.css");
+  const history = await read("../app/lib/swift-example-history.mjs");
+
+  assert.match(component, /SWIFT_EXAMPLE_HISTORY_STORAGE_PREFIX/);
+  assert.match(component, /normalizeSwiftExampleHistory/);
+  assert.match(component, /swiftExampleHistoryEntryFromRun/);
+  assert.match(component, /Recent public rehearsals/);
+  assert.match(component, /Clear history/);
+  assert.match(component, /First failing public case/);
+  assert.match(component, /swift-sample-feedback-card/);
+  assert.match(component, /swift-sample-failure-note/);
+  assert.match(component, /actual: \{valueLabel\(publicCaseResult\.actual\)\}/);
+  assert.match(component, /aria-label=\{`\$\{sample\.name\} diagnostic`\}/);
+  assert.match(component, /sealed cases are never stored/);
+  assert.match(history, /MAX_ENTRIES = 5/);
+  assert.match(history, /publicCaseResults/);
+  assert.doesNotMatch(history, /expected/);
+  assert.doesNotMatch(history, /hidden/);
+  assert.match(styles, /\.swift-sample-feedback-card\.is-failed/);
+  assert.match(styles, /\.swift-sample-feedback-card\.is-failed-case/);
+  assert.match(styles, /\.swift-example-history\s*\{/);
+  assert.match(styles, /\.swift-example-history-cases/);
+});

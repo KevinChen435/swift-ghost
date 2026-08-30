@@ -12462,6 +12462,136 @@ kbd {
   font: 600 0.62rem/1.45 var(--font-code);
 }
 
+.swift-sample-feedback-card.is-failed {
+  border-color: color-mix(in srgb, var(--danger) 36%, var(--border-soft));
+  background: color-mix(in srgb, var(--danger) 5%, var(--bg-raised));
+}
+
+.swift-sample-feedback-card.is-failed-case {
+  border-width: 1px 1px 1px 3px;
+  border-left-color: var(--danger);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--danger) 25%, transparent);
+}
+
+.swift-sample-failure-note {
+  display: block;
+  color: var(--danger);
+  font: 700 0.59rem/1.4 var(--font-code);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.swift-example-history {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--bg-raised) 68%, transparent);
+}
+
+.swift-example-history > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.swift-example-history > header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.swift-example-history > header small,
+.swift-example-history > header strong {
+  color: var(--text);
+}
+
+.swift-example-history > header small {
+  color: var(--faint);
+  font: 700 0.58rem/1.2 var(--font-code);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.swift-example-history > header strong {
+  font-size: 0.78rem;
+}
+
+.swift-example-history > header .text-button {
+  flex: 0 0 auto;
+  padding: 3px 0;
+  font-size: 0.65rem;
+}
+
+.swift-example-history-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.45;
+}
+
+.swift-example-history-list {
+  display: grid;
+  gap: 7px;
+}
+
+.swift-example-history-list article {
+  display: grid;
+  gap: 6px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--border-soft) 86%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bg) 62%, transparent);
+}
+
+.swift-example-history-list article.is-latest {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--border-soft));
+}
+
+.swift-example-history-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.swift-example-history-head strong {
+  color: var(--text);
+  font-size: 0.7rem;
+}
+
+.swift-example-history-head span,
+.swift-example-history-list article > small {
+  color: var(--muted);
+  font: 600 0.61rem/1.35 var(--font-code);
+}
+
+.swift-example-history-cases {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.swift-example-history-cases span {
+  display: inline-flex;
+  padding: 3px 5px;
+  border: 1px solid var(--border-soft);
+  border-radius: 5px;
+  color: var(--muted);
+  font: 600 0.57rem/1.2 var(--font-code);
+}
+
+.swift-example-history-cases span.passed {
+  border-color: color-mix(in srgb, var(--success) 34%, var(--border-soft));
+  color: var(--success);
+}
+
+.swift-example-history-cases span.failed {
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--border-soft));
+  color: var(--danger);
+}
+
 .swift-solve-console-message {
   margin: 0;
   padding: 10px 12px;
@@ -12586,7 +12716,10 @@ kbd {
   .swift-explanation-notes textarea,
   .swift-verdict-guidance,
   .swift-solve-sample-grid article,
-  .swift-solve-sample-grid article code {
+  .swift-solve-sample-grid article code,
+  .swift-example-history,
+  .swift-example-history-list article,
+  .swift-example-history-cases span {
     border-color: CanvasText;
     background: Canvas;
     box-shadow: none;

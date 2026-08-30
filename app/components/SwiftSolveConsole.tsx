@@ -22,6 +22,12 @@ import {
   importSwiftCasePack,
   parseSwiftCasePackArgs,
 } from "../lib/swift-case-packs.mjs";
+import {
+  normalizeSwiftExampleHistory,
+  swiftExampleHistoryEntryFromRun,
+  SWIFT_EXAMPLE_HISTORY_LIMITS,
+} from "../lib/swift-example-history.mjs";
+import type { SwiftExampleHistoryEntry } from "../lib/swift-example-history.mjs";
 
 type SwiftSolveConsoleProps = {
   item: PracticeItem;
@@ -97,6 +103,7 @@ type SwiftCustomWorkspace = {
 };
 
 const SWIFT_CUSTOM_CASE_STORAGE_PREFIX = "swift-ghost:swift-custom-case:v1:";
+const SWIFT_EXAMPLE_HISTORY_STORAGE_PREFIX = "swift-ghost:swift-example-history:v1:";
 const MAX_CUSTOM_DRAFT_CHARACTERS = 24_000;
 const MAX_CUSTOM_CASES = 6;
 const MAX_CUSTOM_HISTORY = 5;
@@ -307,6 +314,28 @@ function customExecutionLabel(verdict: CloudTrustedCustomRun["verdict"]) {
   return verdict === "accepted" ? "Execution complete" : verdictLabel(verdict);
 }
 
+function exampleHistoryLabel(verdict: CloudTrustedExampleRun["verdict"]) {
+  return verdict === "accepted" ? "Examples passed" : verdictLabel(verdict);
+}
+
+function publicCaseStatusLabel(
+  status: SwiftExampleHistoryEntry["publicCaseResults"][number]["status"],
+  passed: boolean,
+) {
+  if (passed || status === "passed") return "Passed";
+  if (status === "compile-error") return "Compile blocked";
+  if (status === "runtime-error") return "Runtime blocked";
+  if (status === "time-limit") return "Timed out";
+  if (status === "judge-error") return "Judge unavailable";
+  if (status === "not-run") return "Not reached";
+  return "Failed";
+}
+
+function exampleHistoryDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Saved locally" : date.toLocaleString();
+}
+
 function exampleStatusFor(
   exampleRun: CloudTrustedExampleRun | null,
   sampleId: string,
@@ -390,8 +419,11 @@ export function SwiftSolveConsole({
   const [casePackDraft, setCasePackDraft] = useState("");
   const [casePackMessage, setCasePackMessage] = useState("");
   const [customRunVisible, setCustomRunVisible] = useState(false);
+  const [exampleHistory, setExampleHistory] = useState<SwiftExampleHistoryEntry[]>([]);
   const recordedCustomRunIds = useRef(new Set<string>());
+  const recordedExampleRunIds = useRef(new Set<string>());
   const hydratedCustomChallengeKey = useRef<string | null>(null);
+  const hydratedExampleHistoryChallengeKey = useRef<string | null>(null);
   const customCases = customWorkspace?.cases ?? [];
   const customDraft = customWorkspace?.cases.find(
     (customCase) => customCase.id === customWorkspace.selectedId,
@@ -403,7 +435,9 @@ export function SwiftSolveConsole({
     const timer = window.setTimeout(() => {
       if (!challenge) {
         hydratedCustomChallengeKey.current = null;
+        hydratedExampleHistoryChallengeKey.current = null;
         setCustomWorkspace(null);
+        setExampleHistory([]);
         setCustomRunVisible(false);
         return;
       }
@@ -417,15 +451,42 @@ export function SwiftSolveConsole({
       } catch {
         setCustomWorkspace(initialSwiftCustomWorkspace(challenge));
       }
+      try {
+        const stored = window.localStorage.getItem(
+          `${SWIFT_EXAMPLE_HISTORY_STORAGE_PREFIX}${challenge.key}`,
+        );
+        setExampleHistory(
+          normalizeSwiftExampleHistory(stored ? JSON.parse(stored) : [], challenge),
+        );
+      } catch {
+        setExampleHistory([]);
+      }
       hydratedCustomChallengeKey.current = challenge.key;
+      hydratedExampleHistoryChallengeKey.current = challenge.key;
       setCustomError(null);
       setCasePackDraft("");
       setCasePackMessage("");
       setCustomRunVisible(false);
       recordedCustomRunIds.current.clear();
+      recordedExampleRunIds.current.clear();
     }, 0);
     return () => window.clearTimeout(timer);
   }, [challenge, challengeKey]);
+
+  useEffect(() => {
+    if (
+      !challenge ||
+      hydratedExampleHistoryChallengeKey.current !== challenge.key
+    ) return;
+    try {
+      window.localStorage.setItem(
+        `${SWIFT_EXAMPLE_HISTORY_STORAGE_PREFIX}${challenge.key}`,
+        JSON.stringify(exampleHistory.slice(0, SWIFT_EXAMPLE_HISTORY_LIMITS.maxEntries)),
+      );
+    } catch {
+      // Local history is best-effort; the feedback board remains usable if storage is blocked.
+    }
+  }, [challenge, exampleHistory]);
 
   useEffect(() => {
     if (
@@ -473,6 +534,39 @@ export function SwiftSolveConsole({
       ].slice(0, MAX_CUSTOM_HISTORY),
     } : current);
   }, [assignment, challenge, customRun, customRunVisible, customWorkspace]);
+
+  useEffect(() => {
+    if (
+      !challenge ||
+      !assignment ||
+      hydratedExampleHistoryChallengeKey.current !== challenge.key ||
+      !exampleRun ||
+      exampleRun.status !== "settled" ||
+      !exampleRun.result ||
+      !exampleRun.verdict ||
+      exampleRun.assignmentId !== assignment.id ||
+      recordedExampleRunIds.current.has(exampleRun.clientRunId)
+    ) return;
+    const historyEntry = swiftExampleHistoryEntryFromRun(exampleRun, challenge);
+    recordedExampleRunIds.current.add(exampleRun.clientRunId);
+    if (!historyEntry) return;
+    setExampleHistory((current) => [
+      historyEntry,
+      ...current.filter((entry) => entry.id !== historyEntry.id),
+    ].slice(0, SWIFT_EXAMPLE_HISTORY_LIMITS.maxEntries));
+  }, [assignment, challenge, exampleRun]);
+
+  function clearExampleHistory() {
+    if (!challenge) return;
+    setExampleHistory([]);
+    try {
+      window.localStorage.removeItem(
+        `${SWIFT_EXAMPLE_HISTORY_STORAGE_PREFIX}${challenge.key}`,
+      );
+    } catch {
+      // The in-memory board is cleared even if browser storage is unavailable.
+    }
+  }
 
   const entrypointSignature = useMemo(
     () => formatSwiftEntrypoint(challenge?.entrypoint),
@@ -1274,28 +1368,93 @@ export function SwiftSolveConsole({
                 const publicCaseResult = exampleRun?.result?.publicCaseResults?.find(
                   (result) => result.id === sample.id,
                 );
+                const failedCaseEmphasis = status.className === "failed";
+                const selectedFailedCase = Boolean(
+                  exampleRun?.result &&
+                    (exampleRun.result.failedCaseId === sample.id ||
+                      exampleRun.result.failedCaseIndex === index),
+                );
+                const diagnostic = publicCaseResult?.diagnostic ?? (
+                  exampleRun?.status === "settled" &&
+                  exampleRun.result?.diagnostic &&
+                  (selectedFailedCase || exampleRun.verdict === "compile-error")
+                    ? exampleRun.result.diagnostic
+                    : undefined
+                );
                 return (
-                <article key={sample.id}>
-                  <div className="swift-sample-result-row">
-                    <strong>{sample.name}</strong>
-                    <span className={`swift-sample-result ${status.className}`}>{status.label}</span>
-                  </div>
-                  <code>args: {valueLabel(sample.args)}</code>
-                  <code>expected: {valueLabel(sample.expected)}</code>
-                  {publicCaseResult && Object.hasOwn(publicCaseResult, "actual") ? (
-                    <code className="swift-sample-actual">
-                      actual: {valueLabel(publicCaseResult.actual)}
-                    </code>
-                  ) : null}
-                  {publicCaseResult?.diagnostic ? (
-                    <small className="swift-sample-diagnostic">
-                      {publicCaseResult.diagnostic}
-                    </small>
-                  ) : null}
-                </article>
+                  <article
+                    key={sample.id}
+                    className={`swift-sample-feedback-card${failedCaseEmphasis ? " is-failed" : ""}${selectedFailedCase ? " is-failed-case" : ""}`}
+                    aria-label={`${sample.name} public example feedback`}
+                  >
+                    <div className="swift-sample-result-row">
+                      <strong>{sample.name}</strong>
+                      <span className={`swift-sample-result ${status.className}`}>{status.label}</span>
+                    </div>
+                    <code>args: {valueLabel(sample.args)}</code>
+                    <code>expected: {valueLabel(sample.expected)}</code>
+                    {publicCaseResult && Object.hasOwn(publicCaseResult, "actual") ? (
+                      <code className="swift-sample-actual">
+                        actual: {valueLabel(publicCaseResult.actual)}
+                      </code>
+                    ) : null}
+                    {diagnostic ? (
+                      <small className="swift-sample-diagnostic" aria-label={`${sample.name} diagnostic`}>
+                        {diagnostic}
+                      </small>
+                    ) : null}
+                    {selectedFailedCase ? (
+                      <small className="swift-sample-failure-note">First failing public case</small>
+                    ) : null}
+                  </article>
                 );
               })}
             </div>
+            {exampleHistory.length ? (
+              <section className="swift-example-history" aria-label="Recent public example runs">
+                <header>
+                  <div>
+                    <small>Run history</small>
+                    <strong>Recent public rehearsals</strong>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={clearExampleHistory}
+                  >
+                    Clear history
+                  </button>
+                </header>
+                <p className="swift-example-history-note">
+                  Device-local summaries only · {exampleHistory.length}/{SWIFT_EXAMPLE_HISTORY_LIMITS.maxEntries} saved · source and sealed cases are never stored.
+                </p>
+                <div className="swift-example-history-list">
+                  {exampleHistory.map((entry, index) => (
+                    <article key={entry.id} className={index === 0 ? "is-latest" : undefined}>
+                      <div className="swift-example-history-head">
+                        <strong>{exampleHistoryLabel(entry.verdict)}</strong>
+                        <span>{entry.passed}/{entry.total} examples</span>
+                      </div>
+                      <small>{index === 0 ? "Latest · " : ""}{exampleHistoryDate(entry.settledAt)}</small>
+                      {entry.publicCaseResults.length ? (
+                        <div className="swift-example-history-cases" aria-label="Historical public case statuses">
+                          {entry.publicCaseResults.map((result) => (
+                            <span
+                              key={result.id}
+                              className={result.passed ? "passed" : "failed"}
+                            >
+                              {result.id}: {publicCaseStatusLabel(result.status, result.passed)}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <small>Per-example detail was not returned by this run.</small>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              </section>
+            ) : null}
           </div>
         </>
       ) : (
