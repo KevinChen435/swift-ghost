@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { promisify } from "node:util";
 
 import {
   generateSemanticMasks,
@@ -8,6 +10,8 @@ import {
   normalizeSemanticMasks,
   SEMANTIC_MASK_LIMITS,
 } from "../app/lib/semantic-masks.mjs";
+
+const execFileAsync = promisify(execFile);
 
 const SOURCE =
   "func stableEvenFilter(_ values: [Int]) -> [Int] {\n" +
@@ -65,6 +69,53 @@ test("malformed imports keep only valid stage masks", () => {
   assert.deepEqual(imported, { 2: generated[2] });
 });
 
+test("Swift/iOS custom items persist masks, revise content, and sanitize imports", async () => {
+  const itemsUrl = new URL("../app/lib/items.ts", import.meta.url).href;
+  const productUrl = new URL("../app/lib/product.ts", import.meta.url).href;
+  const masksUrl = new URL("../app/lib/semantic-masks.mjs", import.meta.url).href;
+  const script = `
+    import assert from "node:assert/strict";
+    import { makeCustomItem, updateCustomItem } from ${JSON.stringify(itemsUrl)};
+    import { EMPTY_STATE, normalizeState } from ${JSON.stringify(productUrl)};
+    import { generateSemanticMasks } from ${JSON.stringify(masksUrl)};
+    const source = ${JSON.stringify(SOURCE)};
+    const masks = generateSemanticMasks(source, "swift");
+    const input = (overrides = {}) => ({
+      title: "Local Swift drill", track: "ios", language: "swift",
+      pattern: "Swift Semantics", difficulty: "Easy", code: source,
+      cue: "Preserve the value while changing only the copy.",
+      invariant: "The original value remains unchanged.", complexity: "O(n) time.",
+      languageNote: "Arrays use copy-on-write storage.", ...overrides,
+    });
+    const item = makeCustomItem(input({ masks }));
+    assert.deepEqual(item.masks, masks);
+    assert.equal(item.solveCapability, undefined);
+    const updated = updateCustomItem(item, input({ masks: { 2: masks[2] } }));
+    assert.deepEqual(updated.masks, { 2: masks[2] });
+    assert.equal(updated.contentRevision, item.contentRevision + 1);
+    const unchanged = updateCustomItem(updated, input({ masks: { 2: masks[2] } }));
+    assert.equal(unchanged.contentRevision, updated.contentRevision);
+    const python = makeCustomItem(input({
+      title: "Local Python drill", track: "interview", language: "python",
+      pattern: "Two Pointers", code: "def example(values):\\n    return values", masks,
+    }));
+    assert.equal(python.masks, undefined);
+    const itemId = "custom:imported-swift";
+    const restored = normalizeState({
+      ...EMPTY_STATE,
+      customItems: [{ itemId, source: "custom", track: "ios", language: "swift",
+        title: "Imported Swift", code: source, pattern: "Swift Semantics",
+        difficulty: "Easy", masks: { 2: masks[2], 3: "not the same shape" } }],
+      lastItemId: itemId,
+    });
+    assert.equal(restored.customItems.length, 1);
+    assert.deepEqual(restored.customItems[0].masks, { 2: masks[2] });
+  `;
+  await execFileAsync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
+    cwd: new URL("..", import.meta.url),
+  });
+});
+
 test("the studio exposes bounded, local-only semantic mask authoring", async () => {
   const studio = await readFile(
     new URL("../app/components/CustomChallengeDialog.tsx", import.meta.url),
@@ -90,4 +141,32 @@ test("the studio exposes bounded, local-only semantic mask authoring", async () 
   assert.match(product, /normalizeSemanticMasks\(item\.masks, normalizedCode\)/);
   assert.match(product, /normalizedLanguage === "swift" && !challengeBundle/);
   assert.doesNotMatch(product, /cloud.*masks/i);
+});
+
+test("built-in curriculum items ship authored semantic masks across Python, Swift, and iOS", async () => {
+  const items = await readFile(
+    new URL("../app/lib/items.ts", import.meta.url),
+    "utf8",
+  );
+  const targetIds = [
+    "python:1",
+    "python:49",
+    "python:125",
+    "builtin:1",
+    "builtin:49",
+    "ios:value-reference-snapshots",
+    "ios:copy-on-write-draft",
+  ];
+
+  for (const itemId of targetIds) {
+    assert.match(items, new RegExp(`"${itemId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"`));
+  }
+  assert.match(items, /AUTHORED_SEMANTIC_MASK_PLANS/);
+  assert.match(items, /generateSemanticMasks\(code, language\)/);
+  assert.match(items, /maskByPreservedLines\(code, preservedLines\)/);
+  assert.match(items, /masks: authoredSemanticMasksForItem/);
+  assert.match(items, /normalizeSemanticMasks\(masks, code\)/);
+  assert.match(items, /problem\.code,\s*"python"/);
+  assert.match(items, /problem\.code,\s*"swift"/);
+  assert.match(items, /fundamental\.code,\s*"swift"/);
 });
