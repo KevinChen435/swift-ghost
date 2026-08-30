@@ -446,7 +446,7 @@ test("targeted replay keeps order, uses current revisions, and drops unavailable
   assert.deepEqual(weak.map((entry) => entry.itemId), ["swift:window"]);
 });
 
-test("replay preserves solving for server-judged Swift without a local verification payload", () => {
+test("replay preserves solving for server-judged Swift in all and weak queues", () => {
   const serverSwift = {
     itemId: "swift:two-sum",
     title: "Two Sum in Swift",
@@ -457,8 +457,16 @@ test("replay preserves solving for server-judged Swift without a local verificat
     solveCapability: "server",
     trustedChallengeKey: "swift-two-sum",
   };
+  const weakServerSwift = {
+    ...serverSwift,
+    itemId: "swift:valid-parentheses",
+    title: "Valid Parentheses in Swift",
+    trustedChallengeKey: "swift-valid-parentheses",
+  };
   const serverRecord = {
     ...record,
+    completed: 4,
+    total: 4,
     entries: [
       {
         itemId: serverSwift.itemId,
@@ -468,26 +476,82 @@ test("replay preserves solving for server-judged Swift without a local verificat
         practiceKind: "solving",
         attemptId: "attempt-swift-solve",
       },
-    ],
-  };
-  const replay = buildSessionReplayQueue(
-    serverRecord,
-    [
       {
-        ...attempts[0],
-        id: "attempt-swift-solve",
-        itemId: serverSwift.itemId,
-        itemRevision: serverSwift.contentRevision,
+        itemId: weakServerSwift.itemId,
+        itemRevision: weakServerSwift.contentRevision,
+        stage: 5,
+        status: "completed",
         practiceKind: "solving",
-        verification: { passed: 2, total: 2 },
+        attemptId: "attempt-swift-weak",
+      },
+      {
+        itemId: "python:hash",
+        itemRevision: 4,
+        stage: 5,
+        status: "completed",
+        practiceKind: "solving",
+        attemptId: "attempt-python-solve",
+      },
+      {
+        itemId: "ios:actor",
+        itemRevision: 3,
+        stage: 5,
+        status: "completed",
+        practiceKind: "concept",
+        attemptId: "attempt-ios-concept",
       },
     ],
-    [serverSwift],
+  };
+  const replayAttempts = [
+    {
+      ...attempts[0],
+      id: "attempt-swift-solve",
+      itemId: serverSwift.itemId,
+      itemRevision: serverSwift.contentRevision,
+      practiceKind: "solving",
+      verification: { passed: 2, total: 2 },
+    },
+    {
+      ...attempts[0],
+      id: "attempt-swift-weak",
+      itemId: weakServerSwift.itemId,
+      itemRevision: weakServerSwift.contentRevision,
+      practiceKind: "solving",
+      verification: { passed: 1, total: 2 },
+    },
+    {
+      ...attempts[0],
+      id: "attempt-python-solve",
+      itemId: "python:hash",
+      itemRevision: 4,
+      practiceKind: "solving",
+      verification: { passed: 3, total: 3 },
+    },
+    {
+      ...attempts[2],
+      id: "attempt-ios-concept",
+      itemId: "ios:actor",
+      itemRevision: 3,
+      practiceKind: "concept",
+      conceptGrade: "good",
+    },
+  ];
+  const replayItems = [serverSwift, weakServerSwift, items[0], items[2]];
+  const replay = buildSessionReplayQueue(serverRecord, replayAttempts, replayItems);
+  assert.deepEqual(
+    replay.map((entry) => [entry.itemId, entry.practiceKind, entry.stage]),
+    [
+      [serverSwift.itemId, "solving", 5],
+      [weakServerSwift.itemId, "solving", 5],
+      ["python:hash", "solving", 5],
+      ["ios:actor", "concept", 5],
+    ],
   );
-  assert.equal(replay.length, 1);
-  assert.equal(replay[0].practiceKind, "solving");
-  assert.equal(replay[0].stage, 5);
-  assert.equal(replay[0].itemRevision, 1);
+  assert.deepEqual(
+    buildSessionReplayQueue(serverRecord, replayAttempts, replayItems, "weak")
+      .map((entry) => [entry.itemId, entry.practiceKind, entry.stage]),
+    [[weakServerSwift.itemId, "solving", 5]],
+  );
 });
 
 test("legacy aggregate-only records stay readable but cannot fabricate a replay queue", () => {
