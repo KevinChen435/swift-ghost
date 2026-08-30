@@ -6,6 +6,7 @@ import {
   mergeProgressSnapshots,
   normalizeProgressSnapshot,
   progressSnapshotFingerprint,
+  summarizeProgressConflict,
   PROGRESS_SYNC_LIMITS,
 } from "../app/lib/progress-sync.mjs";
 
@@ -145,6 +146,89 @@ test("progress fingerprints ignore transport revision and timestamps", () => {
     updatedAt: "2026-08-21T12:04:00.000Z",
   };
   assert.equal(progressSnapshotFingerprint(first), progressSnapshotFingerprint(second));
+});
+
+test("progress conflict summaries are per-item, deterministic, and source-free", () => {
+  const submitted = createProgressSnapshot(
+    {
+      attempts: [
+        attempt("attempt-shared", { itemId: "builtin:1" }),
+        attempt("attempt-submitted", { itemId: "ios:actor-cache" }),
+      ],
+      learningEvents: [
+        {
+          id: "event-submitted",
+          attemptId: "attempt-submitted",
+          itemId: "ios:actor-cache",
+          itemRevision: 1,
+          practiceKind: "typing",
+          activityKind: "syntax",
+          grade: "hard",
+          friction: "syntax",
+          confidence: 2,
+          createdAt: "2026-08-20T12:03:00.000Z",
+          response: "private response",
+        },
+      ],
+    },
+    { now: "2026-08-20T12:04:00.000Z" },
+  );
+  const server = createProgressSnapshot(
+    {
+      attempts: [
+        attempt("attempt-shared", { itemId: "builtin:1", accuracy: 97 }),
+        attempt("attempt-server", { itemId: "swift:two-sum" }),
+      ],
+    },
+    { now: "2026-08-21T12:04:00.000Z" },
+  );
+  const summary = summarizeProgressConflict(submitted, server, {
+    now: "2026-08-22T12:04:00.000Z",
+    baseRevision: 7,
+  });
+  assert.ok(summary);
+  assert.equal(summary.version, 1);
+  assert.equal(summary.baseRevision, 7);
+  assert.equal(summary.serverRevision, server.revision);
+  assert.equal(summary.resolution, "merged");
+  assert.deepEqual(summary.entities.map((entry) => entry.itemId), [
+    "builtin:1",
+    "ios:actor-cache",
+    "swift:two-sum",
+  ]);
+  const builtin = summary.entities.find((entry) => entry.itemId === "builtin:1");
+  assert.deepEqual(
+    {
+      submitted: builtin.submittedAttempts,
+      server: builtin.serverAttempts,
+      shared: builtin.sharedAttempts,
+      divergent: builtin.divergentAttempts,
+    },
+    { submitted: 0, server: 0, shared: 1, divergent: 1 },
+  );
+  const ios = summary.entities.find((entry) => entry.itemId === "ios:actor-cache");
+  assert.equal(ios.submittedAttempts, 1);
+  assert.equal(ios.serverAttempts, 0);
+  assert.equal(ios.submittedEvents, 1);
+  assert.equal(JSON.stringify(summary).includes("private response"), false);
+  assert.equal(JSON.stringify(summary).includes("source"), false);
+});
+
+test("progress conflict summaries cap entity detail", () => {
+  const attempts = Array.from({ length: 60 }, (_, index) =>
+    attempt(`attempt-${index}`, { itemId: `swift:item-${index}` }),
+  );
+  const snapshot = createProgressSnapshot({ attempts }, { now: "2026-08-20T12:04:00.000Z" });
+  const serverAttempts = Array.from({ length: 60 }, (_, index) =>
+    attempt(`server-attempt-${index}`, { itemId: `swift:server-item-${index}` }),
+  );
+  const summary = summarizeProgressConflict(snapshot, {
+    ...createProgressSnapshot({ attempts: serverAttempts }, { now: "2026-08-21T12:04:00.000Z" }),
+    revision: 4,
+  }, { now: "2026-08-22T12:04:00.000Z" });
+  assert.ok(summary);
+  assert.equal(summary.entities.length <= 50, true);
+  assert.equal(summary.truncated, true);
 });
 
 test("daily challenge dates stay day keys across private sync", () => {

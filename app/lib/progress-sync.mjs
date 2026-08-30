@@ -15,7 +15,18 @@ export const PROGRESS_SYNC_VERSION = 1;
 export const PROGRESS_SYNC_LIMITS = Object.freeze({
   maxAttempts: 1_000,
   maxLearningEvents: 1_000,
-  maxBytes: 256 * 1024,
+  maxBytes: 1024 * 1024,
+});
+
+/**
+ * Conflict history intentionally stores a small, source-free account of a
+ * transport collision. It is not an evidence ledger and must never grow with
+ * the full progress snapshot.
+ */
+export const PROGRESS_CONFLICT_SUMMARY_VERSION = 1;
+export const PROGRESS_CONFLICT_LIMITS = Object.freeze({
+  maxEntities: 50,
+  maxBytes: 32 * 1024,
 });
 
 const encoder = new TextEncoder();
@@ -322,6 +333,146 @@ function mergeById(left, right, compare) {
 
 function compareEvents(left, right) {
   return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+}
+
+function recordSetById(value) {
+  return new Map(value.map((entry) => [entry.id, entry]));
+}
+
+function conflictEntityKey(value) {
+  return `${value.itemId}\u0000${value.itemRevision}\u0000${value.practiceKind}`;
+}
+
+function conflictEntityFor(value) {
+  return {
+    itemId: value.itemId,
+    itemRevision: value.itemRevision,
+    practiceKind: value.practiceKind,
+  };
+}
+
+function summarizeRecordSet(left, right) {
+  const leftById = recordSetById(left);
+  const rightById = recordSetById(right);
+  let leftOnly = 0;
+  let rightOnly = 0;
+  let shared = 0;
+  let divergent = 0;
+  for (const [id, value] of leftById) {
+    if (!rightById.has(id)) leftOnly += 1;
+    else {
+      shared += 1;
+      if (stableJson(value) !== stableJson(rightById.get(id))) divergent += 1;
+    }
+  }
+  for (const id of rightById.keys()) if (!leftById.has(id)) rightOnly += 1;
+  return { leftOnly, rightOnly, shared, divergent };
+}
+
+/**
+ * Describe which catalog-backed entities participated in a progress snapshot
+ * collision. The returned object contains counts and identifiers only; it
+ * deliberately excludes source, prompts, timelines, and raw event payloads.
+ */
+export function summarizeProgressConflict(leftInput, rightInput, options = {}) {
+  const now = cleanIso(options.now, new Date().toISOString());
+  const left = normalizeProgressSnapshot(leftInput, {
+    now,
+    validItemIds: options.validItemIds,
+  });
+  const right = normalizeProgressSnapshot(rightInput, {
+    now,
+    validItemIds: options.validItemIds,
+  });
+  if (!left || !right || !now) return undefined;
+
+  const entities = new Map();
+  const add = (records, kind) => {
+    for (const record of records) {
+      const key = conflictEntityKey(record);
+      const entry = entities.get(key) ?? {
+        ...conflictEntityFor(record),
+        submittedAttempts: 0,
+        serverAttempts: 0,
+        sharedAttempts: 0,
+        divergentAttempts: 0,
+        submittedEvents: 0,
+        serverEvents: 0,
+        sharedEvents: 0,
+        divergentEvents: 0,
+      };
+      if (kind === "attempt") entry.submittedAttempts += 1;
+      else entry.submittedEvents += 1;
+      entities.set(key, entry);
+    }
+  };
+  add(left.attempts, "attempt");
+  add(right.attempts, "serverAttempt");
+  add(left.learningEvents, "event");
+  add(right.learningEvents, "serverEvent");
+
+  const byEntity = (records) => {
+    const grouped = new Map();
+    for (const record of records) {
+      const key = conflictEntityKey(record);
+      const values = grouped.get(key) ?? [];
+      values.push(record);
+      grouped.set(key, values);
+    }
+    return grouped;
+  };
+  const leftAttempts = byEntity(left.attempts, "attempt");
+  const rightAttempts = byEntity(right.attempts, "attempt");
+  const leftEvents = byEntity(left.learningEvents, "event");
+  const rightEvents = byEntity(right.learningEvents, "event");
+  for (const [key, entry] of entities) {
+    const attempts = summarizeRecordSet(
+      leftAttempts.get(key) ?? [],
+      rightAttempts.get(key) ?? [],
+    );
+    const events = summarizeRecordSet(
+      leftEvents.get(key) ?? [],
+      rightEvents.get(key) ?? [],
+    );
+    entry.submittedAttempts = attempts.leftOnly;
+    entry.serverAttempts = attempts.rightOnly;
+    entry.sharedAttempts = attempts.shared;
+    entry.divergentAttempts = attempts.divergent;
+    entry.submittedEvents = events.leftOnly;
+    entry.serverEvents = events.rightOnly;
+    entry.sharedEvents = events.shared;
+    entry.divergentEvents = events.divergent;
+  }
+
+  const ordered = [...entities.values()]
+    .filter((entry) =>
+      entry.submittedAttempts ||
+      entry.serverAttempts ||
+      entry.divergentAttempts ||
+      entry.submittedEvents ||
+      entry.serverEvents ||
+      entry.divergentEvents,
+    )
+    .sort((a, b) =>
+      a.itemId.localeCompare(b.itemId) ||
+      a.itemRevision - b.itemRevision ||
+      a.practiceKind.localeCompare(b.practiceKind),
+    );
+  const summary = {
+    version: PROGRESS_CONFLICT_SUMMARY_VERSION,
+    baseRevision: integer(options.baseRevision, Math.max(0, left.revision - 1), 0, 2_147_483_647),
+    serverRevision: right.revision,
+    resolution: "merged",
+    entities: ordered.slice(0, PROGRESS_CONFLICT_LIMITS.maxEntities),
+    truncated: ordered.length > PROGRESS_CONFLICT_LIMITS.maxEntities,
+  };
+  return jsonBytes(summary) <= PROGRESS_CONFLICT_LIMITS.maxBytes
+    ? summary
+    : {
+        ...summary,
+        entities: summary.entities.slice(0, Math.max(1, Math.floor(summary.entities.length / 2))),
+        truncated: true,
+      };
 }
 
 /** Merge device snapshots deterministically; the server still owns revision. */

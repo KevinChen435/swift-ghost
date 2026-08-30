@@ -186,6 +186,7 @@ import {
   type CloudCapabilities,
   type CloudDailyChallenge,
   type CloudItemLeaderboard,
+  type CloudProgressConflict,
   type CloudSession,
   type CloudTrustedAssignment,
   type CloudTrustedCustomCaseInput,
@@ -554,6 +555,12 @@ type ProgressSyncStatus =
   | "error"
   | "local";
 
+type ProgressConflictHistoryStatus =
+  | "checking"
+  | "ready"
+  | "offline"
+  | "error";
+
 function progressSnapshotForState(state: AppState, now = new Date().toISOString()) {
   return createProgressSnapshot(state, {
     now,
@@ -819,6 +826,88 @@ function ProgressSyncCard({
         </div>
       </dl>
     </article>
+  );
+}
+
+function ProgressConflictHistoryCard({
+  entries,
+  status,
+  enabled,
+}: {
+  entries: CloudProgressConflict[];
+  status: ProgressConflictHistoryStatus;
+  enabled: boolean;
+}) {
+  if (!enabled) return null;
+  const statusCopy = status === "checking"
+    ? "Checking recent device merges…"
+    : status === "error"
+      ? "Sync history is temporarily unavailable."
+      : status === "offline"
+        ? "Sign in to keep a private history of device merges."
+        : entries.length
+          ? `${entries.length} recent merge${entries.length === 1 ? "" : "s"} recorded privately.`
+          : "No device collisions recorded yet.";
+  return (
+    <section
+      className="progress-conflict-history"
+      aria-label="Progress sync conflict history"
+    >
+      <div className="progress-conflict-history-heading">
+        <div>
+          <span className="eyebrow">Device sync audit</span>
+          <h3>Recent progress merges</h3>
+          <p>
+            When two devices update at once, practice evidence is merged by
+            problem and kept private. Code, drafts, and notes are never part of
+            this history.
+          </p>
+        </div>
+        <span className="progress-conflict-history-status">{statusCopy}</span>
+      </div>
+      {entries.length > 0 && (
+        <div className="progress-conflict-history-list">
+          {entries.slice(0, 10).map((entry) => {
+            const affected = entry.entities.reduce(
+              (total, entity) =>
+                total +
+                entity.submittedAttempts +
+                entity.serverAttempts +
+                entity.divergentAttempts +
+                entity.submittedEvents +
+                entity.serverEvents +
+                entity.divergentEvents,
+              0,
+            );
+            const labels = entry.entities.slice(0, 3).map((entity) => {
+              const item = BUILTIN_ITEMS.find(
+                (candidate) => candidate.itemId === entity.itemId,
+              );
+              return item?.title ?? entity.itemId;
+            });
+            return (
+              <article className="progress-conflict-history-row" key={entry.id}>
+                <div>
+                  <strong>
+                    {labels.length
+                      ? labels.join(" · ")
+                      : "Already-merged progress update"}
+                  </strong>
+                  <small>
+                    {new Date(entry.occurredAt).toLocaleString()} · revisions {entry.baseRevision} → {entry.serverRevision}
+                  </small>
+                </div>
+                <span>
+                  {entry.entities.length || affected
+                    ? `${entry.entities.length} problem${entry.entities.length === 1 ? "" : "s"} · ${affected} record${affected === 1 ? "" : "s"}`
+                    : "No new records"}
+                </span>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1245,6 +1334,11 @@ export default function SwiftGhostApp() {
     useState<StudyPlanSyncStatus>("checking");
   const [progressSyncStatus, setProgressSyncStatus] =
     useState<ProgressSyncStatus>("checking");
+  const [progressConflictHistory, setProgressConflictHistory] = useState<
+    CloudProgressConflict[]
+  >([]);
+  const [progressConflictHistoryStatus, setProgressConflictHistoryStatus] =
+    useState<ProgressConflictHistoryStatus>("checking");
   const studyServerRevisionRef = useRef(0);
   const studySyncReadyRef = useRef(false);
   const studySyncedFingerprintRef = useRef("");
@@ -2269,6 +2363,61 @@ export default function SwiftGhostApp() {
   useEffect(() => {
     if (
       !ready ||
+      !state.settings.progressSyncEnabled ||
+      !cloud.capabilities?.progressSync ||
+      !cloud.session?.authenticated ||
+      (cloud.status !== "connected" && cloud.status !== "syncing")
+    ) {
+      return;
+    }
+    const expectedUserId = cloud.session.user?.id;
+    if (
+      !persistenceScope ||
+      !scopeMatchesAuthenticatedUser(persistenceScope, expectedUserId)
+    ) {
+      return;
+    }
+    const expectedEpoch = progressSyncEpochRef.current;
+    const controller = new AbortController();
+    void cloudClient
+      .getProgressConflicts({ limit: 20, signal: controller.signal })
+      .then((result) => {
+        if (
+          controller.signal.aborted ||
+          expectedEpoch !== progressSyncEpochRef.current ||
+          !scopeMatchesAuthenticatedUser(
+            persistenceScopeRef.current,
+            expectedUserId,
+          )
+        )
+          return;
+        if (result.available) {
+          setProgressConflictHistory(result.data.entries);
+          setProgressConflictHistoryStatus("ready");
+        } else if (result.reason !== "aborted") {
+          setProgressConflictHistoryStatus(
+            result.reason === "offline" ? "offline" : "error",
+          );
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setProgressConflictHistoryStatus("error");
+      });
+    return () => controller.abort();
+  }, [
+    ready,
+    state.settings.progressSyncEnabled,
+    cloud.status,
+    cloud.capabilities?.progressSync,
+    cloud.session?.authenticated,
+    cloud.session?.user?.id,
+    persistenceScope,
+    progressSyncEpoch,
+  ]);
+
+  useEffect(() => {
+    if (
+      !ready ||
       !progressSyncReadyRef.current ||
       !state.settings.progressSyncEnabled ||
       !cloud.capabilities?.progressSync ||
@@ -2313,6 +2462,14 @@ export default function SwiftGhostApp() {
           }
           if (result.reason === "revision-conflict" && result.conflict) {
             progressServerRevisionRef.current = result.conflict.revision;
+            const history = result.conflict.history;
+            if (history) {
+              setProgressConflictHistory((current) => [
+                history,
+                ...current.filter((entry) => entry.id !== history.id),
+              ].slice(0, 20));
+              setProgressConflictHistoryStatus("ready");
+            }
             if (result.conflict.snapshot) {
               const merged = mergeProgressSnapshots(
                 progressSnapshotForState(stateRef.current),
@@ -9871,6 +10028,8 @@ export default function SwiftGhostApp() {
           cloudStatus={cloud.status}
           progressSyncStatus={progressSyncStatus}
           progressSyncEnabled={state.settings.progressSyncEnabled}
+          progressConflictHistory={progressConflictHistory}
+          progressConflictHistoryStatus={progressConflictHistoryStatus}
           profileLabel={
             persistenceScope === GUEST_PERSISTENCE_SCOPE
               ? "Guest profile on this browser"
@@ -15748,6 +15907,8 @@ function SettingsView({
   cloudStatus,
   progressSyncStatus,
   progressSyncEnabled,
+  progressConflictHistory,
+  progressConflictHistoryStatus,
   profileLabel,
   accountScoped,
   guestDataAvailable,
@@ -15762,6 +15923,8 @@ function SettingsView({
   cloudStatus: CloudRuntime["status"];
   progressSyncStatus: ProgressSyncStatus;
   progressSyncEnabled: boolean;
+  progressConflictHistory: CloudProgressConflict[];
+  progressConflictHistoryStatus: ProgressConflictHistoryStatus;
   profileLabel: string;
   accountScoped: boolean;
   guestDataAvailable: boolean;
@@ -15772,6 +15935,17 @@ function SettingsView({
   onReset: () => void;
   onCopyGuestData: () => void;
 }) {
+  const conflictHistoryEnabled =
+    progressSyncEnabled &&
+    accountScoped &&
+    cloudStatus !== "local" &&
+    cloudStatus !== "signed-out";
+  const visibleProgressConflictHistory = conflictHistoryEnabled
+    ? progressConflictHistory
+    : [];
+  const visibleProgressConflictHistoryStatus = conflictHistoryEnabled
+    ? progressConflictHistoryStatus
+    : "offline";
   return (
     <main id="main-content" tabIndex={-1} className="page-container settings-page">
       <PageHeading
@@ -15975,6 +16149,11 @@ function SettingsView({
         progressSyncEnabled={progressSyncEnabled}
         minutes={practicedMinutesToday(state)}
         goal={state.settings.dailyGoalMinutes}
+      />
+      <ProgressConflictHistoryCard
+        entries={visibleProgressConflictHistory}
+        status={visibleProgressConflictHistoryStatus}
+        enabled={progressSyncEnabled}
       />
       <div className="setting-list progress-sync-setting">
         <ToggleRow

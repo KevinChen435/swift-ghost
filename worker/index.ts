@@ -18,7 +18,12 @@ import {
   validateHandle,
 } from "../app/lib/community-core.mjs";
 import { normalizeStudyWorkspace } from "../app/lib/study-plans.mjs";
-import { normalizeProgressSnapshot } from "../app/lib/progress-sync.mjs";
+import {
+  isProgressSyncableItemId,
+  normalizeProgressSnapshot,
+  progressSnapshotFingerprint,
+  summarizeProgressConflict,
+} from "../app/lib/progress-sync.mjs";
 import {
   TRUSTED_CODE_LAB_PROGRAM,
   TRUSTED_ASSIGNMENT_TTL_MS,
@@ -98,6 +103,15 @@ type ProgressSnapshotRow = {
   revision: number;
   payload_json: string;
   updated_at: number;
+};
+type ProgressSyncConflictRow = {
+  id: string;
+  mutation_hash: string;
+  base_revision: number;
+  server_revision: number;
+  summary_json: string;
+  occurred_at: number;
+  purge_after: number;
 };
 type TrustedAssignmentRow = {
   id: string;
@@ -183,6 +197,8 @@ const MAX_BATCH = 100;
 const MAX_BODY_BYTES = 512_000;
 const MAX_STUDY_WORKSPACE_BYTES = 256 * 1024;
 const MAX_PROGRESS_SYNC_BYTES = 256 * 1024;
+const PROGRESS_CONFLICT_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+const PROGRESS_CONFLICT_MAX_HISTORY = 50;
 const TRUSTED_ENQUEUED_TIMEOUT_MS = 30 * 60 * 1000;
 const TRUSTED_DELIVERY_TIMEOUT_MS = 60 * 60 * 1000;
 const TRUSTED_EXAMPLE_MAX_PENDING_PER_USER = 3;
@@ -735,9 +751,186 @@ function progressSnapshotFromRow(row: ProgressSnapshotRow) {
   return snapshot;
 }
 
+function normalizeStoredProgressConflict(
+  row: ProgressSyncConflictRow,
+) {
+  if (
+    !row ||
+    typeof row.id !== "string" ||
+    !/^[A-Za-z0-9][A-Za-z0-9-]{7,95}$/.test(row.id) ||
+    typeof row.mutation_hash !== "string" ||
+    !/^[a-f0-9]{64}$/i.test(row.mutation_hash) ||
+    !Number.isInteger(row.base_revision) ||
+    row.base_revision < 0 ||
+    row.base_revision > 2_147_483_647 ||
+    !Number.isInteger(row.server_revision) ||
+    row.server_revision < 0 ||
+    row.server_revision > 2_147_483_647 ||
+    !Number.isInteger(row.occurred_at) ||
+    row.occurred_at < 0 ||
+    !Number.isInteger(row.purge_after) ||
+    row.purge_after < row.occurred_at ||
+    typeof row.summary_json !== "string" ||
+    new TextEncoder().encode(row.summary_json).byteLength > 32 * 1024
+  )
+    return null;
+  let summary: unknown;
+  try {
+    summary = JSON.parse(row.summary_json);
+  } catch {
+    return null;
+  }
+  if (!isRecord(summary)) return null;
+  const entities = Array.isArray(summary.entities)
+    ? summary.entities.flatMap((raw) => {
+        if (!isRecord(raw)) return [];
+        const itemId = raw.itemId;
+        const practiceKind = raw.practiceKind;
+        const itemRevision =
+          typeof raw.itemRevision === "number" &&
+          Number.isInteger(raw.itemRevision)
+            ? raw.itemRevision
+            : null;
+        const countKeys = [
+          "submittedAttempts",
+          "serverAttempts",
+          "sharedAttempts",
+          "divergentAttempts",
+          "submittedEvents",
+          "serverEvents",
+          "sharedEvents",
+          "divergentEvents",
+        ] as const;
+        if (
+          typeof itemId !== "string" ||
+          !isProgressSyncableItemId(itemId) ||
+          itemRevision === null ||
+          itemRevision < 1 ||
+          itemRevision > 1_000_000 ||
+          !["typing", "solving", "concept"].includes(practiceKind as string) ||
+          countKeys.some(
+            (key) =>
+              !Number.isInteger(raw[key]) ||
+              (raw[key] as number) < 0 ||
+              (raw[key] as number) > 1_000,
+          )
+        )
+          return [];
+        return [{
+          itemId,
+          itemRevision,
+          practiceKind,
+          ...Object.fromEntries(countKeys.map((key) => [key, raw[key]])),
+        }];
+      }).slice(0, 50)
+    : [];
+  if (
+    summary.version !== 1 ||
+    summary.baseRevision !== row.base_revision ||
+    summary.serverRevision !== row.server_revision ||
+    summary.resolution !== "merged" ||
+    typeof summary.truncated !== "boolean"
+  )
+    return null;
+  let occurredAt: string;
+  try {
+    occurredAt = new Date(row.occurred_at).toISOString();
+  } catch {
+    return null;
+  }
+  return {
+    id: row.id,
+    baseRevision: row.base_revision,
+    serverRevision: row.server_revision,
+    occurredAt,
+    resolution: "merged" as const,
+    entities,
+    truncated: summary.truncated || entities.length < (Array.isArray(summary.entities) ? summary.entities.length : 0),
+  };
+}
+
+async function pruneProgressConflictHistory(
+  db: D1Database,
+  userId: string,
+  now: number,
+) {
+  await db
+    .prepare(
+      `DELETE FROM progress_sync_conflicts
+       WHERE user_id = ? AND purge_after <= ?`,
+    )
+    .bind(userId, now)
+    .run();
+  await db
+    .prepare(
+      `DELETE FROM progress_sync_conflicts
+       WHERE user_id = ?
+         AND id NOT IN (
+           SELECT id FROM progress_sync_conflicts
+           WHERE user_id = ?
+           ORDER BY occurred_at DESC, id DESC
+           LIMIT ?
+         )`,
+    )
+    .bind(userId, userId, PROGRESS_CONFLICT_MAX_HISTORY)
+    .run();
+}
+
+async function recordProgressConflict(
+  db: D1Database,
+  userId: string,
+  submitted: ReturnType<typeof normalizeIncomingProgressSnapshot>,
+  current: ProgressSnapshotRow,
+  baseRevision: number,
+  now: number,
+) {
+  const summary = summarizeProgressConflict(submitted.snapshot, progressSnapshotFromRow(current), {
+    now: new Date(now).toISOString(),
+    baseRevision,
+    validItemIds: [...ITEM_CATALOG.keys()],
+  });
+  if (!summary) return null;
+  const mutationHash = await sha256(JSON.stringify({
+    baseRevision,
+    fingerprint: progressSnapshotFingerprint(submitted.snapshot),
+  }));
+  const id = `progress-conflict-${crypto.randomUUID().replace(/-/g, "")}`;
+  const purgeAfter = now + PROGRESS_CONFLICT_RETENTION_MS;
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO progress_sync_conflicts
+       (id, user_id, mutation_hash, base_revision, server_revision,
+        summary_json, occurred_at, purge_after)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      id,
+      userId,
+      mutationHash,
+      baseRevision,
+      current.revision,
+      JSON.stringify(summary),
+      now,
+      purgeAfter,
+    )
+    .run();
+  await pruneProgressConflictHistory(db, userId, now);
+  const row = await db
+    .prepare(
+      `SELECT id, mutation_hash, base_revision, server_revision,
+              summary_json, occurred_at, purge_after
+       FROM progress_sync_conflicts
+       WHERE user_id = ? AND mutation_hash = ? AND server_revision = ?`,
+    )
+    .bind(userId, mutationHash, current.revision)
+    .first<ProgressSyncConflictRow>();
+  return row ? normalizeStoredProgressConflict(row) : null;
+}
+
 function progressRevisionConflict(
   request: Request,
   row: ProgressSnapshotRow | null,
+  history: ReturnType<typeof normalizeStoredProgressConflict> = null,
 ) {
   const snapshot = row ? progressSnapshotFromRow(row) : null;
   return json(
@@ -748,9 +941,64 @@ function progressRevisionConflict(
         message: "Your private progress changed on another device.",
       },
       current: { revision: row?.revision ?? 0, snapshot },
+      ...(history ? { conflict: history } : {}),
     },
     409,
   );
+}
+
+async function listProgressConflictHistory(
+  request: Request,
+  env: Env,
+  url: URL,
+) {
+  const user = await authenticatedUser(request);
+  if (!user)
+    return errorResponse(
+      request,
+      401,
+      "AUTH_REQUIRED",
+      "Sign in to view private progress sync history.",
+    );
+  if (!env.DB)
+    return errorResponse(
+      request,
+      503,
+      "PROGRESS_SYNC_UNAVAILABLE",
+      "Private progress sync is temporarily unavailable.",
+    );
+  const now = Date.now();
+  try {
+    await pruneProgressConflictHistory(env.DB, user.userId, now);
+    const limit = limitFrom(url, 20, PROGRESS_CONFLICT_MAX_HISTORY);
+    const rows = await env.DB
+      .prepare(
+        `SELECT id, mutation_hash, base_revision, server_revision,
+                summary_json, occurred_at, purge_after
+         FROM progress_sync_conflicts
+         WHERE user_id = ? AND purge_after > ?
+         ORDER BY occurred_at DESC, id DESC
+         LIMIT ?`,
+      )
+      .bind(user.userId, now, limit)
+      .all<ProgressSyncConflictRow>();
+    const entries = rows.results.flatMap((row) => {
+      const normalized = normalizeStoredProgressConflict(row);
+      return normalized ? [normalized] : [];
+    });
+    return json(request, { entries });
+  } catch (error) {
+    console.error(
+      "Progress conflict history unavailable",
+      error instanceof Error ? error.message : error,
+    );
+    return errorResponse(
+      request,
+      503,
+      "PROGRESS_SYNC_UNAVAILABLE",
+      "Private progress sync history is temporarily unavailable.",
+    );
+  }
 }
 
 async function getProgressSnapshot(request: Request, env: Env) {
@@ -850,7 +1098,25 @@ async function putProgressSnapshot(request: Request, env: Env) {
       .run();
     if (Number(inserted.meta.changes) === 0) {
       const current = await getProgressSnapshotRow(env.DB, user.userId);
-      return progressRevisionConflict(request, current);
+      let history = null;
+      if (current) {
+        try {
+          history = await recordProgressConflict(
+            env.DB,
+            user.userId,
+            encoded,
+            current,
+            expectedRevision,
+            now,
+          );
+        } catch (error) {
+          console.error(
+            "Progress conflict history write failed",
+            error instanceof Error ? error.message : error,
+          );
+        }
+      }
+      return progressRevisionConflict(request, current, history);
     }
     return json(request, { snapshot: encoded.snapshot });
   }
@@ -865,7 +1131,25 @@ async function putProgressSnapshot(request: Request, env: Env) {
     .run();
   if (Number(updated.meta.changes) === 0) {
     const current = await getProgressSnapshotRow(env.DB, user.userId);
-    return progressRevisionConflict(request, current);
+    let history = null;
+    if (current) {
+      try {
+        history = await recordProgressConflict(
+          env.DB,
+          user.userId,
+          encoded,
+          current,
+          expectedRevision,
+          now,
+        );
+      } catch (error) {
+        console.error(
+          "Progress conflict history write failed",
+          error instanceof Error ? error.message : error,
+        );
+      }
+    }
+    return progressRevisionConflict(request, current, history);
   }
   return json(request, { snapshot: encoded.snapshot });
 }
@@ -4138,6 +4422,8 @@ async function api(request: Request, env: Env, url: URL) {
     return getProgressSnapshot(request, env);
   if (path === "/progress/snapshot" && request.method === "PUT")
     return putProgressSnapshot(request, env);
+  if (path === "/progress/conflicts" && request.method === "GET")
+    return listProgressConflictHistory(request, env, url);
   if (path === "/trusted/assignments" && request.method === "GET")
     return listTrustedAssignments(request, env, url);
   if (path === "/trusted/assignments" && request.method === "POST")

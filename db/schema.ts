@@ -127,6 +127,49 @@ export const progressSnapshots = sqliteTable(
   ],
 );
 
+/** Private, bounded summaries of optimistic progress-sync collisions. Raw
+ * snapshots, source, prompts, and learner-authored content are never stored. */
+export const progressSyncConflicts = sqliteTable(
+  "progress_sync_conflicts",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => communityProfiles.userId, { onDelete: "cascade" }),
+    mutationHash: text("mutation_hash").notNull(),
+    baseRevision: integer("base_revision").notNull(),
+    serverRevision: integer("server_revision").notNull(),
+    summaryJson: text("summary_json").notNull(),
+    occurredAt: integer("occurred_at", { mode: "timestamp_ms" }).notNull(),
+    purgeAfter: integer("purge_after", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("progress_sync_conflicts_user_mutation_uidx").on(
+      table.userId,
+      table.mutationHash,
+      table.serverRevision,
+    ),
+    index("progress_sync_conflicts_user_occurred_idx").on(
+      table.userId,
+      table.occurredAt,
+    ),
+    index("progress_sync_conflicts_purge_idx").on(table.purgeAfter),
+    check("progress_sync_conflicts_hash_check", sql`length(${table.mutationHash}) = 64`),
+    check(
+      "progress_sync_conflicts_revision_check",
+      sql`${table.baseRevision} >= 0 AND ${table.serverRevision} >= 0`,
+    ),
+    check(
+      "progress_sync_conflicts_summary_check",
+      sql`json_valid(${table.summaryJson}) = 1 AND length(${table.summaryJson}) BETWEEN 2 AND 32768`,
+    ),
+    check(
+      "progress_sync_conflicts_purge_check",
+      sql`${table.purgeAfter} >= ${table.occurredAt}`,
+    ),
+  ],
+);
+
 /** One authoritative challenge definition per UTC day. */
 export const dailyChallenges = sqliteTable(
   "daily_challenges",

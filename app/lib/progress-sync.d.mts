@@ -7,6 +7,11 @@ export const PROGRESS_SYNC_LIMITS: Readonly<{
   maxLearningEvents: number;
   maxBytes: number;
 }>;
+export const PROGRESS_CONFLICT_SUMMARY_VERSION: 1;
+export const PROGRESS_CONFLICT_LIMITS: Readonly<{
+  maxEntities: number;
+  maxBytes: number;
+}>;
 
 export type ProgressSyncAttempt = {
   id: string;
@@ -74,4 +79,34 @@ export function mergeProgressSnapshots(
   remote: unknown,
   options?: { now?: string | Date | number; validItemIds?: readonly string[] },
 ): ProgressSyncSnapshot;
+export type ProgressConflictEntitySummary = {
+  itemId: string;
+  itemRevision: number;
+  practiceKind: "typing" | "solving" | "concept";
+  submittedAttempts: number;
+  serverAttempts: number;
+  sharedAttempts: number;
+  divergentAttempts: number;
+  submittedEvents: number;
+  serverEvents: number;
+  sharedEvents: number;
+  divergentEvents: number;
+};
+export type ProgressConflictSummary = {
+  version: 1;
+  baseRevision: number;
+  serverRevision: number;
+  resolution: "merged";
+  entities: ProgressConflictEntitySummary[];
+  truncated: boolean;
+};
+export function summarizeProgressConflict(
+  submitted: unknown,
+  server: unknown,
+  options?: {
+    now?: string | Date | number;
+    baseRevision?: number;
+    validItemIds?: readonly string[];
+  },
+): ProgressConflictSummary | undefined;
 export function progressSnapshotFingerprint(snapshot: unknown): string;
