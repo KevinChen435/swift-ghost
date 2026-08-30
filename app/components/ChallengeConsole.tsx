@@ -2,6 +2,7 @@
 
 import { useId, type KeyboardEvent } from "react";
 import type { PythonVerificationResult } from "../lib/python-runner.mjs";
+import type { ResolvedBoundaryDrillSuite } from "../lib/boundary-suites.mjs";
 import type { PracticeKind, SubmissionRecord } from "../lib/product";
 import type {
   CustomTestcase,
@@ -17,6 +18,7 @@ import { SubmissionInspector } from "./SubmissionInspector";
 export type ChallengeConsoleTab =
   | "examples"
   | "custom"
+  | "edge-cases"
   | "output"
   | "submissions";
 
@@ -34,6 +36,15 @@ export type ChallengeCustomExecutionState = {
   result?: PythonVerificationResult;
   message?: string;
   caseIds?: readonly string[];
+};
+
+export type BoundaryDrillExecutionState = {
+  status: "idle" | "loading" | "running" | "finished" | "error";
+  packId?: string;
+  caseIds?: readonly string[];
+  expectedValues?: readonly unknown[];
+  result?: PythonVerificationResult;
+  message?: string;
 };
 
 export type ChallengeConsoleProps = {
@@ -69,6 +80,9 @@ export type ChallengeConsoleProps = {
   onCustomTestcaseRawChange: (caseId: string, raw: string) => void;
   onRunCustomTestcases: (scope: "selected" | "all") => void | Promise<void>;
   customExecutionState: ChallengeCustomExecutionState;
+  boundarySuite: ResolvedBoundaryDrillSuite | null;
+  boundaryExecutionState: BoundaryDrillExecutionState;
+  onRunBoundaryDrill: (packId: string, caseId?: string) => void | Promise<void>;
   verificationState: ChallengeVerificationState;
   exampleExpectedValues: readonly unknown[];
   onRunExamples: () => void | Promise<void>;
@@ -89,6 +103,7 @@ export type ChallengeConsoleProps = {
 const TAB_LABELS: Readonly<Record<ChallengeConsoleTab, string>> = {
   examples: "Testcases",
   custom: "Custom",
+  "edge-cases": "Edge cases",
   output: "Result",
   submissions: "Submissions",
 };
@@ -108,6 +123,107 @@ function formatJson(value: unknown) {
 
 function passedCount(result: PythonVerificationResult) {
   return result.cases.filter((testCase) => testCase.passed).length;
+}
+
+function BoundaryDrillPanel({
+  boundarySuite,
+  boundaryExecutionState,
+  runnerSourcePresent,
+  checksAreBusy,
+  onRunBoundaryDrill,
+}: Pick<
+  ChallengeConsoleProps,
+  | "boundarySuite"
+  | "boundaryExecutionState"
+  | "runnerSourcePresent"
+  | "checksAreBusy"
+  | "onRunBoundaryDrill"
+>) {
+  if (!boundarySuite) return null;
+  const isRunning =
+    boundaryExecutionState.status === "loading" ||
+    boundaryExecutionState.status === "running";
+  return (
+    <div className="custom-case-panel boundary-drill-panel">
+      <div className="custom-case-head">
+        <span>
+          <small>Boundary drill packs</small>
+          <strong>Predict the failure mode, then run</strong>
+        </span>
+      </div>
+      <p>
+        These authored checks are private practice. They do not submit your code
+        or record mastery, and expected values stay hidden until a run finishes.
+      </p>
+      {boundarySuite.packs.map((pack) => {
+        const showsResult = boundaryExecutionState.packId === pack.id;
+        return (
+          <section className="custom-case-result" key={pack.id}>
+            <span>{pack.kind.replaceAll("-", " ")}</span>
+            <strong>{pack.title}</strong>
+            <p>{pack.purpose}</p>
+            <small>{pack.rationale}</small>
+            <div className="custom-case-actions">
+              <button
+                className="outline-button"
+                type="button"
+                disabled={!runnerSourcePresent || checksAreBusy}
+                onClick={() => void onRunBoundaryDrill(pack.id)}
+              >
+                {isRunning && showsResult ? "Running pack..." : "Run pack"}
+              </button>
+            </div>
+            <ul>
+              {pack.cases.map((testCase) => (
+                <li key={testCase.id}>
+                  <span>{testCase.name}</span>{" "}
+                  <button
+                    className="text-button"
+                    type="button"
+                    disabled={!runnerSourcePresent || checksAreBusy}
+                    onClick={() => void onRunBoundaryDrill(pack.id, testCase.id)}
+                  >
+                    Run case
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {showsResult && boundaryExecutionState.status === "error" && (
+              <code>{boundaryExecutionState.message}</code>
+            )}
+            {showsResult && boundaryExecutionState.result && (
+              <div role="status" aria-live="polite" aria-atomic="true">
+                <strong>
+                  {boundaryExecutionState.result.ok
+                    ? "Boundary checks passed"
+                    : `${passedCount(boundaryExecutionState.result)}/${boundaryExecutionState.result.cases.length} boundary checks passed`}
+                </strong>
+                <ul>
+                  {boundaryExecutionState.result.cases.map((testCase, index) => (
+                    <li
+                      className={testCase.passed ? "passed" : "failed"}
+                      key={`${testCase.name}-${index}`}
+                    >
+                      <strong>{testCase.name}</strong>
+                      {testCase.error ? (
+                        <code>{testCase.error}</code>
+                      ) : (
+                        <code>
+                          expected: {formatJson(boundaryExecutionState.expectedValues?.[index])}
+                          {"\n"}
+                          received: {formatJson(testCase.actual)}
+                        </code>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
 }
 
 function CustomCasePanel({
@@ -435,6 +551,9 @@ export function ChallengeConsole({
   onCustomTestcaseRawChange,
   onRunCustomTestcases,
   customExecutionState,
+  boundarySuite,
+  boundaryExecutionState,
+  onRunBoundaryDrill,
   verificationState,
   exampleExpectedValues,
   onRunExamples,
@@ -456,7 +575,13 @@ export function ChallengeConsole({
   const availableTabs: readonly ChallengeConsoleTab[] = isMock
     ? ["examples", "output"]
     : isSolving
-      ? ["examples", "custom", "output", "submissions"]
+      ? [
+          "examples",
+          "custom",
+          ...(boundarySuite ? (["edge-cases"] as const) : []),
+          "output",
+          "submissions",
+        ]
       : ["examples", "output"];
   const activeTab = availableTabs.includes(consoleTab)
     ? consoleTab
@@ -596,6 +721,15 @@ export function ChallengeConsole({
               checksAreBusy={checksAreBusy}
             />
           )
+        )}
+        {activeTab === "edge-cases" && !isMock && isSolving && (
+          <BoundaryDrillPanel
+            boundarySuite={boundarySuite}
+            boundaryExecutionState={boundaryExecutionState}
+            runnerSourcePresent={runnerSourcePresent}
+            checksAreBusy={checksAreBusy}
+            onRunBoundaryDrill={onRunBoundaryDrill}
+          />
         )}
         {activeTab === "output" && (
           <VerificationOutput

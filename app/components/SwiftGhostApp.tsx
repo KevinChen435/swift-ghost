@@ -98,7 +98,11 @@ import {
   type InterviewPanelSession,
 } from "./InterviewStudioPanel";
 import { PracticeEditor } from "./PracticeEditor";
-import { ChallengeConsole } from "./ChallengeConsole";
+import {
+  ChallengeConsole,
+  type BoundaryDrillExecutionState,
+} from "./ChallengeConsole";
+import { BOUNDARY_DRILL_SUITES } from "../data/boundary-suites";
 import { SwiftSolveConsole } from "./SwiftSolveConsole";
 import {
   ConceptPractice,
@@ -114,6 +118,10 @@ import {
   type PythonRunner,
   type PythonVerificationResult,
 } from "../lib/python-runner.mjs";
+import {
+  buildBoundaryDrillVerification,
+  resolveBoundaryDrillSuite,
+} from "../lib/boundary-suites.mjs";
 import {
   BUILTIN_ITEMS,
   canSolveItem,
@@ -11015,7 +11023,7 @@ function PracticeView(props: PracticeProps) {
   }>({ itemId: props.item.itemId, status: "idle" });
   const [solveHintLevel, setSolveHintLevel] = useState(0);
   const [consoleTab, setConsoleTab] = useState<
-    "examples" | "custom" | "output" | "submissions"
+    "examples" | "custom" | "edge-cases" | "output" | "submissions"
   >("examples");
   const [swiftRetryAvailable, setSwiftRetryAvailable] = useState(false);
   const [mobileWorkspacePane, setMobileWorkspacePane] =
@@ -11024,6 +11032,7 @@ function PracticeView(props: PracticeProps) {
   const pythonRunner = useRef<PythonRunner | null>(null);
   const verificationRunId = useRef(0);
   const customExecutionRunId = useRef(0);
+  const boundaryExecutionRunId = useRef(0);
   const runnerGeneration = useRef(0);
   const inspectedSubmissionIds = useRef(new Set<string>());
   const runnerBusy = useRef(false);
@@ -11039,6 +11048,17 @@ function PracticeView(props: PracticeProps) {
   const visibleCustomExecutionState =
     customExecutionState.itemId === props.item.itemId
       ? customExecutionState
+      : { itemId: props.item.itemId, status: "idle" as const };
+  const boundarySuite = useMemo(
+    () => resolveBoundaryDrillSuite(props.item, BOUNDARY_DRILL_SUITES),
+    [props.item],
+  );
+  const [boundaryExecutionState, setBoundaryExecutionState] = useState<
+    BoundaryDrillExecutionState & { itemId: ItemId }
+  >({ itemId: props.item.itemId, status: "idle" });
+  const visibleBoundaryExecutionState =
+    boundaryExecutionState.itemId === props.item.itemId
+      ? boundaryExecutionState
       : { itemId: props.item.itemId, status: "idle" as const };
   const isMock = Boolean(
     props.activeSession?.kind === "mock" &&
@@ -11408,6 +11428,7 @@ function PracticeView(props: PracticeProps) {
       }
       verificationRunId.current += 1;
       customExecutionRunId.current += 1;
+      boundaryExecutionRunId.current += 1;
       runnerGeneration.current += 1;
       pythonRunner.current?.dispose();
     };
@@ -12034,6 +12055,7 @@ function PracticeView(props: PracticeProps) {
     }
     verificationRunId.current += 1;
     customExecutionRunId.current += 1;
+    boundaryExecutionRunId.current += 1;
     runnerGeneration.current += 1;
     runnerBusy.current = false;
     pythonRunner.current?.dispose();
@@ -12316,6 +12338,74 @@ function PracticeView(props: PracticeProps) {
     }
   }
 
+  async function runBoundaryDrill(packId: string, caseId?: string) {
+    if (!boundarySuite || !props.item.verification || !runnerSource.trim()) return;
+    if (isLocked || runnerBusy.current) return;
+    let drill;
+    try {
+      drill = buildBoundaryDrillVerification(
+        props.item,
+        boundarySuite,
+        packId,
+        caseId,
+      );
+    } catch (error) {
+      setBoundaryExecutionState({
+        itemId: props.item.itemId,
+        status: "error",
+        packId,
+        message: error instanceof Error ? error.message : "Boundary drill is unavailable",
+      });
+      return;
+    }
+    runnerBusy.current = true;
+    setRunnerActive(true);
+    const runId = ++boundaryExecutionRunId.current;
+    const generation = ++runnerGeneration.current;
+    setConsoleTab("edge-cases");
+    setMobileWorkspacePane("tests");
+    try {
+      const runner = pythonRunner.current ?? createPythonRunner();
+      pythonRunner.current = runner;
+      setBoundaryExecutionState({
+        itemId: props.item.itemId,
+        status:
+          visibleBoundaryExecutionState.status === "idle" ? "loading" : "running",
+        packId,
+        caseIds: drill.caseIds,
+        expectedValues: drill.expectedValues,
+      });
+      const result = await runner.verify(runnerSource, drill.verification);
+      if (disposed.current || runId !== boundaryExecutionRunId.current) return;
+      if (result.kind !== "verification")
+        throw new Error("Python runner returned an unexpected result");
+      setBoundaryExecutionState({
+        itemId: props.item.itemId,
+        status: "finished",
+        packId,
+        caseIds: drill.caseIds,
+        expectedValues: drill.expectedValues,
+        result,
+      });
+    } catch (error) {
+      if (disposed.current || runId !== boundaryExecutionRunId.current) return;
+      setBoundaryExecutionState({
+        itemId: props.item.itemId,
+        status: "error",
+        packId,
+        caseIds: drill.caseIds,
+        expectedValues: drill.expectedValues,
+        message:
+          error instanceof Error ? error.message : "Boundary drill could not run",
+      });
+    } finally {
+      if (generation === runnerGeneration.current) {
+        runnerBusy.current = false;
+        if (!disposed.current) setRunnerActive(false);
+      }
+    }
+  }
+
   function changeCustomCaseInput(value: string) {
     customExecutionRunId.current += 1;
     setCustomExecutionState({ itemId: props.item.itemId, status: "idle" });
@@ -12382,8 +12472,10 @@ function PracticeView(props: PracticeProps) {
     if (accepted) {
       verificationRunId.current += 1;
       customExecutionRunId.current += 1;
+      boundaryExecutionRunId.current += 1;
       setVerificationState({ itemId: props.item.itemId, status: "idle" });
       setCustomExecutionState({ itemId: props.item.itemId, status: "idle" });
+      setBoundaryExecutionState({ itemId: props.item.itemId, status: "idle" });
       if (
         isTrustedSwiftSolve &&
         (activeSwiftExampleRequest.current || swiftExampleRun)
@@ -12413,8 +12505,10 @@ function PracticeView(props: PracticeProps) {
     }
     verificationRunId.current += 1;
     customExecutionRunId.current += 1;
+    boundaryExecutionRunId.current += 1;
     setVerificationState({ itemId: props.item.itemId, status: "idle" });
     setCustomExecutionState({ itemId: props.item.itemId, status: "idle" });
+    setBoundaryExecutionState({ itemId: props.item.itemId, status: "idle" });
     if (isTrustedSwiftSolve) {
       activeSwiftExampleRequest.current = null;
       setSwiftExampleRun(null);
@@ -13361,6 +13455,9 @@ function PracticeView(props: PracticeProps) {
                 }
                 onRunCustomTestcases={runCustomCase}
                 customExecutionState={visibleCustomExecutionState}
+                boundarySuite={boundarySuite}
+                boundaryExecutionState={visibleBoundaryExecutionState}
+                onRunBoundaryDrill={runBoundaryDrill}
                 verificationState={visibleVerificationState}
                 exampleExpectedValues={challengeVerificationForPurpose(
                   props.item.verification!,
@@ -13641,6 +13738,9 @@ function PracticeView(props: PracticeProps) {
             }
             onRunCustomTestcases={runCustomCase}
             customExecutionState={visibleCustomExecutionState}
+            boundarySuite={boundarySuite}
+            boundaryExecutionState={visibleBoundaryExecutionState}
+            onRunBoundaryDrill={runBoundaryDrill}
             verificationState={visibleVerificationState}
             exampleExpectedValues={challengeVerificationForPurpose(
               props.item.verification,
