@@ -21,6 +21,7 @@ import {
   type CustomChallengeInput,
 } from "./custom-challenges";
 import {
+  generateSemanticMasks,
   normalizeSemanticMasks,
   semanticMasksEqual,
   type SemanticMasks,
@@ -75,6 +76,64 @@ export type PracticeItem = Omit<Problem, "swiftNote"> & {
   transfer?: TransferMetadata;
 };
 
+type AuthoredSemanticMaskPlan = {
+  stage3: readonly number[];
+  stage4: readonly number[];
+};
+
+/**
+ * A small, reviewed starter set for the highest-leverage reactivation items.
+ * The numbers are zero-based source-line indexes; mask text is generated from
+ * the current source so the plan never becomes a second copy of an answer.
+ */
+export const AUTHORED_SEMANTIC_MASK_PLANS: Readonly<
+  Partial<Record<string, AuthoredSemanticMaskPlan>>
+> = Object.freeze({
+  "python:1": { stage3: [0, 1, 4, 6, 8], stage4: [0, 1] },
+  "python:49": { stage3: [0, 2, 3, 6, 9, 12], stage4: [2, 3] },
+  "python:125": { stage3: [0, 1, 4, 8, 12, 16, 20], stage4: [0, 1] },
+  "builtin:1": { stage3: [0, 1, 4, 6, 9, 13], stage4: [0, 1] },
+  "builtin:49": { stage3: [0, 1, 4, 6, 9, 12], stage4: [0, 1] },
+  "ios:value-reference-snapshots": {
+    stage3: [0, 1, 5, 8, 11, 14],
+    stage4: [0, 1, 8],
+  },
+  "ios:copy-on-write-draft": {
+    stage3: [0, 1, 4, 6, 9, 12, 16],
+    stage4: [0, 1, 6, 12],
+  },
+});
+
+// maskByPreservedLines(code, preservedLines) keeps source geometry stable.
+function maskByPreservedLines(code: string, preservedLines: readonly number[]) {
+  const preserved = new Set(preservedLines);
+  return code
+    .replace(/\r\n?/g, "\n")
+    .trimEnd()
+    .split("\n")
+    .map((line, index) =>
+      preserved.has(index) ? line : line.replace(/\S/g, " "),
+    )
+    .join("\n");
+}
+
+function authoredSemanticMasksForItem(
+  itemId: string,
+  code: string,
+  language: "python" | "swift",
+) {
+  const plan = AUTHORED_SEMANTIC_MASK_PLANS[itemId];
+  if (!plan) return undefined;
+  const generated = generateSemanticMasks(code, language);
+  if (!generated) return undefined;
+  const masks = {
+    2: generated[2],
+    3: maskByPreservedLines(code, plan.stage3),
+    4: maskByPreservedLines(code, plan.stage4),
+  };
+  return normalizeSemanticMasks(masks, code);
+}
+
 export const INTERVIEW_ITEMS: PracticeItem[] = PROBLEMS.map(
   ({ swiftNote, ...problem }) => ({
     ...problem,
@@ -85,6 +144,11 @@ export const INTERVIEW_ITEMS: PracticeItem[] = PROBLEMS.map(
     source: "builtin",
     tags: [problem.pattern],
     contentRevision: 1,
+    masks: authoredSemanticMasksForItem(
+      `builtin:${problem.id}`,
+      problem.code,
+      "swift",
+    ),
   }),
 );
 
@@ -121,6 +185,11 @@ export const PYTHON_ITEMS: PracticeItem[] = [
   source: "builtin",
   contentRevision: 1,
   solveCapability: "local",
+  masks: authoredSemanticMasksForItem(
+    `python:${problem.id}`,
+    problem.code,
+    "python",
+  ),
 }));
 
 export const TRANSFER_ITEMS: PracticeItem[] = TRANSFER_PROBLEMS.map(
@@ -167,6 +236,11 @@ export const IOS_ITEMS: PracticeItem[] = FUNDAMENTALS.map(
     languageNote: swiftNote,
     source: "builtin",
     contentRevision: 2,
+    masks: authoredSemanticMasksForItem(
+      fundamental.id,
+      fundamental.code,
+      "swift",
+    ),
     ...(IOS_PORTABLE_SOLVE_COMPANIONS[fundamental.id]
       ? {
           portableSolveCompanionKey:
