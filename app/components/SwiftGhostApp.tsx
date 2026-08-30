@@ -8900,8 +8900,8 @@ export default function SwiftGhostApp() {
       }
       const restored: AppState = {
         ...normalized,
-        // Consent never travels in a portable backup; require an explicit
-        // opt-in again for the profile receiving imported data.
+        // Consent from a portable backup is never honored; require an
+        // explicit opt-in again for the profile receiving imported data.
         settings: { ...normalized.settings, progressSyncEnabled: false },
         studyWorkspace:
           activeScope === GUEST_PERSISTENCE_SCOPE
