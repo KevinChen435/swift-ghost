@@ -8953,7 +8953,7 @@ export default function SwiftGhostApp() {
         : `${cloud.session?.user?.displayName ?? "your signed-in"} account profile on this browser`;
     if (
       !window.confirm(
-        `Clear ${profileLabel}?\n\nThis removes browser-only code, attempts, sessions, notes, custom items, and settings for this profile. Hosted Study Plans stay intact and will return after sync.`,
+        `Clear ${profileLabel}?\n\nThis removes browser-only code, attempts, sessions, notes, settings, and custom items for this profile. Hosted Study Plans stay intact and will return after sync.`,
       )
     )
       return;
@@ -15842,8 +15842,8 @@ function SettingsView({
             account and the guest profile have separate browser data.
           </p>
           <p>
-            Browser only: code, drafts, submissions, transcripts, notes,
-            settings, and custom content. Private sync: bounded built-in
+            Browser only: code, drafts, submissions, transcripts, notes, settings,
+            and custom content. Private sync: bounded built-in
             attempt summaries and learning events, plus Study Plan structure
             ({progressSyncStatus} · {studySyncStatus}). Community: only
             qualifying attempt summaries when you explicitly turn sharing on.
