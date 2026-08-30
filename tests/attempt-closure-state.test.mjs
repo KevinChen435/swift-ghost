@@ -39,7 +39,7 @@ function solveAttempt(id, completedAt, overrides = {}) {
   return {
     id,
     itemId: "python:1",
-    itemRevision: 1,
+    itemRevision: 2,
     titleSnapshot: "Two Sum",
     language: "python",
     stage: 5,
@@ -108,7 +108,7 @@ test("v32 migration reconciles failed durable submission receipts into closures"
     itemId: "python:1",
     titleSnapshot: "Two Sum",
     language: "python",
-    itemRevision: 1,
+    itemRevision: 2,
     requestedAt: "2026-07-20T12:00:00.000Z",
     source: "class Solution:\n    def twoSum(self, nums, target):\n        return []\n",
     judge: { kind: "browser-python-local", revision: 2 },

@@ -30,7 +30,7 @@ function typingAttempt(id, completedAt, lineErrors) {
   return {
     id,
     itemId: "python:1",
-    itemRevision: 1,
+    itemRevision: 2,
     titleSnapshot: "Two Sum",
     language: "python",
     stage: 3,
@@ -79,7 +79,7 @@ test("v34 migration derives a v35 Clinic case from repeated current-revision lin
   assert.equal(normalized.version, 35);
   assert.equal(normalized.fluencyClinic.version, 1);
   assert.equal(normalized.fluencyClinic.cases.length, 1);
-  assert.equal(normalized.fluencyClinic.cases[0].id, "python:1:r1:line7");
+  assert.equal(normalized.fluencyClinic.cases[0].id, "python:1:r2:line7");
   assert.deepEqual(normalized.fluencyClinic.cases[0].sourceAttemptIds, [
     "clinic-a",
     "clinic-b",
@@ -103,7 +103,7 @@ test("v35 normalization preserves guided repair evidence", async () => {
           {
             id: "forged-but-valid",
             itemId: "python:1",
-            itemRevision: 1,
+            itemRevision: 2,
             titleSnapshot: "Two Sum",
             language: "python",
             line: 7,
@@ -134,7 +134,7 @@ test("v35 normalization preserves guided repair evidence", async () => {
   );
 
   assert.equal(normalized.fluencyClinic.cases.length, 1);
-  assert.equal(normalized.fluencyClinic.cases[0].id, "python:1:r1:line7");
+  assert.equal(normalized.fluencyClinic.cases[0].id, "python:1:r2:line7");
   assert.equal(normalized.fluencyClinic.cases[0].passes[0].kind, "visible");
   assert.equal(
     normalized.fluencyClinic.cases[0].passes[0].assistance,
