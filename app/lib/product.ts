@@ -63,6 +63,7 @@ import {
   normalizeCustomChallenge,
   type CustomChallengeBundle,
 } from "./custom-challenges";
+import { normalizeSemanticMasks } from "./semantic-masks.mjs";
 import type {
   SessionLanguage,
   SessionQueueEntry,
@@ -706,6 +707,11 @@ function normalizeCustomItems(
           // Invalid or oversized imported judge definitions degrade to snippets.
         }
       }
+      const normalizedCode = item.code.replace(/\r\n?/g, "\n").trimEnd();
+      const masks =
+        normalizedLanguage === "swift" && !challengeBundle
+          ? normalizeSemanticMasks(item.masks, normalizedCode)
+          : undefined;
       return {
         itemId: item.itemId,
         source: "custom" as const,
@@ -752,7 +758,7 @@ function normalizeCustomItems(
           finiteNumber(item.contentRevision, 1, 1, 1000000),
         ),
         isCustom: true,
-        code: item.code.replace(/\r\n?/g, "\n").trimEnd(),
+        code: normalizedCode,
         sourceUrl,
         tags: Array.isArray(item.tags)
           ? item.tags
@@ -778,6 +784,7 @@ function normalizeCustomItems(
         challenge: challengeBundle?.challenge,
         verification: challengeBundle?.verification,
         starterCode: challengeBundle?.starterCode,
+        ...(masks ? { masks } : {}),
       };
     });
   const unique = [

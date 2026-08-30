@@ -20,6 +20,11 @@ import {
   type CustomChallengeBundle,
   type CustomChallengeInput,
 } from "./custom-challenges";
+import {
+  normalizeSemanticMasks,
+  semanticMasksEqual,
+  type SemanticMasks,
+} from "./semantic-masks.mjs";
 
 export type PracticeTrack = "interview" | "ios";
 export type CodeLanguage = "swift" | "python";
@@ -61,7 +66,7 @@ export type PracticeItem = Omit<Problem, "swiftNote"> & {
   createdAt?: string;
   updatedAt?: string;
   archivedAt?: string;
-  masks?: Partial<Record<2 | 3 | 4, string>>;
+  masks?: SemanticMasks;
   recallChecks?: readonly [string, string, string];
   conceptAnswers?: readonly [string, string, string];
   verification?: PythonVerification;
@@ -303,6 +308,8 @@ export type CustomItemInput = {
   tags?: string[];
   sourceUrl?: string;
   challenge?: CustomChallengeInput | null;
+  /** Optional local-only semantic masks for Swift/iOS recall drills. */
+  masks?: SemanticMasks;
 };
 
 function bundleForItem(item: PracticeItem): CustomChallengeBundle | null {
@@ -328,6 +335,10 @@ export function makeCustomItem(input: CustomItemInput): PracticeItem {
   const code = input.challenge
     ? normalizeCustomReferenceCode(input.code)
     : input.code.replace(/\r\n?/g, "\n").trimEnd();
+  const masks =
+    !input.challenge && (input.track === "ios" || input.language === "swift")
+      ? normalizeSemanticMasks(input.masks, code)
+      : undefined;
   const challengeBundle = input.challenge
     ? normalizeCustomChallenge(input.challenge, {
         stableId: itemId,
@@ -371,6 +382,7 @@ export function makeCustomItem(input: CustomItemInput): PracticeItem {
     contentRevision: 1,
     createdAt: now,
     updatedAt: now,
+    ...(masks ? { masks } : {}),
     ...(challengeBundle ?? {}),
     solveCapability: challengeBundle ? "local" : undefined,
   };
@@ -386,6 +398,12 @@ export function updateCustomItem(
   const code = input.challenge
     ? normalizeCustomReferenceCode(input.code)
     : input.code.replace(/\r\n?/g, "\n").trimEnd();
+  const masksAllowed =
+    !input.challenge && (input.track === "ios" || input.language === "swift");
+  const masks = masksAllowed ? normalizeSemanticMasks(input.masks, code) : undefined;
+  const masksChanged =
+    masksAllowed &&
+    !semanticMasksEqual(item.masks, masks, code);
   const currentBundle = bundleForItem(item);
   const requestedBundle = input.challenge
     ? normalizeCustomChallenge(input.challenge, {
@@ -399,7 +417,7 @@ export function updateCustomItem(
     requested: requestedBundle,
     contentRevision: item.contentRevision,
     judgeRevision: item.verification?.revision ?? 0,
-    referenceChanged: code !== item.code,
+    referenceChanged: code !== item.code || masksChanged,
   });
   const nextBundle =
     requestedBundle && revisions.judgeChanged
@@ -451,6 +469,7 @@ export function updateCustomItem(
     challenge: nextBundle?.challenge,
     verification: nextBundle?.verification,
     starterCode: nextBundle?.starterCode,
+    masks: masksAllowed ? masks : undefined,
     solveCapability: nextBundle ? "local" : undefined,
     trustedChallengeKey: undefined,
   };

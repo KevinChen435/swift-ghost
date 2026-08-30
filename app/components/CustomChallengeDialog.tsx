@@ -26,6 +26,13 @@ import type {
   CustomItemInput,
   PracticeItem,
 } from "../lib/items";
+import {
+  generateSemanticMasks,
+  normalizeSemanticMask,
+  normalizeSemanticMasks,
+  type SemanticMaskStage,
+  type SemanticMasks,
+} from "../lib/semantic-masks.mjs";
 
 type BuilderStep = "basics" | "contract" | "tests" | "solution";
 type EditableCase = Omit<CustomChallengeCaseInput, "args" | "expected"> & {
@@ -82,6 +89,28 @@ const DEFAULT_CASES: EditableCase[] = [
     expectedText: "[]",
     outputCodec: "json",
     comparator: "deepEqual",
+  },
+];
+
+const SEMANTIC_MASK_STAGES: readonly {
+  stage: SemanticMaskStage;
+  label: string;
+  description: string;
+}[] = [
+  {
+    stage: 2,
+    label: "Stage 2 · Semantic cues",
+    description: "Keep the recognizable API and vocabulary; blank implementation details.",
+  },
+  {
+    stage: 3,
+    label: "Stage 3 · Guided structure",
+    description: "Keep the signature and occasional anchor lines; blank the in-between reasoning.",
+  },
+  {
+    stage: 4,
+    label: "Stage 4 · Skeleton",
+    description: "Keep signatures and declarations; blank the body for a near-independent reconstruction.",
   },
 ];
 
@@ -331,6 +360,9 @@ export function CustomChallengeDialog({
     item?.code ??
       "def example(values: list[int]) -> list[int]:\n    return list(values)",
   );
+  const [semanticMasks, setSemanticMasks] = useState<SemanticMasks>(() =>
+    normalizeSemanticMasks(item?.masks, item?.code ?? "") ?? {},
+  );
   const [cue, setCue] = useState(item?.cue ?? "");
   const [invariant, setInvariant] = useState(item?.invariant ?? "");
   const [complexity, setComplexity] = useState(item?.complexity ?? "");
@@ -362,6 +394,7 @@ export function CustomChallengeDialog({
     cases,
     starterCode,
     code,
+    semanticMasks,
     cue,
     invariant,
     complexity,
@@ -392,6 +425,22 @@ export function CustomChallengeDialog({
         ? PYTHON_PATTERN_ORDER
         : INTERVIEW_PATTERN_ORDER;
   const challengeAvailable = track === "interview" && language === "python";
+  const semanticMasksAvailable =
+    !challengeEnabled && (track === "ios" || language === "swift");
+  const semanticMaskErrors = useMemo(
+    () =>
+      !semanticMasksAvailable
+        ? []
+        : SEMANTIC_MASK_STAGES.flatMap(({ stage }) => {
+        const value = semanticMasks[stage];
+        return value && !normalizeSemanticMask(value, code) ? [stage] : [];
+          }),
+    [code, semanticMasks, semanticMasksAvailable],
+  );
+  const normalizedSemanticMasks = useMemo(
+    () => normalizeSemanticMasks(semanticMasks, code),
+    [code, semanticMasks],
+  );
 
   const challengeValidation = useMemo(() => {
     if (!challengeEnabled || !challengeAvailable)
@@ -471,7 +520,8 @@ export function CustomChallengeDialog({
     code.length <= 20_000;
   const valid =
     baseValid &&
-    (!challengeEnabled || Boolean(challengeValidation.input));
+    (!challengeEnabled || Boolean(challengeValidation.input)) &&
+    semanticMaskErrors.length === 0;
   const currentFingerprint = useMemo(
     () => JSON.stringify([code, challengeValidation.input]),
     [code, challengeValidation.input],
@@ -596,7 +646,12 @@ export function CustomChallengeDialog({
     setInvariant(template.invariant);
     setComplexity(template.complexity);
     setLanguageNote(template.languageNote);
+    setSemanticMasks({});
     setStep("solution");
+  }
+
+  function generateMasks() {
+    setSemanticMasks(generateSemanticMasks(code, "swift") ?? {});
   }
 
   return (
@@ -1164,6 +1219,66 @@ export function CustomChallengeDialog({
                   />
                 </label>
               ) : null}
+              {semanticMasksAvailable ? (
+                <section className="semantic-mask-authoring" aria-label="Semantic mask authoring">
+                  <div className="builder-list-heading">
+                    <div>
+                      <span>Progressive semantic masks · optional</span>
+                      <small>
+                        These are device-local recall cues only. Each mask must keep the reference&apos;s character positions and line breaks, and is never uploaded, judged, or stored as evidence.
+                      </small>
+                    </div>
+                    <div>
+                      <button className="outline-button compact-button" type="button" onClick={generateMasks}>
+                        Generate defaults
+                      </button>{" "}
+                      <button className="text-button" type="button" onClick={() => setSemanticMasks({})}>
+                        Clear masks
+                      </button>
+                    </div>
+                  </div>
+                  {SEMANTIC_MASK_STAGES.map(({ stage, label, description }) => {
+                    const value = semanticMasks[stage] ?? "";
+                    const invalid = Boolean(value) && semanticMaskErrors.includes(stage);
+                    return (
+                      <label key={stage}>
+                        <span className="builder-label-row">
+                          {label}
+                          <small>{description}</small>
+                        </span>
+                        <textarea
+                          className="builder-code-input reference-solution-input"
+                          maxLength={20_000}
+                          spellCheck={false}
+                          value={value}
+                          aria-invalid={invalid}
+                          onChange={(event) =>
+                            setSemanticMasks((current) => ({
+                              ...current,
+                              [stage]: event.target.value,
+                            }))
+                          }
+                          placeholder="Leave blank to use the built-in mask"
+                        />
+                        {invalid ? (
+                          <small className="builder-field-error">
+                            Keep this mask&apos;s character positions and line breaks identical to the reference, or clear it.
+                          </small>
+                        ) : null}
+                      </label>
+                    );
+                  })}
+                  {semanticMaskErrors.length ? (
+                    <div className="builder-callout">
+                      Fix or clear the highlighted masks before saving this local drill.
+                    </div>
+                  ) : normalizedSemanticMasks ? (
+                    <div className="builder-callout">
+                      {Object.keys(normalizedSemanticMasks).length} authored mask{Object.keys(normalizedSemanticMasks).length === 1 ? "" : "s"} ready for progressive recall.
+                    </div>
+                  ) : null}
+                </section>
+              ) : null}
               <label>
                 <span>{language === "python" ? "Python" : "Swift"} reference solution</span>
                 <textarea
@@ -1264,6 +1379,7 @@ export function CustomChallengeDialog({
                     invariant,
                     complexity,
                     languageNote,
+                    masks: semanticMasksAvailable ? normalizedSemanticMasks : undefined,
                     challenge:
                       challengeEnabled && challengeAvailable
                         ? challengeValidation.input
