@@ -146,3 +146,20 @@ test("progress fingerprints ignore transport revision and timestamps", () => {
   };
   assert.equal(progressSnapshotFingerprint(first), progressSnapshotFingerprint(second));
 });
+
+test("daily challenge dates stay day keys across private sync", () => {
+  const snapshot = createProgressSnapshot(
+    {
+      attempts: [attempt("attempt-daily", { challengeDate: "2026-08-20" })],
+    },
+    { now: "2026-08-20T12:04:00.000Z" },
+  );
+  assert.equal(snapshot.attempts[0].challengeDate, "2026-08-20");
+  const normalized = normalizeProgressSnapshot({
+    ...snapshot,
+    attempts: [
+      attempt("attempt-daily", { challengeDate: "2026-02-30" }),
+    ],
+  });
+  assert.equal(normalized.attempts[0].challengeDate, undefined);
+});

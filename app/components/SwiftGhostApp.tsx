@@ -8900,6 +8900,9 @@ export default function SwiftGhostApp() {
       }
       const restored: AppState = {
         ...normalized,
+        // Consent never travels in a portable backup; require an explicit
+        // opt-in again for the profile receiving imported data.
+        settings: { ...normalized.settings, progressSyncEnabled: false },
         studyWorkspace:
           activeScope === GUEST_PERSISTENCE_SCOPE
             ? normalized.studyWorkspace
@@ -8996,6 +8999,9 @@ export default function SwiftGhostApp() {
       return;
     const restored: AppState = {
       ...guestState,
+      // Guest data can be copied into a different account, so do not carry
+      // the guest profile's private-sync consent across that boundary.
+      settings: { ...guestState.settings, progressSyncEnabled: false },
       studyWorkspace: mergeStudyWorkspaces(
         guestState.studyWorkspace,
         stateRef.current.studyWorkspace,

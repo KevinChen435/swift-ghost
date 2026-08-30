@@ -43,6 +43,8 @@ test("import and reset persist to the active scope before swapping visible state
   assert.doesNotMatch(app, /localStorage\.removeItem/);
   assert.match(app, /Hosted Study Plans stay intact/);
   assert.match(app, /communityEnabled: false, uploadedAttemptIds: \[\]/);
+  assert.match(app, /settings: \{ \.\.\.normalized\.settings, progressSyncEnabled: false \}/);
+  assert.match(app, /settings: \{ \.\.\.guestState\.settings, progressSyncEnabled: false \}/);
   assert.match(app, /clearStateFallbacksForScope\(activeScope\)/);
   assert.match(product, /STATE_STORAGE_KEYS\.slice\(1\)/);
   assert.match(product, /normalizedScope === GUEST_PERSISTENCE_SCOPE \? STATE_STORAGE_KEYS/);

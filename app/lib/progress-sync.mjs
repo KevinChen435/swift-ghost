@@ -59,6 +59,15 @@ function cleanIso(value, fallback = null) {
     : fallback;
 }
 
+function cleanDayKey(value, fallback = null) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value))
+    return fallback;
+  const timestamp = Date.parse(`${value}T00:00:00.000Z`);
+  if (!Number.isFinite(timestamp)) return fallback;
+  const date = new Date(timestamp);
+  return date.toISOString().slice(0, 10) === value ? value : fallback;
+}
+
 function integer(value, fallback, min, max) {
   const number = Number(value);
   return Number.isInteger(number)
@@ -173,7 +182,9 @@ function normalizeProgressAttempt(value, options = {}) {
     ...(normalizeVerification(value.verification)
       ? { verification: normalizeVerification(value.verification) }
       : {}),
-    ...(cleanIso(value.challengeDate) ? { challengeDate: cleanIso(value.challengeDate) } : {}),
+    ...(cleanDayKey(value.challengeDate)
+      ? { challengeDate: cleanDayKey(value.challengeDate) }
+      : {}),
   };
 }
 
