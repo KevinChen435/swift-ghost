@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 const siteUrl =
@@ -31,6 +31,14 @@ export const metadata: Metadata = {
       "Python, Swift, and iOS interview typing and solving practice.",
     images: [socialImageUrl],
   },
+};
+
+// Keep mobile browsers on the device-width layout and let the shell draw into
+// safe areas (the responsive CSS already accounts for the inset values).
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
