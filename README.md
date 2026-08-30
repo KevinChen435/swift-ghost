@@ -126,7 +126,12 @@ Interview problem names link to their public LeetCode pages; iOS fundamentals li
 
 ## Roadmap
 
-The local-first training core remains the priority. Planned work includes expanding Boundary Drill Pack coverage beyond the initial seven Python exercises, authored semantic masks, deeper Swift rehearsal authoring, server-assigned private transfer judging, broader server-backed Python verification, and per-entity conflict history for multi-device evidence.
+The local-first training core remains the priority. Shipped slices include the
+initial Boundary Drill Packs and source-free per-entity conflict history for
+multi-device evidence. Planned work includes expanding Boundary Drill Pack
+coverage beyond the initial seven Python exercises, authored semantic masks,
+deeper Swift rehearsal authoring, server-assigned private transfer judging, and
+broader server-backed Python verification.
 
 ## License
 
