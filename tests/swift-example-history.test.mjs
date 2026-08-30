@@ -100,17 +100,15 @@ test("history is revision-bound, settled-only, ordered by public catalog, and ca
       publicCaseResults: [...first.result.publicCaseResults].reverse(),
     },
   };
-  const entries = normalizeSwiftExampleHistory(
-    [stale, pending, reordered, ...Array.from({ length: 8 }, (_, index) => ({
-      ...first,
-      clientRunId: `example:extra-${index}`,
-      settledAt: `2026-08-29T10:${String(index + 2).padStart(2, "0")}:00.000Z`,
-    }))].flatMap((run) => {
-      const entry = swiftExampleHistoryEntryFromRun(run, challenge);
-      return entry ? [entry] : [];
-    }),
-    challenge,
-  );
+  const normalizedInputs = [stale, pending, reordered, ...Array.from({ length: 8 }, (_, index) => ({
+    ...first,
+    clientRunId: `example:extra-${index}`,
+    settledAt: `2026-08-29T10:${String(index + 2).padStart(2, "0")}:00.000Z`,
+  }))].flatMap((run) => {
+    const entry = swiftExampleHistoryEntryFromRun(run, challenge);
+    return entry ? [entry] : [];
+  });
+  const entries = normalizeSwiftExampleHistory(normalizedInputs, challenge);
   assert.equal(entries.length, SWIFT_EXAMPLE_HISTORY_LIMITS.maxEntries);
   assert.equal(entries[0].id, "example:reordered");
   assert.deepEqual(entries[0].publicCaseResults.map((result) => result.id), [
@@ -138,6 +136,7 @@ test("history bounds oversized public output and diagnostics", () => {
   });
   const entry = swiftExampleHistoryEntryFromRun(huge, challenge);
   assert.ok(entry);
+  assert.equal(typeof entry.publicCaseResults[0].actual, "string");
   assert.ok(entry.publicCaseResults[0].actual.length <= SWIFT_EXAMPLE_HISTORY_LIMITS.maxValueCharacters);
   assert.equal(entry.publicCaseResults[0].diagnostic.length, SWIFT_EXAMPLE_HISTORY_LIMITS.maxDiagnosticCharacters);
 });
