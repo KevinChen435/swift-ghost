@@ -9565,6 +9565,7 @@ export default function SwiftGhostApp() {
               : null
           }
           onOpenItem={openItem}
+          historyScope={persistenceScope}
           onChooseStage={chooseStage}
           onChoosePracticeKind={choosePracticeKind}
           onChange={handleValueChange}
@@ -10974,6 +10975,7 @@ type PracticeProps = {
   onEndSession: () => void;
   trustedJudgeAvailable: boolean;
   trustedJudgeAuthenticated: boolean;
+  historyScope?: PersistenceScope;
 };
 
 function PracticeView(props: PracticeProps) {
@@ -13277,6 +13279,7 @@ function PracticeView(props: PracticeProps) {
                   message={swiftMessage}
                   available={props.trustedJudgeAvailable}
                   authenticated={props.trustedJudgeAuthenticated}
+                  historyScope={props.historyScope}
                   sourcePresent={Boolean(runnerSource.trim())}
                   retryAvailable={swiftRetryAvailable}
                   onRequestAssignment={() => void loadSwiftAssignment()}

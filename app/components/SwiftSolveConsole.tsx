@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type {
   CloudTrustedAssignment,
   CloudTrustedCustomCaseInput,
@@ -28,6 +28,12 @@ import {
   SWIFT_EXAMPLE_HISTORY_LIMITS,
 } from "../lib/swift-example-history.mjs";
 import type { SwiftExampleHistoryEntry } from "../lib/swift-example-history.mjs";
+import {
+  GUEST_PERSISTENCE_SCOPE,
+  normalizePersistenceScope,
+  scopedStateKey,
+  type PersistenceScope,
+} from "../lib/account-storage.mjs";
 
 type SwiftSolveConsoleProps = {
   item: PracticeItem;
@@ -42,6 +48,7 @@ type SwiftSolveConsoleProps = {
   message: string;
   available: boolean;
   authenticated: boolean;
+  historyScope?: PersistenceScope;
   sourcePresent: boolean;
   retryAvailable: boolean;
   onRequestAssignment: () => void;
@@ -103,7 +110,8 @@ type SwiftCustomWorkspace = {
 };
 
 const SWIFT_CUSTOM_CASE_STORAGE_PREFIX = "swift-ghost:swift-custom-case:v1:";
-const SWIFT_EXAMPLE_HISTORY_STORAGE_PREFIX = "swift-ghost:swift-example-history:v1:";
+const SWIFT_EXAMPLE_HISTORY_STORAGE_KEY = "swift-example-history:v1:";
+const SWIFT_EXAMPLE_HISTORY_EVENT = "swift-ghost:example-history-change";
 const MAX_CUSTOM_DRAFT_CHARACTERS = 24_000;
 const MAX_CUSTOM_CASES = 6;
 const MAX_CUSTOM_HISTORY = 5;
@@ -116,6 +124,91 @@ const CUSTOM_HISTORY_VERDICTS = new Set<NonNullable<SwiftCustomHistoryEntry["ver
   "time-limit",
   "judge-error",
 ]);
+
+const EMPTY_EXAMPLE_HISTORY: readonly SwiftExampleHistoryEntry[] = Object.freeze([]);
+const exampleHistorySnapshotCache = new Map<string, SwiftExampleHistoryEntry[]>();
+
+function exampleHistoryStorageKey(
+  challengeKey: string | undefined,
+  historyScope: PersistenceScope | undefined,
+  authenticated: boolean,
+) {
+  if (!challengeKey) return null;
+  const normalizedScope = normalizePersistenceScope(historyScope);
+  // Do not expose a guest snapshot while an authenticated profile is still
+  // resolving. Signed-out/direct use safely falls back to the guest profile.
+  const scope = normalizedScope ?? (authenticated ? undefined : GUEST_PERSISTENCE_SCOPE);
+  return scope
+    ? scopedStateKey(`${SWIFT_EXAMPLE_HISTORY_STORAGE_KEY}${challengeKey}`, scope) ?? null
+    : null;
+}
+
+function readExampleHistorySnapshot(
+  storageKey: string | null,
+  challenge: NonNullable<CloudTrustedAssignment["challenge"]> | undefined,
+): SwiftExampleHistoryEntry[] | readonly SwiftExampleHistoryEntry[] {
+  if (!storageKey || !challenge || typeof window === "undefined") return EMPTY_EXAMPLE_HISTORY;
+  let raw = "";
+  try {
+    raw = window.localStorage.getItem(storageKey) ?? "";
+  } catch {
+    return EMPTY_EXAMPLE_HISTORY;
+  }
+  const cacheKey = `${storageKey}\u0000${raw}`;
+  const cached = exampleHistorySnapshotCache.get(cacheKey);
+  if (cached) return cached;
+  let parsed: unknown = [];
+  try {
+    parsed = raw ? JSON.parse(raw) : [];
+  } catch {
+    parsed = [];
+  }
+  const normalized = normalizeSwiftExampleHistory(parsed, challenge);
+  exampleHistorySnapshotCache.set(cacheKey, normalized);
+  if (exampleHistorySnapshotCache.size > 24) {
+    const oldest = exampleHistorySnapshotCache.keys().next().value;
+    if (oldest) exampleHistorySnapshotCache.delete(oldest);
+  }
+  return normalized;
+}
+
+function notifyExampleHistoryChange(storageKey: string | null) {
+  if (!storageKey || typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(SWIFT_EXAMPLE_HISTORY_EVENT, { detail: { storageKey } }),
+  );
+}
+
+function subscribeExampleHistory(storageKey: string | null, onChange: () => void) {
+  if (!storageKey || typeof window === "undefined") return () => {};
+  const handleCustomChange = (event: Event) => {
+    const detail = (event as CustomEvent<{ storageKey?: string }>).detail;
+    if (detail?.storageKey === storageKey) onChange();
+  };
+  const handleStorageChange = (event: StorageEvent) => {
+    if (event.storageArea === window.localStorage && event.key === storageKey) onChange();
+  };
+  window.addEventListener(SWIFT_EXAMPLE_HISTORY_EVENT, handleCustomChange);
+  window.addEventListener("storage", handleStorageChange);
+  return () => {
+    window.removeEventListener(SWIFT_EXAMPLE_HISTORY_EVENT, handleCustomChange);
+    window.removeEventListener("storage", handleStorageChange);
+  };
+}
+
+function persistExampleHistory(
+  storageKey: string | null,
+  history: SwiftExampleHistoryEntry[],
+) {
+  if (!storageKey || typeof window === "undefined") return;
+  try {
+    if (history.length) window.localStorage.setItem(storageKey, JSON.stringify(history));
+    else window.localStorage.removeItem(storageKey);
+  } catch {
+    // Device-local history is best-effort; the feedback board remains usable.
+  }
+  notifyExampleHistoryChange(storageKey);
+}
 
 function defaultSwiftValue(type: string, sampleValue?: unknown) {
   if (sampleValue !== undefined) return valueLabel(sampleValue);
@@ -400,6 +493,7 @@ export function SwiftSolveConsole({
   message,
   available,
   authenticated,
+  historyScope,
   sourcePresent,
   retryAvailable,
   onRequestAssignment,
@@ -419,11 +513,23 @@ export function SwiftSolveConsole({
   const [casePackDraft, setCasePackDraft] = useState("");
   const [casePackMessage, setCasePackMessage] = useState("");
   const [customRunVisible, setCustomRunVisible] = useState(false);
-  const [exampleHistory, setExampleHistory] = useState<SwiftExampleHistoryEntry[]>([]);
   const recordedCustomRunIds = useRef(new Set<string>());
   const recordedExampleRunIds = useRef(new Set<string>());
   const hydratedCustomChallengeKey = useRef<string | null>(null);
-  const hydratedExampleHistoryChallengeKey = useRef<string | null>(null);
+  const historyStorageKey = exampleHistoryStorageKey(challenge?.key, historyScope, authenticated);
+  const historySnapshot = useCallback(
+    () => readExampleHistorySnapshot(historyStorageKey, challenge),
+    [challenge, historyStorageKey],
+  );
+  const historySubscribe = useCallback(
+    (onChange: () => void) => subscribeExampleHistory(historyStorageKey, onChange),
+    [historyStorageKey],
+  );
+  const exampleHistory = useSyncExternalStore(
+    historySubscribe,
+    historySnapshot,
+    () => EMPTY_EXAMPLE_HISTORY,
+  );
   const customCases = customWorkspace?.cases ?? [];
   const customDraft = customWorkspace?.cases.find(
     (customCase) => customCase.id === customWorkspace.selectedId,
@@ -435,9 +541,7 @@ export function SwiftSolveConsole({
     const timer = window.setTimeout(() => {
       if (!challenge) {
         hydratedCustomChallengeKey.current = null;
-        hydratedExampleHistoryChallengeKey.current = null;
         setCustomWorkspace(null);
-        setExampleHistory([]);
         setCustomRunVisible(false);
         return;
       }
@@ -451,42 +555,15 @@ export function SwiftSolveConsole({
       } catch {
         setCustomWorkspace(initialSwiftCustomWorkspace(challenge));
       }
-      try {
-        const stored = window.localStorage.getItem(
-          `${SWIFT_EXAMPLE_HISTORY_STORAGE_PREFIX}${challenge.key}`,
-        );
-        setExampleHistory(
-          normalizeSwiftExampleHistory(stored ? JSON.parse(stored) : [], challenge),
-        );
-      } catch {
-        setExampleHistory([]);
-      }
       hydratedCustomChallengeKey.current = challenge.key;
-      hydratedExampleHistoryChallengeKey.current = challenge.key;
       setCustomError(null);
       setCasePackDraft("");
       setCasePackMessage("");
       setCustomRunVisible(false);
       recordedCustomRunIds.current.clear();
-      recordedExampleRunIds.current.clear();
     }, 0);
     return () => window.clearTimeout(timer);
   }, [challenge, challengeKey]);
-
-  useEffect(() => {
-    if (
-      !challenge ||
-      hydratedExampleHistoryChallengeKey.current !== challenge.key
-    ) return;
-    try {
-      window.localStorage.setItem(
-        `${SWIFT_EXAMPLE_HISTORY_STORAGE_PREFIX}${challenge.key}`,
-        JSON.stringify(exampleHistory.slice(0, SWIFT_EXAMPLE_HISTORY_LIMITS.maxEntries)),
-      );
-    } catch {
-      // Local history is best-effort; the feedback board remains usable if storage is blocked.
-    }
-  }, [challenge, exampleHistory]);
 
   useEffect(() => {
     if (
@@ -536,10 +613,14 @@ export function SwiftSolveConsole({
   }, [assignment, challenge, customRun, customRunVisible, customWorkspace]);
 
   useEffect(() => {
+    recordedExampleRunIds.current.clear();
+  }, [historyStorageKey]);
+
+  useEffect(() => {
     if (
       !challenge ||
       !assignment ||
-      hydratedExampleHistoryChallengeKey.current !== challenge.key ||
+      !historyStorageKey ||
       !exampleRun ||
       exampleRun.status !== "settled" ||
       !exampleRun.result ||
@@ -550,22 +631,16 @@ export function SwiftSolveConsole({
     const historyEntry = swiftExampleHistoryEntryFromRun(exampleRun, challenge);
     recordedExampleRunIds.current.add(exampleRun.clientRunId);
     if (!historyEntry) return;
-    setExampleHistory((current) => [
+    const currentHistory = readExampleHistorySnapshot(historyStorageKey, challenge);
+    persistExampleHistory(historyStorageKey, [
       historyEntry,
-      ...current.filter((entry) => entry.id !== historyEntry.id),
+      ...currentHistory.filter((entry) => entry.id !== historyEntry.id),
     ].slice(0, SWIFT_EXAMPLE_HISTORY_LIMITS.maxEntries));
-  }, [assignment, challenge, exampleRun]);
+  }, [assignment, challenge, exampleRun, historyStorageKey]);
 
   function clearExampleHistory() {
-    if (!challenge) return;
-    setExampleHistory([]);
-    try {
-      window.localStorage.removeItem(
-        `${SWIFT_EXAMPLE_HISTORY_STORAGE_PREFIX}${challenge.key}`,
-      );
-    } catch {
-      // The in-memory board is cleared even if browser storage is unavailable.
-    }
+    if (!historyStorageKey) return;
+    persistExampleHistory(historyStorageKey, []);
   }
 
   const entrypointSignature = useMemo(

@@ -39,10 +39,16 @@ test("Swift solve console exposes a muted answer sketch for typing rehearsal", a
 
 test("Swift solve console exposes public feedback and bounded local run history", async () => {
   const component = await read("../app/components/SwiftSolveConsole.tsx");
+  const page = await read("../app/components/SwiftGhostApp.tsx");
   const styles = await read("../app/globals.css");
   const history = await read("../app/lib/swift-example-history.mjs");
 
-  assert.match(component, /SWIFT_EXAMPLE_HISTORY_STORAGE_PREFIX/);
+  assert.match(component, /SWIFT_EXAMPLE_HISTORY_STORAGE_KEY/);
+  assert.match(component, /historyScope\?: PersistenceScope/);
+  assert.match(component, /useSyncExternalStore/);
+  assert.match(component, /scopedStateKey/);
+  assert.match(page, /historyScope=\{persistenceScope\}/);
+  assert.match(page, /historyScope=\{props\.historyScope\}/);
   assert.match(component, /normalizeSwiftExampleHistory/);
   assert.match(component, /swiftExampleHistoryEntryFromRun/);
   assert.match(component, /Recent public rehearsals/);
@@ -53,6 +59,7 @@ test("Swift solve console exposes public feedback and bounded local run history"
   assert.match(component, /actual: \{valueLabel\(publicCaseResult\.actual\)\}/);
   assert.match(component, /aria-label=\{`\$\{sample\.name\} diagnostic`\}/);
   assert.match(component, /sealed cases are never stored/);
+  assert.doesNotMatch(component, /setExampleHistory/);
   assert.match(history, /MAX_ENTRIES = 5/);
   assert.match(history, /publicCaseResults/);
   assert.doesNotMatch(history, /expected/);
