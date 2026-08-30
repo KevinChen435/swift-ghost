@@ -154,7 +154,12 @@ function readExampleHistorySnapshot(
   } catch {
     return EMPTY_EXAMPLE_HISTORY;
   }
-  const cacheKey = `${storageKey}\u0000${raw}`;
+  const contractKey = [
+    challenge.contentRevision,
+    challenge.judgeRevision,
+    challenge.samples.map((sample) => sample.id).join("\u0001"),
+  ].join("\u0000");
+  const cacheKey = `${storageKey}\u0000${contractKey}\u0000${raw}`;
   const cached = exampleHistorySnapshotCache.get(cacheKey);
   if (cached) return cached;
   let parsed: unknown = [];

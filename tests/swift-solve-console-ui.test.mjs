@@ -47,6 +47,9 @@ test("Swift solve console exposes public feedback and bounded local run history"
   assert.match(component, /historyScope\?: PersistenceScope/);
   assert.match(component, /useSyncExternalStore/);
   assert.match(component, /scopedStateKey/);
+  assert.match(component, /challenge\.contentRevision/);
+  assert.match(component, /challenge\.judgeRevision/);
+  assert.match(component, /challenge\.samples\.map\(\(sample\) => sample\.id\)/);
   assert.match(page, /historyScope=\{persistenceScope\}/);
   assert.match(page, /historyScope=\{props\.historyScope\}/);
   assert.match(component, /normalizeSwiftExampleHistory/);
