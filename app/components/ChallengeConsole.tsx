@@ -50,6 +50,7 @@ export type BoundaryDrillExecutionState = {
 export type ChallengeConsoleProps = {
   practiceKind: PracticeKind;
   isMock: boolean;
+  isLocked?: boolean;
   isStudio?: boolean;
   runnerSourcePresent: boolean;
   checksAreBusy: boolean;
@@ -131,6 +132,7 @@ function BoundaryDrillPanel({
   runnerSourcePresent,
   checksAreBusy,
   onRunBoundaryDrill,
+  isLocked,
 }: Pick<
   ChallengeConsoleProps,
   | "boundarySuite"
@@ -138,6 +140,7 @@ function BoundaryDrillPanel({
   | "runnerSourcePresent"
   | "checksAreBusy"
   | "onRunBoundaryDrill"
+  | "isLocked"
 >) {
   if (!boundarySuite) return null;
   const isRunning =
@@ -167,7 +170,7 @@ function BoundaryDrillPanel({
               <button
                 className="outline-button"
                 type="button"
-                disabled={!runnerSourcePresent || checksAreBusy}
+                disabled={isLocked || !runnerSourcePresent || checksAreBusy}
                 onClick={() => void onRunBoundaryDrill(pack.id)}
               >
                 {isRunning && showsResult ? "Running pack..." : "Run pack"}
@@ -175,12 +178,18 @@ function BoundaryDrillPanel({
             </div>
             <ul>
               {pack.cases.map((testCase) => (
-                <li key={testCase.id}>
-                  <span>{testCase.name}</span>{" "}
+                <li className="boundary-drill-case" key={testCase.id}>
+                  <div>
+                    <strong>{testCase.name}</strong>
+                    <small>Input arguments</small>
+                    <code className="boundary-drill-input">
+                      {formatJson(testCase.args)}
+                    </code>
+                  </div>
                   <button
                     className="text-button"
                     type="button"
-                    disabled={!runnerSourcePresent || checksAreBusy}
+                    disabled={isLocked || !runnerSourcePresent || checksAreBusy}
                     onClick={() => void onRunBoundaryDrill(pack.id, testCase.id)}
                   >
                     Run case
@@ -529,6 +538,7 @@ function SubmissionHistory({
 export function ChallengeConsole({
   practiceKind,
   isMock,
+  isLocked = isMock,
   isStudio = false,
   runnerSourcePresent,
   checksAreBusy,
@@ -572,13 +582,14 @@ export function ChallengeConsole({
 }: ChallengeConsoleProps) {
   const idPrefix = `challenge-console-${useId().replace(/:/g, "")}`;
   const isSolving = practiceKind === "solving";
-  const availableTabs: readonly ChallengeConsoleTab[] = isMock
+  const boundaryEnabled = !isLocked && !isStudio && Boolean(boundarySuite);
+  const availableTabs: readonly ChallengeConsoleTab[] = isLocked
     ? ["examples", "output"]
     : isSolving
       ? [
           "examples",
           "custom",
-          ...(boundarySuite ? (["edge-cases"] as const) : []),
+          ...(boundaryEnabled ? (["edge-cases"] as const) : []),
           "output",
           "submissions",
         ]
@@ -722,13 +733,14 @@ export function ChallengeConsole({
             />
           )
         )}
-        {activeTab === "edge-cases" && !isMock && isSolving && (
+        {activeTab === "edge-cases" && boundaryEnabled && isSolving && (
           <BoundaryDrillPanel
             boundarySuite={boundarySuite}
             boundaryExecutionState={boundaryExecutionState}
             runnerSourcePresent={runnerSourcePresent}
             checksAreBusy={checksAreBusy}
             onRunBoundaryDrill={onRunBoundaryDrill}
+            isLocked={isLocked}
           />
         )}
         {activeTab === "output" && (

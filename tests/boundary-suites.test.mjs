@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { BOUNDARY_DRILL_SUITES } from "../app/data/boundary-suites.ts";
@@ -47,6 +48,37 @@ test("authored boundary suites stay bounded and resolve against the live revisio
   assert.equal(resolved?.contentRevision, twoSumDescriptor.contentRevision);
   assert.equal(resolved?.verificationRevision, twoSumDescriptor.verificationRevision);
   assert.deepEqual(resolved?.packs[0].cases.map((entry) => entry.id), twoSumDescriptor.packs[0].caseIds);
+});
+
+test("every authored suite resolves against the current built-in item catalog", () => {
+  const itemsUrl = new URL("../app/lib/items.ts", import.meta.url).href;
+  const registryUrl = new URL("../app/data/boundary-suites.ts", import.meta.url).href;
+  const boundaryUrl = new URL("../app/lib/boundary-suites.mjs", import.meta.url).href;
+  const script = `
+    import assert from "node:assert/strict";
+    import { BUILTIN_ITEMS } from ${JSON.stringify(itemsUrl)};
+    import { BOUNDARY_DRILL_SUITES } from ${JSON.stringify(registryUrl)};
+    import { resolveBoundaryDrillSuite } from ${JSON.stringify(boundaryUrl)};
+    for (const descriptor of BOUNDARY_DRILL_SUITES) {
+      const item = BUILTIN_ITEMS.find((candidate) => candidate.itemId === descriptor.itemId);
+      assert.ok(item, \`missing built-in item: \${descriptor.itemId}\`);
+      const resolved = resolveBoundaryDrillSuite(item, BOUNDARY_DRILL_SUITES);
+      assert.ok(resolved, \`stale boundary suite: \${descriptor.itemId}\`);
+      assert.equal(resolved.contentRevision, item.contentRevision);
+      assert.equal(resolved.verificationRevision, item.verification.revision ?? 1);
+      assert.deepEqual(
+        resolved.packs.flatMap((pack) => pack.cases.map((testCase) => testCase.id)),
+        descriptor.packs.flatMap((pack) => pack.caseIds),
+      );
+    }
+    process.stdout.write(String(BOUNDARY_DRILL_SUITES.length));
+  `;
+  const output = execFileSync(
+    process.execPath,
+    ["--import", "tsx", "--input-type=module", "--eval", script],
+    { encoding: "utf8" },
+  );
+  assert.equal(Number(output), BOUNDARY_DRILL_SUITES.length);
 });
 
 test("stale content, judge revisions, and missing live case ids hide a boundary suite", () => {
@@ -98,9 +130,15 @@ test("Edge cases UI is gated and reveals expected versus actual only after a run
     readFile(new URL("../app/components/SwiftGhostApp.tsx", import.meta.url), "utf8"),
   ]);
   assert.match(consoleUi, /"edge-cases": "Edge cases"/);
-  assert.match(consoleUi, /isMock\s*\? \["examples", "output"\]/);
-  assert.match(consoleUi, /\.\.\.\(boundarySuite \? \(\["edge-cases"\]/);
+  assert.match(consoleUi, /isLocked\s*\? \["examples", "output"\]/);
+  assert.match(consoleUi, /const boundaryEnabled = !isLocked && !isStudio && Boolean\(boundarySuite\)/);
+  assert.match(consoleUi, /\.\.\.\(boundaryEnabled \? \(\["edge-cases"\]/);
+  assert.match(consoleUi, /activeTab === "edge-cases" && boundaryEnabled/);
+  assert.match(consoleUi, /disabled=\{isLocked \|\| !runnerSourcePresent \|\| checksAreBusy\}/);
+  assert.match(app, /isLocked=\{isLocked\}/);
   assert.match(consoleUi, /expected values stay hidden until a run finishes/);
+  assert.match(consoleUi, /<small>Input arguments<\/small>/);
+  assert.match(consoleUi, /formatJson\(testCase\.args\)/);
   assert.match(consoleUi, /boundaryExecutionState\.result &&/);
   assert.match(consoleUi, /expected: \{formatJson\(boundaryExecutionState\.expectedValues/);
   const runStart = app.indexOf("async function runBoundaryDrill");
@@ -108,5 +146,5 @@ test("Edge cases UI is gated and reveals expected versus actual only after a run
   const run = app.slice(runStart, runEnd);
   assert.match(run, /runner\.verify\(runnerSource, drill\.verification\)/);
   assert.doesNotMatch(run, /onSolveComplete|onSubmissionRequested|onTestRun/);
-  assert.match(run, /if \(isLocked \|\| runnerBusy\.current\) return/);
+  assert.match(run, /if \(isLocked \|\| isStudio \|\| runnerBusy\.current\) return/);
 });

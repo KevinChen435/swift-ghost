@@ -12340,7 +12340,7 @@ function PracticeView(props: PracticeProps) {
 
   async function runBoundaryDrill(packId: string, caseId?: string) {
     if (!boundarySuite || !props.item.verification || !runnerSource.trim()) return;
-    if (isLocked || runnerBusy.current) return;
+    if (isLocked || isStudio || runnerBusy.current) return;
     let drill;
     try {
       drill = buildBoundaryDrillVerification(
@@ -13390,6 +13390,7 @@ function PracticeView(props: PracticeProps) {
               <ChallengeConsole
                 practiceKind={props.practiceKind}
                 isMock={isLocked}
+                isLocked={isLocked}
                 isStudio={isStudio || isAssessment || isVirtualRound}
                 runnerSourcePresent={Boolean(runnerSource.trim())}
                 checksAreBusy={checksAreBusy}
@@ -13673,6 +13674,7 @@ function PracticeView(props: PracticeProps) {
           <ChallengeConsole
             practiceKind={props.practiceKind}
             isMock={isLocked}
+            isLocked={isLocked}
             isStudio={isStudio || isAssessment || isVirtualRound}
             runnerSourcePresent={Boolean(runnerSource.trim())}
             checksAreBusy={checksAreBusy}

@@ -56,6 +56,7 @@ Transcription is treated as syntax practice, not algorithmic mastery. Pattern cu
 - Device-local Virtual Rounds with fixed 45/75/105-minute two-to-four problem formats, free problem switching and flags, per-problem source preservation, partial local scoring, five-minute solved-problem penalties, deadline-safe pending submissions, and immutable round reports without rank or readiness claims
 - A Hacker-style solve workbench with resizable Prompt/Notebook and Code panels on desktop, focused Problem/Notes/Code/Tests tabs on mobile, and independently scrolling panes
 - A tabbed Testcases/Custom/Result/Submissions console with safe aggregate judge feedback, cancelable isolated runs, and a structured per-parameter testcase builder with Raw JSON fallback
+- Local-only Boundary Drill Packs for 7 Python exercises, with authored purposes and rationales, visible inputs, result-gated expected values, live content/judge revision checks, and no submission or mastery credit
 - Bounded device-local submission history with lazy source inspection, current-draft comparison, prompt/judge revision warnings, and exact snapshot restore that is tracked as assisted practice
 - Reload-safe accepted-solve reviews with an explain-first gate, 56 revision-matched project-authored guides, exact receipt-to-attempt source comparison, structured mistake capture, committed teach-back, honest self-rating, and a deterministic local follow-up date
 - Durable Attempt Closures for abandoned and failed work, with immutable failure anchors, bounded reflection, due-only clean retries, and strict current-revision evidence gates
@@ -125,7 +126,7 @@ Interview problem names link to their public LeetCode pages; iOS fundamentals li
 
 ## Roadmap
 
-The local-first training core remains the priority. Planned work includes richer boundary suites, authored semantic masks, deeper Swift rehearsal authoring, server-assigned private transfer judging, broader server-backed Python verification, and per-entity conflict history for multi-device evidence.
+The local-first training core remains the priority. Planned work includes expanding Boundary Drill Pack coverage beyond the initial seven Python exercises, authored semantic masks, deeper Swift rehearsal authoring, server-assigned private transfer judging, broader server-backed Python verification, and per-entity conflict history for multi-device evidence.
 
 ## License
 

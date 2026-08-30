@@ -2316,6 +2316,27 @@ kbd {
 .custom-case-result.failed {
   border-left-color: var(--danger);
 }
+.boundary-drill-case {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+.boundary-drill-case > div {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+.boundary-drill-case small {
+  color: var(--muted);
+  font: 700 9px var(--font-code);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.boundary-drill-case .boundary-drill-input {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
 .structured-custom-testcases {
   display: grid;
   gap: 14px;
@@ -9356,6 +9377,10 @@ kbd {
   .custom-case-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+  .boundary-drill-case {
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
   .custom-testcase-heading,
   .custom-testcase-casebar,
