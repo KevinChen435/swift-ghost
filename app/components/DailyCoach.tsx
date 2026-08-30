@@ -30,10 +30,23 @@ function clinicPriorityLabel(status: FluencyClinicModel["records"][number]["stat
   return "Implementation fluency";
 }
 
-function localPlanningDate(now = new Date()) {
+export function localPlanningDate(now = new Date()) {
   // Pass a local-midnight-safe Date into the planner. A bare YYYY-MM-DD string
   // is parsed as UTC by JavaScript and can move Pacific-time plans to yesterday.
   return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+}
+
+export function localPlanningDayKey(now = new Date()) {
+  return [
+    String(now.getFullYear()).padStart(4, "0"),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+export function localPlanningDateFromDayKey(dayKey: string) {
+  const [year, month, day] = dayKey.split("-").map(Number);
+  return localPlanningDate(new Date(year, month - 1, day));
 }
 
 type CoachCribLane = "python" | "swift" | "ios";
@@ -144,12 +157,18 @@ export function DailyCoach({
   );
   const budgetOverridden = budgetOverride !== null;
   const budgetMinutes = budgetOverride ?? coachPreferences.budgetMinutes;
+  // The parent clock ticks frequently for timed practice. Keep the plan date
+  // keyed to the local calendar day so those ticks do not rebuild the plan;
+  // the key still changes when an open app crosses local midnight.
+  const planningDayKey = ready
+    ? localPlanningDayKey(now && now > 0 ? new Date(now) : new Date())
+    : "not-ready";
   const planningDate = useMemo(
     () =>
       ready
-        ? localPlanningDate(now && now > 0 ? new Date(now) : new Date())
+        ? localPlanningDateFromDayKey(planningDayKey)
         : new Date(2000, 0, 1, 12),
-    [ready, now],
+    [ready, planningDayKey],
   );
   const plan = useMemo(
     () =>
